@@ -73,7 +73,7 @@ source venv/bin/activate  # Linux/Mac
 venv\Scripts\activate  # Windows
 
 # Start the bot
-python src/bot.py
+python -m src
 ```
 
 ## Commands

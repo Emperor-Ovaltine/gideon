@@ -19,7 +19,7 @@ class LLMChat(commands.Cog):
         self.max_channel_history = 35
         # Time window to include messages (in hours)
         self.time_window_hours = 48
-        self.prune_task.start()
+        self.prune_task = tasks.loop(minutes=60)(self.prune_inactive_channels)  # Changed from self.prune
 
     async def check_internet_connection(self):
         """Check if the internet connection is working"""
@@ -212,7 +212,7 @@ class LLMChat(commands.Cog):
     async def prune_task(self):
         await self.prune_inactive_channels()
        
-    def cog_load(self):
+    async def cog_load(self):
         self.prune_task.start()
        
     def cog_unload(self):
@@ -229,6 +229,12 @@ class LLMChat(commands.Cog):
             
         self.openrouter_client.model = model_name
         await ctx.send(f"Model set to {model_name}")
+
+    @commands.command(name='model')
+    @commands.has_permissions(administrator=True)
+    async def show_current_model(self, ctx):
+        """Show the current AI model being used (admin only)"""
+        await ctx.send(f"Current model: `{self.openrouter_client.model}`")
 
     @commands.command(name='diagnostic')
     async def diagnostic(self, ctx):
