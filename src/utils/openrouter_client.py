@@ -20,6 +20,7 @@ class OpenRouterClient:
             "https://api.openrouter.ai/api/v1/chat/completions",
             "https://api.openrouter.ai/v1/chat/completions"
         ]
+        self.model = "openai/gpt-4o-mini"  # Default model
         
     async def verify_dns_resolution(self, hostname):
         """Verify if the hostname can be resolved via DNS"""
@@ -54,7 +55,7 @@ class OpenRouterClient:
         messages.extend(message_history)
         
         payload = {
-            "model": "openai/gpt-4o-mini",  # Choose an appropriate model
+            "model": self.model,  # Use the selected model
             "messages": messages
         }
 
@@ -79,6 +80,11 @@ class OpenRouterClient:
                             if response.status == 200:
                                 data = await response.json()
                                 return data['choices'][0]['message']['content']
+                            elif response.status == 429:
+                                retry_after = int(response.headers.get('retry-after', 5))
+                                logger.warning(f"Rate limited. Retrying after {retry_after} seconds")
+                                await asyncio.sleep(retry_after)
+                                continue
                             else:
                                 error_text = await response.text()
                                 logger.error(f"API error: {response.status}, {error_text}")
@@ -102,6 +108,10 @@ class OpenRouterClient:
                     await asyncio.sleep(2 ** attempt)  # Exponential backoff
         
         return "Failed to connect to OpenRouter API after multiple attempts"
+
+    def estimate_tokens(self, text):
+        """Rough estimate of tokens (4 chars ≈ 1 token)"""
+        return len(text) // 4
 
     async def get_response(self, message):
         response = await self.send_message(message)

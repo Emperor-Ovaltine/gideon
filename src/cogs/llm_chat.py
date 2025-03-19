@@ -78,6 +78,7 @@ class LLMChat(commands.Cog):
         return recent_messages[-self.max_channel_history:]
 
     @commands.command(name='chat')
+    @commands.cooldown(1, 5, commands.BucketType.user)  # 1 command every 5 seconds per user
     async def chat(self, ctx, *, message: str):
         await ctx.send(f"Thinking about: '{message}'...")
         
@@ -154,8 +155,8 @@ class LLMChat(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def set_memory_size(self, ctx, size: int):
         """Set the maximum number of messages to remember per channel"""
-        if size < 5 or size > 50:
-            await ctx.send("Memory size must be between 5 and 50 messages.")
+        if size < 5 or size > 100:
+            await ctx.send("Memory size must be between 5 and 100 messages.")
             return
             
         self.max_channel_history = size
@@ -165,13 +166,61 @@ class LLMChat(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def set_time_window(self, ctx, hours: int):
         """Set the time window for message history in hours"""
-        if hours < 1 or hours > 48:
-            await ctx.send("Time window must be between 1 and 48 hours.")
+        if hours < 1 or hours > 96:
+            await ctx.send("Time window must be between 1 and 96 hours.")
             return
             
         self.time_window_hours = hours
         await ctx.send(f"Channel memory time window set to {hours} hours.")
         
+    @commands.command(name='summarize')
+    async def summarize_conversation(self, ctx):
+        """Summarize the current conversation history"""
+        channel_id = str(ctx.channel.id)
+        if channel_id not in self.channel_history or not self.channel_history[channel_id]:
+            await ctx.send("No conversation history to summarize.")
+            return
+            
+        await ctx.send("Generating conversation summary...")
+        
+        conversation_context = await self.get_channel_context(channel_id)
+        summary_request = [
+            {"role": "system", "content": "Summarize the following conversation in 3-5 bullet points:"},
+            {"role": "user", "content": "\n".join([msg["content"] for msg in conversation_context])}
+        ]
+        
+        summary = await self.openrouter_client.send_message_with_history(summary_request)
+        await ctx.send(f"**Conversation Summary:**\n{summary}")
+
+    async def prune_inactive_channels(self):
+        """Remove history for channels inactive for more than 7 days"""
+        cutoff = datetime.now() - timedelta(days=7)
+        inactive_channels = []
+        
+        for channel_id, history in self.channel_history.items():
+            if not history:
+                continue
+            last_message = history[-1]["timestamp"]
+            if last_message < cutoff:
+                inactive_channels.append(channel_id)
+        
+        for channel_id in inactive_channels:
+            del self.channel_history[channel_id]
+    
+    @commands.command(name='setmodel')
+    @commands.has_permissions(administrator=True)
+    async def set_model(self, ctx, model_name: str):
+        """Set the AI model to use from OpenRouter"""
+        allowed_models = ["openai/gpt-4o-mini", "openai/gpt-4o", "anthropic/claude-3.7-sonnet", "perplexity/sonar-pro", "google/gemini-2.0-flash-exp:free"]
+        
+        if model_name not in allowed_models:
+            models_list = ", ".join(f"`{m}`" for m in allowed_models)
+            await ctx.send(f"Invalid model. Allowed models: {models_list}")
+            return
+            
+        self.openrouter_client.model = model_name
+        await ctx.send(f"Model set to {model_name}")
+
     @commands.command(name='diagnostic')
     async def diagnostic(self, ctx):
         """Run network diagnostics for the bot"""

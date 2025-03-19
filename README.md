@@ -83,6 +83,8 @@ python src/bot.py
   !chat [your message]
   ```
   Example: `!chat What's the best programming language for beginners?`
+  
+  Note: This command has a 5-second cooldown per user to prevent spam.
 
 - **Reset conversation history**:
   ```
@@ -100,13 +102,26 @@ python src/bot.py
   ```
   !setmemory [number]
   ```
-  Sets the maximum number of messages to remember per channel (between 5-50).
+  Sets the maximum number of messages to remember per channel (between 5-100).
   
 - **Set time window** (admin only):
   ```
   !setwindow [hours]
   ```
-  Sets the time window for message history in hours (between 1-48).
+  Sets the time window for message history in hours (between 1-96).
+
+- **Summarize conversation**:
+  ```
+  !summarize
+  ```
+  Generates a concise summary of the current conversation in bullet points.
+
+- **Set AI model** (admin only):
+  ```
+  !setmodel [model_name]
+  ```
+  Changes the AI model used by OpenRouter. Available models: 
+  `openai/gpt-4o-mini`, `openai/gpt-4o`, `anthropic/claude-3.7-sonnet`, `perplexity/sonar-pro`, `google/gemini-2.0-flash-exp:free`
 
 - **Check legacy memory usage**:
   ```
