@@ -35,6 +35,10 @@ class OpenRouterClient:
             return False
 
     async def send_message(self, message, max_retries=3):
+        """Legacy method for backward compatibility"""
+        return await self.send_message_with_history([{"role": "user", "content": message}], max_retries)
+
+    async def send_message_with_history(self, message_history, max_retries=3):
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -46,7 +50,8 @@ class OpenRouterClient:
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         
-        messages.append({"role": "user", "content": message})
+        # Add conversation history
+        messages.extend(message_history)
         
         payload = {
             "model": "openai/gpt-4o-mini",  # Choose an appropriate model

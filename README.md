@@ -5,6 +5,7 @@ Gideon is a feature-rich Discord bot that integrates with OpenRouter AI to provi
 ## Features
 
 - Powerful AI-powered conversations using OpenRouter's language models
+- Conversation memory that allows Gideon to remember previous interactions
 - Easy setup and configuration with environment variables
 - Modular design with Discord.py cogs for maintainability
 - Customizable system prompt to control AI personality and behavior
@@ -82,6 +83,18 @@ python src/bot.py
   !chat [your message]
   ```
   Example: `!chat What's the best programming language for beginners?`
+
+- **Reset conversation history**:
+  ```
+  !reset
+  ```
+  Clears your conversation history with Gideon.
+
+- **Check memory usage**:
+  ```
+  !memory
+  ```
+  Shows how many conversation turns are currently being stored for you.
 
 - **Run network diagnostics**:
   ```
