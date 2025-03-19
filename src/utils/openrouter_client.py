@@ -10,9 +10,10 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger('openrouter_client')
 
 class OpenRouterClient:
-    def __init__(self, api_key, system_prompt=None):
+    def __init__(self, api_key, system_prompt=None, default_model="google/gemini-2.0-flash-exp:free"):
         self.api_key = api_key
         self.system_prompt = system_prompt
+        self.model = default_model
         # Updated to ensure correct API endpoint
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
         # Alternative endpoints to try if the main one fails
@@ -20,7 +21,6 @@ class OpenRouterClient:
             "https://api.openrouter.ai/api/v1/chat/completions",
             "https://api.openrouter.ai/v1/chat/completions"
         ]
-        self.model = "openai/gpt-4o-mini"  # Default model
         
     async def verify_dns_resolution(self, hostname):
         """Verify if the hostname can be resolved via DNS"""

@@ -1,9 +1,9 @@
 import asyncio
 import logging
 import socket
-from discord.ext import commands
-from utils.openrouter_client import OpenRouterClient
-from config import OPENROUTER_API_KEY, SYSTEM_PROMPT
+from discord.ext import commands, tasks
+from ..utils.openrouter_client import OpenRouterClient
+from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 import discord
 from datetime import datetime, timedelta
 
@@ -12,13 +12,14 @@ logger = logging.getLogger('llm_chat')
 class LLMChat(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.openrouter_client = OpenRouterClient(OPENROUTER_API_KEY, SYSTEM_PROMPT)
+        self.openrouter_client = OpenRouterClient(OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL)
         # Dictionary to store conversation history for each channel
         self.channel_history = {}
         # Maximum number of messages to remember per channel
         self.max_channel_history = 35
         # Time window to include messages (in hours)
         self.time_window_hours = 48
+        self.prune_task.start()
 
     async def check_internet_connection(self):
         """Check if the internet connection is working"""
@@ -207,14 +208,22 @@ class LLMChat(commands.Cog):
         for channel_id in inactive_channels:
             del self.channel_history[channel_id]
     
+    @tasks.loop(hours=24)
+    async def prune_task(self):
+        await self.prune_inactive_channels()
+       
+    def cog_load(self):
+        self.prune_task.start()
+       
+    def cog_unload(self):
+        self.prune_task.cancel()
+
     @commands.command(name='setmodel')
     @commands.has_permissions(administrator=True)
     async def set_model(self, ctx, model_name: str):
         """Set the AI model to use from OpenRouter"""
-        allowed_models = ["openai/gpt-4o-mini", "openai/gpt-4o", "anthropic/claude-3.7-sonnet", "perplexity/sonar-pro", "google/gemini-2.0-flash-exp:free"]
-        
-        if model_name not in allowed_models:
-            models_list = ", ".join(f"`{m}`" for m in allowed_models)
+        if model_name not in ALLOWED_MODELS:
+            models_list = ", ".join(f"`{m}`" for m in ALLOWED_MODELS)
             await ctx.send(f"Invalid model. Allowed models: {models_list}")
             return
             

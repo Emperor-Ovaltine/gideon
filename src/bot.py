@@ -2,8 +2,8 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
-from config import DISCORD_TOKEN
-from cogs.llm_chat import LLMChat
+from .config import DISCORD_TOKEN
+from .cogs.llm_chat import LLMChat
 
 # Load environment variables
 load_dotenv()
@@ -28,5 +28,5 @@ async def on_ready():
     # Load cogs - must use await with async methods
     await bot.add_cog(LLMChat(bot))
 
-# Start the bot
-bot.run(DISCORD_TOKEN)
+if __name__ == "__main__":
+    bot.run(DISCORD_TOKEN)
