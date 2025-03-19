@@ -121,7 +121,7 @@ python -m src
   !setmodel [model_name]
   ```
   Changes the AI model used by OpenRouter. Available models: 
-  `openai/gpt-4o-mini`, `openai/gpt-4o`, `anthropic/claude-3.7-sonnet`, `perplexity/sonar-pro`, `google/gemini-2.0-flash-exp:free`
+  `openai/gpt-4o-mini`, `openai/gpt-4o`, `anthropic/claude-3.7-sonnet`, `perplexity/sonar-pro`, `google/gemini-2.0-flash-exp:free`, `microsoft/wizardlm-2-8x22b`
 
 - **Check legacy memory usage**:
   ```
