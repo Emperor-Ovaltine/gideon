@@ -16,9 +16,9 @@ class LLMChat(commands.Cog):
         # Dictionary to store conversation history for each channel
         self.channel_history = {}
         # Maximum number of messages to remember per channel
-        self.max_channel_history = 20
+        self.max_channel_history = 35
         # Time window to include messages (in hours)
-        self.time_window_hours = 24
+        self.time_window_hours = 48
 
     async def check_internet_connection(self):
         """Check if the internet connection is working"""
