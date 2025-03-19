@@ -5,6 +5,7 @@ from discord.ext import commands
 from utils.openrouter_client import OpenRouterClient
 from config import OPENROUTER_API_KEY, SYSTEM_PROMPT
 import discord
+from datetime import datetime, timedelta
 
 logger = logging.getLogger('llm_chat')
 
@@ -12,10 +13,12 @@ class LLMChat(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.openrouter_client = OpenRouterClient(OPENROUTER_API_KEY, SYSTEM_PROMPT)
-        # Dictionary to store conversation history for each user
-        self.conversation_history = {}
-        # Maximum number of conversation turns to remember
-        self.max_history = 10
+        # Dictionary to store conversation history for each channel
+        self.channel_history = {}
+        # Maximum number of messages to remember per channel
+        self.max_channel_history = 20
+        # Time window to include messages (in hours)
+        self.time_window_hours = 24
 
     async def check_internet_connection(self):
         """Check if the internet connection is working"""
@@ -25,6 +28,54 @@ class LLMChat(commands.Cog):
             return True
         except socket.gaierror:
             return False
+    
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Listen for messages in channels to build context memory"""
+        # Ignore messages from the bot itself
+        if message.author == self.bot.user:
+            return
+            
+        # Only track messages in text channels
+        if not isinstance(message.channel, discord.TextChannel):
+            return
+            
+        channel_id = str(message.channel.id)
+        
+        # Initialize this channel's history if it doesn't exist
+        if channel_id not in self.channel_history:
+            self.channel_history[channel_id] = []
+            
+        # Add the message to the channel history
+        self.channel_history[channel_id].append({
+            "role": "user",
+            "name": message.author.display_name,
+            "content": message.content,
+            "timestamp": datetime.now()
+        })
+        
+        # Keep history within size limits
+        if len(self.channel_history[channel_id]) > self.max_channel_history:
+            self.channel_history[channel_id] = self.channel_history[channel_id][-self.max_channel_history:]
+
+    async def get_channel_context(self, channel_id):
+        """Get the conversation context for a channel"""
+        if channel_id not in self.channel_history:
+            return []
+            
+        # Get messages from the past X hours
+        cutoff_time = datetime.now() - timedelta(hours=self.time_window_hours)
+        recent_messages = [
+            {
+                "role": msg["role"],
+                "content": f"{msg['name']}: {msg['content']}" if "name" in msg else msg["content"]
+            }
+            for msg in self.channel_history[channel_id]
+            if msg["timestamp"] > cutoff_time
+        ]
+        
+        # Limit to max_channel_history most recent messages
+        return recent_messages[-self.max_channel_history:]
 
     @commands.command(name='chat')
     async def chat(self, ctx, *, message: str):
@@ -35,33 +86,41 @@ class LLMChat(commands.Cog):
             await ctx.send("⚠️ Network issue: Unable to connect to the internet. Please check your connection and try again.")
             return
         
-        # Get user ID to track conversation per user
-        user_id = str(ctx.author.id)
+        # Get channel ID to track conversation per channel
+        channel_id = str(ctx.channel.id)
         
-        # Initialize conversation history for this user if it doesn't exist
-        if user_id not in self.conversation_history:
-            self.conversation_history[user_id] = []
+        # Initialize conversation history for this channel if it doesn't exist
+        if channel_id not in self.channel_history:
+            self.channel_history[channel_id] = []
         
-        # Add user message to history
-        self.conversation_history[user_id].append({
+        # Get recent channel context
+        conversation_context = await self.get_channel_context(channel_id)
+        
+        # Add this new message
+        self.channel_history[channel_id].append({
             "role": "user",
-            "content": message
+            "name": ctx.author.display_name,
+            "content": message,
+            "timestamp": datetime.now()
+        })
+        
+        # Format the final query with the current user's question
+        conversation_context.append({
+            "role": "user", 
+            "content": f"{ctx.author.display_name}: {message}"
         })
         
         # Send conversation history to get contextual response
         response = await self.openrouter_client.send_message_with_history(
-            self.conversation_history[user_id]
+            conversation_context
         )
         
         # Add assistant's response to history
-        self.conversation_history[user_id].append({
+        self.channel_history[channel_id].append({
             "role": "assistant",
-            "content": response
+            "content": response,
+            "timestamp": datetime.now()
         })
-        
-        # Trim history if it gets too long (keep most recent interactions)
-        if len(self.conversation_history[user_id]) > self.max_history * 2:  # *2 because each turn has 2 messages
-            self.conversation_history[user_id] = self.conversation_history[user_id][-self.max_history*2:]
         
         # Split response into chunks of 2000 characters or fewer
         max_length = 2000
@@ -73,13 +132,45 @@ class LLMChat(commands.Cog):
     
     @commands.command(name='reset')
     async def reset_conversation(self, ctx):
-        """Reset the conversation history for the user"""
-        user_id = str(ctx.author.id)
-        if user_id in self.conversation_history:
-            self.conversation_history[user_id] = []
-            await ctx.send("Your conversation history has been reset.")
+        """Reset the conversation history for the channel"""
+        channel_id = str(ctx.channel.id)
+        if channel_id in self.channel_history:
+            self.channel_history[channel_id] = []
+            await ctx.send("The conversation history for this channel has been reset.")
         else:
-            await ctx.send("No conversation history found.")
+            await ctx.send("No conversation history found for this channel.")
+
+    @commands.command(name='channelmemory')
+    async def show_channel_memory_size(self, ctx):
+        """Show how many messages are stored for this channel"""
+        channel_id = str(ctx.channel.id)
+        if channel_id in self.channel_history:
+            history_length = len(self.channel_history[channel_id])
+            await ctx.send(f"Currently storing {history_length} messages for this channel, spanning up to {self.time_window_hours} hours.")
+        else:
+            await ctx.send("No conversation history found for this channel.")
+            
+    @commands.command(name='setmemory')
+    @commands.has_permissions(administrator=True)
+    async def set_memory_size(self, ctx, size: int):
+        """Set the maximum number of messages to remember per channel"""
+        if size < 5 or size > 50:
+            await ctx.send("Memory size must be between 5 and 50 messages.")
+            return
+            
+        self.max_channel_history = size
+        await ctx.send(f"Channel memory size set to {size} messages.")
+        
+    @commands.command(name='setwindow')
+    @commands.has_permissions(administrator=True)
+    async def set_time_window(self, ctx, hours: int):
+        """Set the time window for message history in hours"""
+        if hours < 1 or hours > 48:
+            await ctx.send("Time window must be between 1 and 48 hours.")
+            return
+            
+        self.time_window_hours = hours
+        await ctx.send(f"Channel memory time window set to {hours} hours.")
         
     @commands.command(name='diagnostic')
     async def diagnostic(self, ctx):
@@ -130,14 +221,8 @@ class LLMChat(commands.Cog):
         
     @commands.command(name='memory')
     async def show_memory_size(self, ctx):
-        """Show how much conversation history is being stored"""
-        user_id = str(ctx.author.id)
-        if user_id in self.conversation_history:
-            history_length = len(self.conversation_history[user_id])
-            turns = history_length // 2
-            await ctx.send(f"Currently storing {turns} conversation turns ({history_length} messages) for you.")
-        else:
-            await ctx.send("No conversation history found for you.")
+        """Show how much conversation history is being stored (legacy - user-based)"""
+        await ctx.send("This bot now uses channel-based memory instead of user-based memory. Use !channelmemory instead.")
 
 def setup(bot):
     bot.add_cog(LLMChat(bot))

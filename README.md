@@ -88,13 +88,31 @@ python src/bot.py
   ```
   !reset
   ```
-  Clears your conversation history with Gideon.
+  Clears the conversation history for the current channel.
 
-- **Check memory usage**:
+- **Check channel memory usage**:
+  ```
+  !channelmemory
+  ```
+  Shows how many messages are currently stored for the current channel.
+
+- **Set memory size** (admin only):
+  ```
+  !setmemory [number]
+  ```
+  Sets the maximum number of messages to remember per channel (between 5-50).
+  
+- **Set time window** (admin only):
+  ```
+  !setwindow [hours]
+  ```
+  Sets the time window for message history in hours (between 1-48).
+
+- **Check legacy memory usage**:
   ```
   !memory
   ```
-  Shows how many conversation turns are currently being stored for you.
+  Shows deprecation message for the legacy user-based memory system.
 
 - **Run network diagnostics**:
   ```
