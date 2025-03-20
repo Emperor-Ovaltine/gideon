@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import socket
+import random
 from discord.ext import commands, tasks
 import discord  # Correct import
 from ..utils.openrouter_client import OpenRouterClient
@@ -17,12 +18,20 @@ class LLMChat(commands.Cog):
         self.channel_history = {}
         # Dictionary to store model preferences for each channel
         self.channel_models = {}
+        # Dictionary to store conversation threads
+        self.threads = {}  # Format: {thread_id: {"messages": [], "model": model_name, "created_at": datetime}}
         # Maximum number of messages to remember per channel
         self.max_channel_history = 35
+        # Maximum threads per channel
+        self.max_threads_per_channel = 10
         # Time window to include messages (in hours)
         self.time_window_hours = 48
         # Initialize the pruning task
         self.prune_task.start()
+        # Mapping for simple thread IDs
+        self.simple_id_mapping = {}
+        # Dictionary to store Discord thread information
+        self.discord_threads = {}
 
     async def check_internet_connection(self):
         """Check if the internet connection is working"""
@@ -35,32 +44,115 @@ class LLMChat(commands.Cog):
     
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Listen for messages in channels to build context memory"""
+        """Listen for messages in channels and threads to build context memory"""
         # Ignore messages from the bot itself
         if message.author == self.bot.user:
             return
             
-        # Only track messages in text channels
-        if not isinstance(message.channel, discord.TextChannel):
-            return
+        # Check if this is in a thread
+        if isinstance(message.channel, discord.Thread):
+            thread_id = str(message.channel.id)
             
-        channel_id = str(message.channel.id)
-        
-        # Initialize this channel's history if it doesn't exist
-        if channel_id not in self.channel_history:
-            self.channel_history[channel_id] = []
+            # Only process thread messages if:
+            # 1. We have the thread in our tracking dict, or
+            # 2. The thread was created from a message by the bot
+            is_bot_thread = message.channel.owner_id == self.bot.user.id
+            is_tracked_thread = thread_id in self.discord_threads
             
-        # Add the message to the channel history
-        self.channel_history[channel_id].append({
-            "role": "user",
-            "name": message.author.display_name,
-            "content": message.content,
-            "timestamp": datetime.now()
-        })
+            if is_tracked_thread or is_bot_thread:
+                # Get recent history
+                async for msg in message.channel.history(limit=self.max_channel_history):
+                    if msg.author == self.bot.user:
+                        continue  # Skip the bot's own messages when looking for the last response
+                    
+                    # We found a user message, now we should respond
+                    if msg.id == message.id:
+                        # This is the message we're currently processing
+                        thread_model = None
+                        if thread_id in self.discord_threads:
+                            thread_model = self.discord_threads[thread_id].get("model")
+                        
+                        # Set thread-specific model if available
+                        current_model = self.openrouter_client.model
+                        if thread_model:
+                            self.openrouter_client.model = thread_model
+                        
+                        try:
+                            # Get thread history for context
+                            history = []
+                            async for hist_msg in message.channel.history(limit=self.max_channel_history):
+                                if hist_msg.author == self.bot.user:
+                                    history.append({
+                                        "role": "assistant",
+                                        "content": hist_msg.content
+                                    })
+                                else:
+                                    history.append({
+                                        "role": "user",
+                                        "content": f"{hist_msg.author.display_name}: {hist_msg.content}"
+                                    })
+                            
+                            # Reverse to get chronological order
+                            history.reverse()
+                            
+                            # Send "thinking" message
+                            thinking_msg = await message.channel.send(f"Thinking about: '{message.content}'...")
+                            
+                            # Process images if any are attached
+                            images = []
+                            if self.openrouter_client.model_supports_vision() and message.attachments:
+                                for attachment in message.attachments:
+                                    if any(attachment.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                                        try:
+                                            image_data = await attachment.read()
+                                            images.append({
+                                                'data': image_data,
+                                                'type': attachment.content_type or 'image/jpeg'
+                                            })
+                                        except Exception as e:
+                                            await message.channel.send(f"⚠️ Failed to process image {attachment.filename}: {str(e)}")
+                            
+                            # Send to API
+                            response = await self.openrouter_client.send_message_with_history(history, images=images)
+                            
+                            # Split response into chunks
+                            max_length = 2000
+                            chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+                            
+                            # Update thinking message with first chunk
+                            await thinking_msg.edit(content=chunks[0])
+                            
+                            # Send remaining chunks
+                            for chunk in chunks[1:]:
+                                await message.channel.send(chunk)
+                                
+                        finally:
+                            # Restore original model
+                            if thread_model:
+                                self.openrouter_client.model = current_model
+                        
+                        break  # We've processed this message, no need to continue the loop
         
-        # Keep history within size limits
-        if len(self.channel_history[channel_id]) > self.max_channel_history:
-            self.channel_history[channel_id] = self.channel_history[channel_id][-self.max_channel_history:]
+        # Continue with existing channel message processing...
+        elif isinstance(message.channel, discord.TextChannel):
+            # Your existing channel history tracking code...
+            channel_id = str(message.channel.id)
+            
+            # Initialize this channel's history if it doesn't exist
+            if channel_id not in self.channel_history:
+                self.channel_history[channel_id] = []
+                
+            # Add the message to the channel history
+            self.channel_history[channel_id].append({
+                "role": "user",
+                "name": message.author.display_name,
+                "content": message.content,
+                "timestamp": datetime.now()
+            })
+            
+            # Keep history within size limits
+            if len(self.channel_history[channel_id]) > self.max_channel_history:
+                self.channel_history[channel_id] = self.channel_history[channel_id][-self.max_channel_history:]
 
     async def get_channel_context(self, channel_id):
         """Get the conversation context for a channel"""
@@ -260,6 +352,25 @@ class LLMChat(commands.Cog):
             # Also remove channel model settings if they exist
             if channel_id in self.channel_models:
                 del self.channel_models[channel_id]
+        
+        # Also prune inactive threads
+        for channel_id in list(self.threads.keys()):
+            inactive_threads = []
+            for thread_id, thread_data in self.threads[channel_id].items():
+                if not thread_data["messages"]:
+                    continue
+                last_message_time = thread_data["messages"][-1]["timestamp"]
+                # Prune threads after 14 days of inactivity
+                if last_message_time < datetime.now() - timedelta(days=14):
+                    inactive_threads.append(thread_id)
+            
+            # Remove inactive threads
+            for thread_id in inactive_threads:
+                del self.threads[channel_id][thread_id]
+                
+            # Clean up empty channel entries
+            if not self.threads[channel_id]:
+                del self.threads[channel_id]
     
     @tasks.loop(hours=24)
     async def prune_task(self):
@@ -670,6 +781,278 @@ class LLMChat(commands.Cog):
         else:
             await ctx.respond(f"This channel is already using the default model: `{self.openrouter_client.model}`")
 
+    @commands.slash_command(
+        name="newthread",
+        description="Create a new Discord thread for conversation"
+    )
+    async def create_thread_slash(self, ctx, 
+                          name: discord.Option(str, description="Name for this conversation thread")):
+        # Check if the channel supports threads
+        if not isinstance(ctx.channel, discord.TextChannel):
+            await ctx.respond("⚠️ This command can only be used in text channels that support threads.")
+            return
+            
+        # Create an initial message that will anchor the thread
+        initial_message = await ctx.channel.send(f"**AI Thread: {name}**\n*Starting a new conversation thread...*")
+        
+        try:
+            # Create actual Discord thread from the message
+            thread = await initial_message.create_thread(
+                name=name,
+                auto_archive_duration=1440  # Auto-archive after 24 hours of inactivity (use 4320 for 3 days or 10080 for 7 days)
+            )
+            
+            # Store basic thread information in our tracking dict
+            self.discord_threads[str(thread.id)] = {
+                "name": name,
+                "channel_id": str(ctx.channel.id),
+                "created_at": datetime.now(),
+                "model": self.channel_models.get(str(ctx.channel.id), self.openrouter_client.model)
+            }
+            
+            # Welcome message in the thread
+            await thread.send(f"✅ Thread created! You can chat with the AI in this thread using regular messages or `/chat` commands.")
+            
+            # Reply to the slash command
+            await ctx.respond(f"✅ Created new Discord thread: **{name}**\nThe thread is now ready for conversation.")
+            
+        except discord.Forbidden:
+            await ctx.respond("⚠️ I don't have permission to create threads in this channel.")
+        except discord.HTTPException as e:
+            await ctx.respond(f"⚠️ Failed to create thread: {str(e)}")
+
+    @commands.slash_command(
+        name="threadchat",
+        description="Chat within a specific conversation thread"
+    )
+    @commands.cooldown(1, 5, commands.BucketType.user)
+    async def thread_chat_slash(self, ctx,
+                         id: discord.Option(str, description="Thread ID (short code)"),
+                         message: discord.Option(str, description="Your message to the AI"),
+                         image: discord.Option(discord.Attachment, description="Optional image to analyze", required=False)):
+        await ctx.defer()
+        
+        # Check if this is a simple ID or a full thread ID
+        thread_id = None
+        if id in self.simple_id_mapping:
+            # This is a simple ID, get the full thread ID
+            thread_id = self.simple_id_mapping[id]
+            channel_id = thread_id.split('-')[0]
+        else:
+            # Try to parse as a full thread ID
+            try:
+                channel_id = id.split('-')[0]
+                # Search through threads to find the matching ID
+                found = False
+                for thread_key in self.threads.get(channel_id, {}):
+                    if id == thread_key or (
+                        "simple_id" in self.threads[channel_id][thread_key] and 
+                        self.threads[channel_id][thread_key]["simple_id"] == id
+                    ):
+                        thread_id = thread_key
+                        found = True
+                        break
+                
+                if not found:
+                    await ctx.respond("⚠️ Thread not found. Use `/threads` to see available threads.")
+                    return
+            except:
+                await ctx.respond("⚠️ Invalid thread ID format. Use `/threads` to see available threads.")
+                return
+        
+        # Check if thread exists
+        if channel_id not in self.threads or thread_id not in self.threads[channel_id]:
+            await ctx.respond("⚠️ Thread not found. Use `/threads` to see available threads.")
+            return
+        
+        thread_data = self.threads[channel_id][thread_id]
+        thread_name = thread_data["name"]
+        
+        # Set model for this thread if different from current
+        current_model = self.openrouter_client.model
+        thread_model = thread_data.get("model")
+        
+        if thread_model:
+            self.openrouter_client.model = thread_model
+        
+        # Handle image processing similarly to regular chat
+        model_supports_images = self.openrouter_client.model_supports_vision()
+        images = []
+        
+        if model_supports_images and image:
+            # Similar image processing logic as in chat_slash
+            if any(image.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                try:
+                    image_data = await image.read()
+                    images.append({
+                        'data': image_data,
+                        'type': image.content_type or 'image/jpeg'
+                    })
+                except Exception as e:
+                    await ctx.respond(f"⚠️ Failed to process image {image.filename}: {str(e)}")
+                    return
+        
+        try:
+            # Add user message to thread
+            thread_data["messages"].append({
+                "role": "user",
+                "name": ctx.author.display_name,
+                "content": message,
+                "timestamp": datetime.now()
+            })
+            
+            # Format conversation context
+            conversation_context = []
+            # Add only messages from this thread
+            for msg in thread_data["messages"]:
+                if "timestamp" not in msg or datetime.now() - msg["timestamp"] <= timedelta(hours=self.time_window_hours):
+                    conversation_context.append({
+                        "role": msg["role"],
+                        "content": f"{msg['name']}: {msg['content']}" if "name" in msg else msg["content"]
+                    })
+            
+            # Process and send to AI
+            image_info = " with image" if images else ""
+            await ctx.respond(f"Processing message in thread **{thread_name}**{image_info}...")
+            
+            response = await self.openrouter_client.send_message_with_history(
+                conversation_context,
+                images=images
+            )
+            
+            # Add AI response to thread
+            thread_data["messages"].append({
+                "role": "assistant",
+                "content": response,
+                "timestamp": datetime.now()
+            })
+            
+            # Send response in chunks like other commands
+            max_length = 2000
+            chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+            
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    await ctx.followup.send(f"**Thread: {thread_name}**\n\n{chunk}")
+                else:
+                    await ctx.channel.send(chunk)
+        finally:
+            # Restore original model
+            if thread_model:
+                self.openrouter_client.model = current_model
+
+    @commands.slash_command(
+        name="threads",
+        description="List all active conversation threads in this channel"
+    )
+    async def list_threads_slash(self, ctx):
+        channel_id = str(ctx.channel.id)
+        
+        if channel_id not in self.threads or not self.threads[channel_id]:
+            await ctx.respond("No active threads in this channel. Create one with `/newthread`")
+            return
+        
+        threads_list = []
+        for thread_id, thread_data in self.threads[channel_id].items():
+            thread_name = thread_data["name"]
+            message_count = len(thread_data["messages"])
+            created_time = thread_data["created_at"].strftime("%Y-%m-%d %H:%M")
+            simple_id = thread_data.get("simple_id", thread_id.split('-')[1] if '-' in thread_id else "???")
+            threads_list.append(f"• **{thread_name}** (ID: `{simple_id}`)\n  Created: {created_time} | Messages: {message_count}")
+        
+        await ctx.respond(f"**Active Conversation Threads:**\n\n" + "\n".join(threads_list) + 
+                          "\n\nUse `/threadchat id:<thread_id> message:<your message>` to continue a conversation.")
+
+    @commands.slash_command(
+        name="deletethread",
+        description="Delete a conversation thread"
+    )
+    async def delete_thread_slash(self, ctx, 
+                           id: discord.Option(str, description="Thread ID to delete")):
+        # Check if this is a simple ID
+        thread_id = None
+        channel_id = None
+        
+        if id in self.simple_id_mapping:
+            # This is a simple ID, get the full thread ID
+            thread_id = self.simple_id_mapping[id]
+            channel_id = thread_id.split('-')[0]
+            
+            # Clean up the mapping when deleting
+            del self.simple_id_mapping[id]
+        else:
+            # Try to parse as a full thread ID
+            try:
+                channel_id = id.split('-')[0]
+                # Search through threads to find the matching ID
+                for thread_key in list(self.threads.get(channel_id, {}).keys()):
+                    if id == thread_key or (
+                        "simple_id" in self.threads[channel_id][thread_key] and 
+                        self.threads[channel_id][thread_key]["simple_id"] == id
+                    ):
+                        thread_id = thread_key
+                        # Also clean up the mapping
+                        simple_id = self.threads[channel_id][thread_key].get("simple_id")
+                        if simple_id in self.simple_id_mapping:
+                            del self.simple_id_mapping[simple_id]
+                        break
+            except:
+                await ctx.respond("⚠️ Invalid thread ID format. Use `/threads` to see available threads.")
+                return
+        
+        if not thread_id or channel_id not in self.threads or thread_id not in self.threads[channel_id]:
+            await ctx.respond("⚠️ Thread not found. Use `/threads` to see available threads.")
+            return
+        
+        thread_name = self.threads[channel_id][thread_id]["name"]
+        del self.threads[channel_id][thread_id]
+        
+        # Clean up empty channel entries
+        if not self.threads[channel_id]:
+            del self.threads[channel_id]
+            
+        await ctx.respond(f"✅ Deleted thread: **{thread_name}**")
+
+    @commands.slash_command(
+        name="renamethread",
+        description="Rename a conversation thread"
+    )
+    async def rename_thread_slash(self, ctx, 
+                           id: discord.Option(str, description="Thread ID to rename"),
+                           name: discord.Option(str, description="New name for the thread")):
+        # Check if this is a simple ID
+        thread_id = None
+        channel_id = None
+        
+        if id in self.simple_id_mapping:
+            # This is a simple ID, get the full thread ID
+            thread_id = self.simple_id_mapping[id]
+            channel_id = thread_id.split('-')[0]
+        else:
+            # Try to parse as a full thread ID
+            try:
+                channel_id = id.split('-')[0]
+                # Search through threads to find the matching ID
+                for thread_key in self.threads.get(channel_id, {}).keys():
+                    if id == thread_key or (
+                        "simple_id" in self.threads[channel_id][thread_key] and 
+                        self.threads[channel_id][thread_key]["simple_id"] == id
+                    ):
+                        thread_id = thread_key
+                        break
+            except:
+                await ctx.respond("⚠️ Invalid thread ID format. Use `/threads` to see available threads.")
+                return
+        
+        if not thread_id or channel_id not in self.threads or thread_id not in self.threads[channel_id]:
+            await ctx.respond("⚠️ Thread not found. Use `/threads` to see available threads.")
+            return
+        
+        old_name = self.threads[channel_id][thread_id]["name"]
+        self.threads[channel_id][thread_id]["name"] = name
+        
+        await ctx.respond(f"✅ Renamed thread from **{old_name}** to **{name}**")
+
     @commands.command(name='visionmodels')
     async def vision_models(self, ctx):
         """Show which models support image analysis"""
@@ -712,6 +1095,36 @@ class LLMChat(commands.Cog):
         await ctx.respond(f"**Vision-capable models:**\n" + 
                           "\n".join([f"• `{m}`" for m in vision_models]) + 
                           f"\n\nCurrent model for this channel (`{channel_model}`) {status} images.")
+
+    @commands.slash_command(
+        name="threadmodel",
+        description="Set the AI model for the current thread"
+    )
+    @commands.has_permissions(administrator=True)
+    async def set_thread_model_slash(self, ctx, 
+                         model_name: discord.Option(str, description="Model name", choices=ALLOWED_MODELS)):
+        # Check if we're in a thread
+        if not isinstance(ctx.channel, discord.Thread):
+            await ctx.respond("⚠️ This command can only be used within a thread.")
+            return
+            
+        thread_id = str(ctx.channel.id)
+        
+        # Initialize discord_threads if it doesn't exist
+        if not hasattr(self, 'discord_threads'):
+            self.discord_threads = {}
+            
+        # Create or update thread entry
+        if thread_id not in self.discord_threads:
+            self.discord_threads[thread_id] = {
+                "name": ctx.channel.name,
+                "channel_id": str(ctx.channel.parent_id),
+                "created_at": datetime.now()
+            }
+        
+        # Set the model
+        self.discord_threads[thread_id]["model"] = model_name
+        await ctx.respond(f"Model for this thread set to `{model_name}`")
 
 # The setup function needed for Cog loading
 def setup(bot):
