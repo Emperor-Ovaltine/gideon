@@ -414,12 +414,12 @@ class LLMChat(commands.Cog):
         description="Set the AI model to use from OpenRouter"
     )
     @commands.has_permissions(administrator=True)
-    async def set_model_slash(self, ctx, model_name: str):
-        if model_name not in ALLOWED_MODELS:
-            models_list = ", ".join(f"`{m}`" for m in ALLOWED_MODELS)
-            await ctx.respond(f"Invalid model. Allowed models: {models_list}")
-            return
-            
+    async def set_model_slash(self, ctx, 
+                             model_name: discord.Option(
+                                 str,
+                                 "Select the AI model to use",
+                                 choices=ALLOWED_MODELS
+                             )):
         self.openrouter_client.model = model_name
         await ctx.respond(f"Model set to {model_name}")
 
@@ -494,12 +494,12 @@ class LLMChat(commands.Cog):
         description="Set the AI model to use for this specific channel"
     )
     @commands.has_permissions(administrator=True)
-    async def set_channel_model_slash(self, ctx, model_name: str):
-        if model_name not in ALLOWED_MODELS:
-            models_list = ", ".join(f"`{m}`" for m in ALLOWED_MODELS)
-            await ctx.respond(f"Invalid model. Allowed models: {models_list}")
-            return
-            
+    async def set_channel_model_slash(self, ctx, 
+                                     model_name: discord.Option(
+                                         str,
+                                         "Select the AI model to use for this channel",
+                                         choices=ALLOWED_MODELS
+                                     )):
         channel_id = str(ctx.channel.id)
         self.channel_models[channel_id] = model_name
         await ctx.respond(f"Model for this channel set to `{model_name}`")
@@ -554,11 +554,14 @@ class LLMChat(commands.Cog):
 
     # THREAD GROUP COMMANDS
     @thread_group.command(
-        name="create",
-        description="Create a new Discord thread for conversation"
+        name="new",
+        description="Create a new AI conversation thread"
     )
-    async def create_thread_slash(self, ctx, 
-                          name: str):
+    async def thread_slash(self, ctx, 
+                          name: str,
+                          message: str = None,
+                          image: discord.Attachment = None):
+        """Create a new thread and optionally start with a message"""
         # Check if the channel supports threads
         if not isinstance(ctx.channel, discord.TextChannel):
             await ctx.respond("⚠️ This command can only be used in text channels that support threads.")
@@ -571,7 +574,7 @@ class LLMChat(commands.Cog):
             # Create actual Discord thread from the message
             thread = await initial_message.create_thread(
                 name=name,
-                auto_archive_duration=1440  # Auto-archive after 24 hours of inactivity (use 4320 for 3 days or 10080 for 7 days)
+                auto_archive_duration=1440  # Auto-archive after 24 hours of inactivity
             )
             
             # Store basic thread information in our tracking dict
@@ -582,11 +585,99 @@ class LLMChat(commands.Cog):
                 "model": self.channel_models.get(str(ctx.channel.id), self.openrouter_client.model)
             }
             
+            # Add to thread tracking if we also use the old system
+            channel_id = str(ctx.channel.id)
+            thread_id = f"{channel_id}-{thread.id}"
+            
+            # Create simple ID for easier reference
+            simple_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=5))
+            
+            # Initialize channel in threads dict if needed
+            if channel_id not in self.threads:
+                self.threads[channel_id] = {}
+                
+            # Add thread to threads dict
+            self.threads[channel_id][thread_id] = {
+                "name": name,
+                "messages": [],
+                "created_at": datetime.now(),
+                "simple_id": simple_id,
+                "model": self.channel_models.get(channel_id, self.openrouter_client.model)
+            }
+            
+            # Map simple ID to full thread ID
+            self.simple_id_mapping[simple_id] = thread_id
+            
             # Welcome message in the thread
-            await thread.send(f"✅ Thread created! You can chat with the AI in this thread using regular messages or `/ai chat` commands.")
+            welcome_msg = f"✅ Thread created! You can chat with the AI by just sending regular messages in this thread. I'll respond to everything automatically."
+            await thread.send(welcome_msg)
+            
+            # If a message was provided, process it immediately in the new thread
+            if message:
+                # Add user message to thread history
+                self.threads[channel_id][thread_id]["messages"].append({
+                    "role": "user",
+                    "name": ctx.author.display_name,
+                    "content": message,
+                    "timestamp": datetime.now()
+                })
+                
+                # Process image if provided
+                model_supports_images = self.openrouter_client.model_supports_vision()
+                images = []
+                
+                if image and model_supports_images:
+                    if any(image.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                        try:
+                            image_data = await image.read()
+                            images.append({
+                                'data': image_data,
+                                'type': image.content_type or 'image/jpeg'
+                            })
+                        except Exception as e:
+                            await thread.send(f"⚠️ Failed to process image {image.filename}: {str(e)}")
+                
+                # Send thinking message in the thread
+                thinking_msg = await thread.send(f"**{ctx.author.display_name}**: {message}\n\n_Processing response..._")
+                
+                # Format conversation context - just the first message in this case
+                conversation_context = [{
+                    "role": "user",
+                    "content": f"{ctx.author.display_name}: {message}"
+                }]
+                
+                # Get response from AI
+                response = await self.openrouter_client.send_message_with_history(
+                    conversation_context,
+                    images=images if model_supports_images else []
+                )
+                
+                # Add AI response to thread history
+                self.threads[channel_id][thread_id]["messages"].append({
+                    "role": "assistant",
+                    "content": response,
+                    "timestamp": datetime.now()
+                })
+                
+                # Split response into chunks
+                max_length = 2000
+                chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+                
+                # Update thinking message with first chunk
+                await thinking_msg.edit(content=chunks[0])
+                
+                # Send remaining chunks
+                for chunk in chunks[1:]:
+                    await thread.send(chunk)
+                    
+                # Update the success message
+                success_msg = f"✅ Created new thread: **{name}** with your initial message. Check the thread for the AI's response!"
+            else:
+                # Just confirm thread creation
+                success_msg = f"✅ Created new thread: **{name}**\nThe thread is now ready for conversation. All messages in the thread will receive AI responses."
             
             # Reply to the slash command
-            await ctx.respond(f"✅ Created new Discord thread: **{name}**\nThe thread is now ready for conversation.")
+            await ctx.respond(success_msg)
             
         except discord.Forbidden:
             await ctx.respond("⚠️ I don't have permission to create threads in this channel.")
@@ -850,7 +941,11 @@ class LLMChat(commands.Cog):
     )
     @commands.has_permissions(administrator=True)
     async def set_thread_model_slash(self, ctx, 
-                         model_name: str):
+                                    model_name: discord.Option(
+                                        str,
+                                        "Select the AI model to use for this thread",
+                                        choices=ALLOWED_MODELS
+                                    )):
         # Check if we're in a thread
         if not isinstance(ctx.channel, discord.Thread):
             await ctx.respond("⚠️ This command can only be used within a thread.")
