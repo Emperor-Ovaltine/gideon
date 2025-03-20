@@ -13,18 +13,12 @@ load_dotenv()
 intents = discord.Intents.default()
 intents.message_content = True  # This requires privileged intent enabled in Discord Developer Portal
 
-# Uncomment below and comment out the above if you don't have privileged intents enabled
-# intents = discord.Intents.default()
-# intents.message_content = False
-
 # Create bot with proper command sync settings
 bot = commands.Bot(
-    command_prefix='!', 
+    command_prefix="unused!",
     intents=intents,
-    sync_commands=True,
-    # Optional: you can specify guild IDs for faster development testing
-    # sync_commands_debug=True,
-    # debug_guilds=[123456789]  # Replace with your guild ID for testing
+    # Important: Set this to False initially to avoid duplicate command registration
+    sync_commands=False
 )
 
 @bot.event
@@ -32,51 +26,106 @@ async def on_ready():
     print(f'Logged in as {bot.user.name} - {bot.user.id}')
     print('------')
     
-    # Load cogs - properly loading the extension
+    # First try to clear all existing commands to start fresh
     try:
-        # Use load_extension without await - it's not an async function in py-cord
+        print("Clearing existing commands...")
+        # For Py-Cord, we should use application_commands property
+        commands_to_remove = await bot.http.get_global_commands(bot.user.id)
+        for cmd in commands_to_remove:
+            print(f"Removing command: {cmd['name']}")
+            # Delete the command
+            await bot.http.delete_global_command(bot.user.id, cmd['id'])
+        print("Existing commands cleared.")
+    except Exception as e:
+        print(f"Warning: Could not clear existing commands: {e}")
+    
+    # Load cogs after clearing commands
+    try:
         bot.load_extension("src.cogs.llm_chat")
         print("LLM Chat extension loaded successfully.")
         
-        # Add this section for better debugging
+        # Sync commands after loading extensions
         try:
-            print(f"Attempting to sync commands to guilds: {bot.debug_guilds}")
-            synced = await bot.sync_commands()
-            # Handle None return value
-            command_count = len(synced) if synced is not None else 0
-            print(f"Synced {command_count} commands")
+            print("Syncing commands to Discord...")
+            
+            # First sync to the specified guild(s) if debug_guilds is set
+            if hasattr(bot, 'debug_guilds') and bot.debug_guilds:
+                # For guild specific commands
+                for guild_id in bot.debug_guilds:
+                    await bot.sync_commands(guild_ids=[guild_id])
+                print(f"Synced commands to test guilds: {bot.debug_guilds}")
+            
+            # Then sync globally
+            await bot.sync_commands()
+            print("Synced commands globally")
         except Exception as e:
             print(f"Error syncing commands: {e}")
             
     except Exception as e:
         print(f"Error loading LLM Chat extension: {e}")
     
-    print("Slash commands should now be registered. They may take up to an hour to appear across all servers.")
+    print("Slash commands are now registered. They may take up to an hour to appear across all servers.")
 
-@bot.command(name="sync")
+@bot.slash_command(name="sync", description="Manually sync slash commands (owner only)")
 @commands.is_owner()  # Only you can run this
-async def sync_command(ctx):
-    """Manually sync slash commands"""
+async def sync_command_slash(ctx):
+    await ctx.defer()
     try:
-        await ctx.send("Syncing commands...")
-        synced = await bot.sync_commands()
+        await ctx.respond("Syncing commands...")
         
-        # Properly handle None return value
-        if synced is None:
-            await ctx.send("Commands synced globally. No direct count available, but sync completed.")
-        else:
-            await ctx.send(f"Synced {len(synced)} commands globally")
+        # Clean existing commands first
+        try:
+            await ctx.followup.send("Clearing existing commands...")
+            commands_to_remove = await bot.http.get_global_commands(bot.user.id)
+            for cmd in commands_to_remove:
+                if cmd['name'] != "sync":  # Don't delete the sync command we're using
+                    await bot.http.delete_global_command(bot.user.id, cmd['id'])
+            await ctx.followup.send("Existing commands cleared.")
+        except Exception as e:
+            await ctx.followup.send(f"Warning: Could not clear existing commands: {e}")
         
-        # For guild-specific sync
-        if bot.debug_guilds:
-            guild_synced = await bot.sync_commands(guild_ids=bot.debug_guilds)
+        # First to guilds
+        if hasattr(bot, 'debug_guilds') and bot.debug_guilds:
+            for guild_id in bot.debug_guilds:
+                await bot.sync_commands(guild_ids=[guild_id])
+            await ctx.followup.send(f"Commands synced to test guilds: {bot.debug_guilds}")
+        
+        # Then globally
+        await bot.sync_commands()
+        await ctx.followup.send("Commands synced globally")
             
-            if guild_synced is None:
-                await ctx.send(f"Commands synced to test guilds: {bot.debug_guilds}")
-            else:
-                await ctx.send(f"Synced {len(guild_synced)} commands to test guilds: {bot.debug_guilds}")
     except Exception as e:
-        await ctx.send(f"Error syncing commands: {str(e)}")
+        await ctx.followup.send(f"Error syncing commands: {str(e)}")
+
+# Debug function to help identify command registration issues
+@bot.slash_command(name="debug", description="Show registered commands")
+@commands.is_owner()
+async def debug_commands(ctx):
+    await ctx.defer()
+    
+    # Build debug information
+    debug_info = ["**Registered Application Commands:**"]
+    
+    # Get global commands
+    try:
+        global_commands = await bot.http.get_global_commands(bot.user.id)
+        debug_info.append(f"\n**Global Commands:** {len(global_commands)}")
+        for cmd in global_commands:
+            debug_info.append(f"- `/{cmd['name']}`: ID={cmd['id']}")
+    except Exception as e:
+        debug_info.append(f"Error fetching global commands: {str(e)}")
+    
+    # Get guild commands for the current guild
+    try:
+        guild_commands = await bot.http.get_guild_commands(bot.user.id, ctx.guild.id)
+        debug_info.append(f"\n**Guild Commands ({ctx.guild.name}):** {len(guild_commands)}")
+        for cmd in guild_commands:
+            debug_info.append(f"- `/{cmd['name']}`: ID={cmd['id']}")
+    except Exception as e:
+        debug_info.append(f"Error fetching guild commands: {str(e)}")
+    
+    # Send debug info
+    await ctx.respond("\n".join(debug_info))
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
