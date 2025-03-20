@@ -1,4 +1,4 @@
-discord.py
+py-cord>=2.4.0  # Updated for better slash command support
 aiohttp
 python-dotenv
 dnspython
