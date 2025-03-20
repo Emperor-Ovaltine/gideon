@@ -523,19 +523,29 @@ class LLMChat(commands.Cog):
         
         # Process image if provided and model supports it
         images = []
-        if model_supports_images and image:
+        image_embed = None
+        
+        if image:
             # Check if it's an image file
             if any(image.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
-                try:
-                    # Download the image data
-                    image_data = await image.read()
-                    images.append({
-                        'data': image_data,
-                        'type': image.content_type or 'image/jpeg'  # Default to jpeg if not specified
-                    })
-                except Exception as e:
-                    await ctx.respond(f"⚠️ Failed to process image {image.filename}: {str(e)}")
-                    return
+                # Create an embed to display the image
+                image_embed = discord.Embed(title="Analyzing Image", color=discord.Color.blue())
+                image_embed.set_image(url=image.url)
+                image_embed.add_field(name="File", value=image.filename)
+                
+                if model_supports_images:
+                    try:
+                        # Download the image data
+                        image_data = await image.read()
+                        images.append({
+                            'data': image_data,
+                            'type': image.content_type or 'image/jpeg'  # Default to jpeg if not specified
+                        })
+                    except Exception as e:
+                        await ctx.respond(f"⚠️ Failed to process image {image.filename}: {str(e)}")
+                        return
+                else:
+                    image_embed.description = "⚠️ Current model doesn't support image analysis. Consider switching to a vision-capable model."
         
         try:
             # Get recent channel context
@@ -555,20 +565,20 @@ class LLMChat(commands.Cog):
                 "content": f"{ctx.author.display_name}: {message}"
             })
             
-            # Provide feedback about image processing
-            image_info = ""
-            if images:
-                image_info = f" with image"
-                if not model_supports_images:
-                    await ctx.respond("⚠️ Note: The current model doesn't support image analysis. Consider switching to a vision-capable model.")
-                    images = []  # Clear images if model doesn't support them
-            
-            await ctx.respond(f"Processing message{image_info}...")
-            
+            # First response - show the image if there is one
+            if image_embed:
+                await ctx.respond(f"**{ctx.author.display_name}**: {message}", embed=image_embed)
+                # Follow up with processing message
+                processing_msg = await ctx.followup.send("Processing response...")
+            else:
+                # Regular processing message if no image
+                await ctx.respond(f"Processing message...")
+                processing_msg = None
+                
             # Send to API with images if applicable
             response = await self.openrouter_client.send_message_with_history(
                 conversation_context,
-                images=images
+                images=images if model_supports_images else []
             )
             
             # Add assistant's response to history
@@ -585,14 +595,17 @@ class LLMChat(commands.Cog):
             # Send each chunk as a separate message
             for i, chunk in enumerate(chunks):
                 if i == 0:
-                    await ctx.followup.send(chunk)
+                    if processing_msg:
+                        await processing_msg.edit(content=chunk)
+                    else:
+                        await ctx.followup.send(chunk)
                 else:
                     await ctx.channel.send(chunk)
         finally:
             # Always restore the original model
             if channel_model:
                 self.openrouter_client.model = current_model
-    
+
     @commands.slash_command(
         name="reset",
         description="Reset the conversation history for this channel"
@@ -878,19 +891,28 @@ class LLMChat(commands.Cog):
         # Handle image processing similarly to regular chat
         model_supports_images = self.openrouter_client.model_supports_vision()
         images = []
+        image_embed = None
         
-        if model_supports_images and image:
-            # Similar image processing logic as in chat_slash
+        if image:
+            # Check if it's an image file
             if any(image.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
-                try:
-                    image_data = await image.read()
-                    images.append({
-                        'data': image_data,
-                        'type': image.content_type or 'image/jpeg'
-                    })
-                except Exception as e:
-                    await ctx.respond(f"⚠️ Failed to process image {image.filename}: {str(e)}")
-                    return
+                # Create an embed to display the image
+                image_embed = discord.Embed(title=f"Analyzing Image in Thread: {thread_name}", color=discord.Color.blue())
+                image_embed.set_image(url=image.url)
+                image_embed.add_field(name="File", value=image.filename)
+                
+                if model_supports_images:
+                    try:
+                        image_data = await image.read()
+                        images.append({
+                            'data': image_data,
+                            'type': image.content_type or 'image/jpeg'
+                        })
+                    except Exception as e:
+                        await ctx.respond(f"⚠️ Failed to process image {image.filename}: {str(e)}")
+                        return
+                else:
+                    image_embed.description = "⚠️ Current model doesn't support image analysis. Consider switching to a vision-capable model."
         
         try:
             # Add user message to thread
@@ -911,13 +933,19 @@ class LLMChat(commands.Cog):
                         "content": f"{msg['name']}: {msg['content']}" if "name" in msg else msg["content"]
                     })
             
-            # Process and send to AI
-            image_info = " with image" if images else ""
-            await ctx.respond(f"Processing message in thread **{thread_name}**{image_info}...")
+            # First response - show the image if there is one
+            if image_embed:
+                await ctx.respond(f"**{ctx.author.display_name}** in **{thread_name}**: {message}", embed=image_embed)
+                # Follow up with processing message
+                processing_msg = await ctx.followup.send(f"Processing response for thread **{thread_name}**...")
+            else:
+                # Regular processing message if no image
+                await ctx.respond(f"Processing message in thread **{thread_name}**...")
+                processing_msg = None
             
             response = await self.openrouter_client.send_message_with_history(
                 conversation_context,
-                images=images
+                images=images if model_supports_images else []
             )
             
             # Add AI response to thread
@@ -931,9 +959,13 @@ class LLMChat(commands.Cog):
             max_length = 2000
             chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
             
+            # Process the first chunk differently if we have a processing message to edit
             for i, chunk in enumerate(chunks):
                 if i == 0:
-                    await ctx.followup.send(f"**Thread: {thread_name}**\n\n{chunk}")
+                    if processing_msg:
+                        await processing_msg.edit(content=f"**Thread: {thread_name}**\n\n{chunk}")
+                    else:
+                        await ctx.followup.send(f"**Thread: {thread_name}**\n\n{chunk}")
                 else:
                     await ctx.channel.send(chunk)
         finally:
