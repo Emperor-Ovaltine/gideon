@@ -439,6 +439,7 @@ class LLMChat(commands.Cog):
     )
     @commands.has_permissions(administrator=True)
     async def show_model_slash(self, ctx):
+        await ctx.defer()
         await ctx.respond(f"Current model: `{self.openrouter_client.model}`")
 
     @commands.slash_command(
