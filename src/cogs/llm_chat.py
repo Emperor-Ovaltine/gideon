@@ -15,6 +15,8 @@ class LLMChat(commands.Cog):
         self.openrouter_client = OpenRouterClient(OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL)
         # Dictionary to store conversation history for each channel
         self.channel_history = {}
+        # Dictionary to store model preferences for each channel
+        self.channel_models = {}
         # Maximum number of messages to remember per channel
         self.max_channel_history = 35
         # Time window to include messages (in hours)
@@ -92,47 +94,56 @@ class LLMChat(commands.Cog):
         # Get channel ID to track conversation per channel
         channel_id = str(ctx.channel.id)
         
-        # Initialize conversation history for this channel if it doesn't exist
-        if channel_id not in self.channel_history:
-            self.channel_history[channel_id] = []
+        # Determine which model to use for this channel
+        current_model = self.openrouter_client.model  # Store original model
+        channel_model = self.channel_models.get(channel_id)  # Get channel-specific model if it exists
         
-        # Get recent channel context
-        conversation_context = await self.get_channel_context(channel_id)
-        
-        # Add this new message
-        self.channel_history[channel_id].append({
-            "role": "user",
-            "name": ctx.author.display_name,
-            "content": message,
-            "timestamp": datetime.now()
-        })
-        
-        # Format the final query with the current user's question
-        conversation_context.append({
-            "role": "user", 
-            "content": f"{ctx.author.display_name}: {message}"
-        })
-        
-        # Send conversation history to get contextual response
-        response = await self.openrouter_client.send_message_with_history(
-            conversation_context
-        )
-        
-        # Add assistant's response to history
-        self.channel_history[channel_id].append({
-            "role": "assistant",
-            "content": response,
-            "timestamp": datetime.now()
-        })
-        
-        # Split response into chunks of 2000 characters or fewer
-        max_length = 2000
-        chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
-        
-        # Send each chunk as a separate message
-        for chunk in chunks:
-            await ctx.send(chunk)
-    
+        # Set the model to use for this request
+        if channel_model:
+            self.openrouter_client.model = channel_model
+
+        try:
+            # Get recent channel context
+            conversation_context = await self.get_channel_context(channel_id)
+            
+            # Add this new message
+            self.channel_history[channel_id].append({
+                "role": "user",
+                "name": ctx.author.display_name,
+                "content": message,
+                "timestamp": datetime.now()
+            })
+            
+            # Format the final query with the current user's question
+            conversation_context.append({
+                "role": "user", 
+                "content": f"{ctx.author.display_name}: {message}"
+            })
+            
+            # Send conversation history to get contextual response
+            response = await self.openrouter_client.send_message_with_history(
+                conversation_context
+            )
+            
+            # Add assistant's response to history
+            self.channel_history[channel_id].append({
+                "role": "assistant",
+                "content": response,
+                "timestamp": datetime.now()
+            })
+            
+            # Split response into chunks of 2000 characters or fewer
+            max_length = 2000
+            chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+            
+            # Send each chunk as a separate message
+            for chunk in chunks:
+                await ctx.send(chunk)
+        finally:
+            # Always restore the original model
+            if channel_model:
+                self.openrouter_client.model = current_model
+
     @commands.command(name='reset')
     async def reset_conversation(self, ctx):
         """Reset the conversation history for the channel"""
@@ -195,7 +206,7 @@ class LLMChat(commands.Cog):
         await ctx.send(f"**Conversation Summary:**\n{summary}")
 
     async def prune_inactive_channels(self):
-        """Remove history for channels inactive for more than 7 days"""
+        """Remove history and model settings for channels inactive for more than 7 days"""
         cutoff = datetime.now() - timedelta(days=7)
         inactive_channels = []
         
@@ -208,6 +219,9 @@ class LLMChat(commands.Cog):
         
         for channel_id in inactive_channels:
             del self.channel_history[channel_id]
+            # Also remove channel model settings if they exist
+            if channel_id in self.channel_models:
+                del self.channel_models[channel_id]
     
     @tasks.loop(hours=24)
     async def prune_task(self):
@@ -292,6 +306,39 @@ class LLMChat(commands.Cog):
         """Show how much conversation history is being stored (legacy - user-based)"""
         await ctx.send("This bot now uses channel-based memory instead of user-based memory. Use !channelmemory instead.")
 
+    @commands.command(name='setchannelmodel')
+    @commands.has_permissions(administrator=True)
+    async def set_channel_model(self, ctx, model_name: str):
+        """Set the AI model to use for this specific channel"""
+        if model_name not in ALLOWED_MODELS:
+            models_list = ", ".join(f"`{m}`" for m in ALLOWED_MODELS)
+            await ctx.send(f"Invalid model. Allowed models: {models_list}")
+            return
+            
+        channel_id = str(ctx.channel.id)
+        self.channel_models[channel_id] = model_name
+        await ctx.send(f"Model for this channel set to `{model_name}`")
+
+    @commands.command(name='channelmodel')
+    async def show_channel_model(self, ctx):
+        """Show the current AI model being used for this channel"""
+        channel_id = str(ctx.channel.id)
+        if channel_id in self.channel_models:
+            await ctx.send(f"Current model for this channel: `{self.channel_models[channel_id]}`")
+        else:
+            await ctx.send(f"This channel uses the default model: `{self.openrouter_client.model}`")
+
+    @commands.command(name='resetchannelmodel')
+    @commands.has_permissions(administrator=True)
+    async def reset_channel_model(self, ctx):
+        """Reset this channel to use the default model"""
+        channel_id = str(ctx.channel.id)
+        if channel_id in self.channel_models:
+            del self.channel_models[channel_id]
+            await ctx.send(f"This channel will now use the default model: `{self.openrouter_client.model}`")
+        else:
+            await ctx.send(f"This channel is already using the default model: `{self.openrouter_client.model}`")
+
     @commands.slash_command(
         name="chat",
         description="Send a message to the AI assistant"
@@ -309,47 +356,56 @@ class LLMChat(commands.Cog):
         # Get channel ID to track conversation per channel
         channel_id = str(ctx.channel.id)
         
-        # Initialize conversation history for this channel if it doesn't exist
-        if channel_id not in self.channel_history:
-            self.channel_history[channel_id] = []
+        # Determine which model to use for this channel
+        current_model = self.openrouter_client.model  # Store original model
+        channel_model = self.channel_models.get(channel_id)  # Get channel-specific model if it exists
         
-        # Get recent channel context
-        conversation_context = await self.get_channel_context(channel_id)
-        
-        # Add this new message
-        self.channel_history[channel_id].append({
-            "role": "user",
-            "name": ctx.author.display_name,
-            "content": message,
-            "timestamp": datetime.now()
-        })
-        
-        # Format the final query with the current user's question
-        conversation_context.append({
-            "role": "user", 
-            "content": f"{ctx.author.display_name}: {message}"
-        })
-        
-        # Send conversation history to get contextual response
-        response = await self.openrouter_client.send_message_with_history(
-            conversation_context
-        )
-        
-        # Add assistant's response to history
-        self.channel_history[channel_id].append({
-            "role": "assistant",
-            "content": response,
-            "timestamp": datetime.now()
-        })
-        
-        # Split response into chunks of 2000 characters or fewer
-        max_length = 2000
-        chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
-        
-        # Send each chunk as a separate message
-        await ctx.respond(chunks[0])
-        for chunk in chunks[1:]:
-            await ctx.channel.send(chunk)
+        # Set the model to use for this request
+        if channel_model:
+            self.openrouter_client.model = channel_model
+
+        try:
+            # Get recent channel context
+            conversation_context = await self.get_channel_context(channel_id)
+            
+            # Add this new message
+            self.channel_history[channel_id].append({
+                "role": "user",
+                "name": ctx.author.display_name,
+                "content": message,
+                "timestamp": datetime.now()
+            })
+            
+            # Format the final query with the current user's question
+            conversation_context.append({
+                "role": "user", 
+                "content": f"{ctx.author.display_name}: {message}"
+            })
+            
+            # Send conversation history to get contextual response
+            response = await self.openrouter_client.send_message_with_history(
+                conversation_context
+            )
+            
+            # Add assistant's response to history
+            self.channel_history[channel_id].append({
+                "role": "assistant",
+                "content": response,
+                "timestamp": datetime.now()
+            })
+            
+            # Split response into chunks of 2000 characters or fewer
+            max_length = 2000
+            chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+            
+            # Send each chunk as a separate message
+            await ctx.respond(chunks[0])
+            for chunk in chunks[1:]:
+                await ctx.channel.send(chunk)
+        finally:
+            # Always restore the original model
+            if channel_model:
+                self.openrouter_client.model = current_model
     
     @commands.slash_command(
         name="reset",
@@ -498,6 +554,46 @@ class LLMChat(commands.Cog):
     async def set_system_slash(self, ctx, new_prompt: discord.Option(str, description="New system prompt")):
         self.openrouter_client.system_prompt = new_prompt
         await ctx.respond(f"System prompt updated! New prompt: \n```\n{new_prompt}\n```")
+
+    @commands.slash_command(
+        name="setchannelmodel",
+        description="Set the AI model to use for this specific channel"
+    )
+    @commands.has_permissions(administrator=True)
+    async def set_channel_model_slash(self, ctx, model_name: discord.Option(str, description="Model name", choices=ALLOWED_MODELS)):
+        if model_name not in ALLOWED_MODELS:
+            models_list = ", ".join(f"`{m}`" for m in ALLOWED_MODELS)
+            await ctx.respond(f"Invalid model. Allowed models: {models_list}")
+            return
+            
+        channel_id = str(ctx.channel.id)
+        self.channel_models[channel_id] = model_name
+        await ctx.respond(f"Model for this channel set to `{model_name}`")
+
+    @commands.slash_command(
+        name="channelmodel",
+        description="Show the current AI model being used for this channel"
+    )
+    async def show_channel_model_slash(self, ctx):
+        await ctx.defer()
+        channel_id = str(ctx.channel.id)
+        if channel_id in self.channel_models:
+            await ctx.respond(f"Current model for this channel: `{self.channel_models[channel_id]}`")
+        else:
+            await ctx.respond(f"This channel uses the default model: `{self.openrouter_client.model}`")
+
+    @commands.slash_command(
+        name="resetchannelmodel",
+        description="Reset this channel to use the default model"
+    )
+    @commands.has_permissions(administrator=True)
+    async def reset_channel_model_slash(self, ctx):
+        channel_id = str(ctx.channel.id)
+        if channel_id in self.channel_models:
+            del self.channel_models[channel_id]
+            await ctx.respond(f"This channel will now use the default model: `{self.openrouter_client.model}`")
+        else:
+            await ctx.respond(f"This channel is already using the default model: `{self.openrouter_client.model}`")
 
 # The setup function needed for Cog loading
 def setup(bot):
