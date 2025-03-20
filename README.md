@@ -6,8 +6,6 @@
 
 > A powerful Discord bot that integrates with OpenRouter to provide intelligent AI conversations and assistance in your Discord server.
 
-<img src="https://via.placeholder.com/800x400.png?text=Gideon+Bot+Demo" alt="Gideon Bot Demo" width="600"/>
-
 ## ✨ Features
 
 - **🤖 AI-Powered Chat** - Access multiple LLMs through OpenRouter including GPT-4o, Claude 3.7, and Gemini
@@ -22,7 +20,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/gideon.git
+git clone https://github.com/Emperor-Ovaltine/gideon
 cd gideon
 
 # Set up virtual environment and install dependencies
