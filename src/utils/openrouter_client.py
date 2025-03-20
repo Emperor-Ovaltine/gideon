@@ -3,6 +3,8 @@ import json
 import asyncio
 import socket
 import logging
+import base64
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -21,6 +23,19 @@ class OpenRouterClient:
             "https://api.openrouter.ai/api/v1/chat/completions",
             "https://api.openrouter.ai/v1/chat/completions"
         ]
+        # Define which models support image inputs
+        self.vision_models = [
+            "openai/gpt-4o",
+            "openai/gpt-4o-mini",
+            "google/gemini-2.0-flash-exp:free",
+            "anthropic/claude-3.7-sonnet",
+            "anthropic/claude-3-opus",
+            "anthropic/claude-3-sonnet"
+        ]
+        
+    def model_supports_vision(self):
+        """Check if the current model supports image inputs"""
+        return any(vm in self.model for vm in self.vision_models)
         
     async def verify_dns_resolution(self, hostname):
         """Verify if the hostname can be resolved via DNS"""
@@ -39,7 +54,25 @@ class OpenRouterClient:
         """Legacy method for backward compatibility"""
         return await self.send_message_with_history([{"role": "user", "content": message}], max_retries)
 
-    async def send_message_with_history(self, message_history, max_retries=3):
+    async def encode_image_to_base64(self, image_data):
+        """Encode image data to base64 string"""
+        try:
+            # image_data should be bytes from the attachment
+            encoded = base64.b64encode(image_data).decode('utf-8')
+            return encoded
+        except Exception as e:
+            logger.error(f"Error encoding image: {str(e)}")
+            return None
+
+    async def send_message_with_history(self, message_history, max_retries=3, images=None):
+        """
+        Send message with conversation history and optional images
+        
+        Args:
+            message_history: List of message objects (role, content)
+            max_retries: Number of retry attempts
+            images: List of {'data': binary_data, 'type': 'mime/type'} dictionaries
+        """
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -51,8 +84,45 @@ class OpenRouterClient:
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         
-        # Add conversation history
-        messages.extend(message_history)
+        # Process the rest of the messages
+        if images and len(images) > 0 and self.model_supports_vision():
+            # For the last user message, we'll add the images
+            processed_messages = []
+            for i, msg in enumerate(message_history):
+                # Only process user messages that might need images
+                if i == len(message_history) - 1 and msg["role"] == "user" and images:
+                    # Format with content parts for multimodal
+                    content_parts = [
+                        {"type": "text", "text": msg["content"]}
+                    ]
+                    
+                    # Add images to content parts
+                    for img in images:
+                        if "data" in img and "type" in img:
+                            # Convert image data to base64
+                            b64_image = await self.encode_image_to_base64(img["data"])
+                            if b64_image:
+                                content_parts.append({
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:{img['type']};base64,{b64_image}"
+                                    }
+                                })
+                    
+                    # Add the message with multiple content parts
+                    processed_messages.append({
+                        "role": "user",
+                        "content": content_parts
+                    })
+                else:
+                    # Add regular messages as they are
+                    processed_messages.append(msg)
+            
+            # Use processed messages
+            messages.extend(processed_messages)
+        else:
+            # No images or model doesn't support vision
+            messages.extend(message_history)
         
         payload = {
             "model": self.model,  # Use the selected model
@@ -76,7 +146,7 @@ class OpenRouterClient:
                 try:
                     logger.info(f"Attempting to connect to {url} (Attempt {attempt+1}/{max_retries})")
                     async with aiohttp.ClientSession() as session:
-                        async with session.post(url, json=payload, headers=headers, timeout=15) as response:
+                        async with session.post(url, json=payload, headers=headers, timeout=30) as response:
                             if response.status == 200:
                                 data = await response.json()
                                 return data['choices'][0]['message']['content']

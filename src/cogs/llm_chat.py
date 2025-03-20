@@ -84,7 +84,8 @@ class LLMChat(commands.Cog):
     @commands.command(name='chat')
     @commands.cooldown(1, 5, commands.BucketType.user)  # 1 command every 5 seconds per user
     async def chat(self, ctx, *, message: str):
-        await ctx.send(f"Thinking about: '{message}'...")
+        # Initial thinking message
+        thinking_msg = await ctx.send(f"Thinking about: '{message}'...")
         
         # Check internet connection first
         if not await self.check_internet_connection():
@@ -102,6 +103,25 @@ class LLMChat(commands.Cog):
         if channel_model:
             self.openrouter_client.model = channel_model
 
+        # Check if the model supports images
+        model_supports_images = self.openrouter_client.model_supports_vision()
+        
+        # Process images if any are attached and model supports them
+        images = []
+        if model_supports_images and ctx.message.attachments:
+            for attachment in ctx.message.attachments:
+                # Check if it's an image file
+                if any(attachment.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                    try:
+                        # Download the image data
+                        image_data = await attachment.read()
+                        images.append({
+                            'data': image_data,
+                            'type': attachment.content_type or 'image/jpeg'  # Default to jpeg if not specified
+                        })
+                    except Exception as e:
+                        await ctx.send(f"⚠️ Failed to process image {attachment.filename}: {str(e)}")
+        
         try:
             # Get recent channel context
             conversation_context = await self.get_channel_context(channel_id)
@@ -121,8 +141,21 @@ class LLMChat(commands.Cog):
             })
             
             # Send conversation history to get contextual response
+            # Include images if available
+            image_info = ""
+            if images:
+                image_info = f" with {len(images)} image(s)"
+                if not model_supports_images:
+                    await ctx.send("⚠️ Note: The current model doesn't support image analysis. Consider switching to a vision-capable model.")
+                    images = []  # Clear images if model doesn't support them
+            
+            # Update thinking message
+            await thinking_msg.edit(content=f"Processing message{image_info}...")
+            
+            # Send to API with images if applicable
             response = await self.openrouter_client.send_message_with_history(
-                conversation_context
+                conversation_context,
+                images=images
             )
             
             # Add assistant's response to history
@@ -137,8 +170,13 @@ class LLMChat(commands.Cog):
             chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
             
             # Send each chunk as a separate message
-            for chunk in chunks:
-                await ctx.send(chunk)
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    # Replace the thinking message with the first chunk
+                    await thinking_msg.edit(content=chunk)
+                else:
+                    # Send additional chunks as new messages
+                    await ctx.send(chunk)
         finally:
             # Always restore the original model
             if channel_model:
@@ -344,9 +382,10 @@ class LLMChat(commands.Cog):
         description="Send a message to the AI assistant"
     )
     @commands.cooldown(1, 5, commands.BucketType.user)
-    async def chat_slash(self, ctx, message: discord.Option(str, description="Your message to the AI")):
+    async def chat_slash(self, ctx, 
+                          message: discord.Option(str, description="Your message to the AI"),
+                          image: discord.Option(discord.Attachment, description="Optional image to analyze", required=False)):
         await ctx.defer()
-        await ctx.respond(f"Thinking about: '{message}'...")
         
         # Check internet connection first
         if not await self.check_internet_connection():
@@ -356,6 +395,10 @@ class LLMChat(commands.Cog):
         # Get channel ID to track conversation per channel
         channel_id = str(ctx.channel.id)
         
+        # Initialize this channel's history if it doesn't exist
+        if channel_id not in self.channel_history:
+            self.channel_history[channel_id] = []
+        
         # Determine which model to use for this channel
         current_model = self.openrouter_client.model  # Store original model
         channel_model = self.channel_models.get(channel_id)  # Get channel-specific model if it exists
@@ -364,6 +407,25 @@ class LLMChat(commands.Cog):
         if channel_model:
             self.openrouter_client.model = channel_model
 
+        # Check if the model supports images
+        model_supports_images = self.openrouter_client.model_supports_vision()
+        
+        # Process image if provided and model supports it
+        images = []
+        if model_supports_images and image:
+            # Check if it's an image file
+            if any(image.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                try:
+                    # Download the image data
+                    image_data = await image.read()
+                    images.append({
+                        'data': image_data,
+                        'type': image.content_type or 'image/jpeg'  # Default to jpeg if not specified
+                    })
+                except Exception as e:
+                    await ctx.respond(f"⚠️ Failed to process image {image.filename}: {str(e)}")
+                    return
+        
         try:
             # Get recent channel context
             conversation_context = await self.get_channel_context(channel_id)
@@ -382,9 +444,20 @@ class LLMChat(commands.Cog):
                 "content": f"{ctx.author.display_name}: {message}"
             })
             
-            # Send conversation history to get contextual response
+            # Provide feedback about image processing
+            image_info = ""
+            if images:
+                image_info = f" with image"
+                if not model_supports_images:
+                    await ctx.respond("⚠️ Note: The current model doesn't support image analysis. Consider switching to a vision-capable model.")
+                    images = []  # Clear images if model doesn't support them
+            
+            await ctx.respond(f"Processing message{image_info}...")
+            
+            # Send to API with images if applicable
             response = await self.openrouter_client.send_message_with_history(
-                conversation_context
+                conversation_context,
+                images=images
             )
             
             # Add assistant's response to history
@@ -399,9 +472,11 @@ class LLMChat(commands.Cog):
             chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
             
             # Send each chunk as a separate message
-            await ctx.respond(chunks[0])
-            for chunk in chunks[1:]:
-                await ctx.channel.send(chunk)
+            for i, chunk in enumerate(chunks):
+                if i == 0:
+                    await ctx.followup.send(chunk)
+                else:
+                    await ctx.channel.send(chunk)
         finally:
             # Always restore the original model
             if channel_model:
@@ -594,6 +669,49 @@ class LLMChat(commands.Cog):
             await ctx.respond(f"This channel will now use the default model: `{self.openrouter_client.model}`")
         else:
             await ctx.respond(f"This channel is already using the default model: `{self.openrouter_client.model}`")
+
+    @commands.command(name='visionmodels')
+    async def vision_models(self, ctx):
+        """Show which models support image analysis"""
+        vision_models = [model for model in ALLOWED_MODELS if any(vm in model for vm in self.openrouter_client.vision_models)]
+        
+        if not vision_models:
+            await ctx.send("No vision-capable models are currently configured.")
+            return
+            
+        current_model = self.openrouter_client.model
+        channel_id = str(ctx.channel.id)
+        channel_model = self.channel_models.get(channel_id, current_model)
+        
+        supports_vision = any(vm in channel_model for vm in self.openrouter_client.vision_models)
+        status = "✅ supports" if supports_vision else "❌ does not support"
+        
+        await ctx.send(f"**Vision-capable models:**\n" + 
+                       "\n".join([f"• `{m}`" for m in vision_models]) + 
+                       f"\n\nCurrent model for this channel (`{channel_model}`) {status} images.")
+
+    @commands.slash_command(
+        name="visionmodels",
+        description="Show which models support image analysis"
+    )
+    async def vision_models_slash(self, ctx):
+        await ctx.defer()
+        vision_models = [model for model in ALLOWED_MODELS if any(vm in model for vm in self.openrouter_client.vision_models)]
+        
+        if not vision_models:
+            await ctx.respond("No vision-capable models are currently configured.")
+            return
+            
+        current_model = self.openrouter_client.model
+        channel_id = str(ctx.channel.id)
+        channel_model = self.channel_models.get(channel_id, current_model)
+        
+        supports_vision = any(vm in channel_model for vm in self.openrouter_client.vision_models)
+        status = "✅ supports" if supports_vision else "❌ does not support"
+        
+        await ctx.respond(f"**Vision-capable models:**\n" + 
+                          "\n".join([f"• `{m}`" for m in vision_models]) + 
+                          f"\n\nCurrent model for this channel (`{channel_model}`) {status} images.")
 
 # The setup function needed for Cog loading
 def setup(bot):
