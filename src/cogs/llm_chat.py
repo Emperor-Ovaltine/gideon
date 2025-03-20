@@ -10,12 +10,6 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger('llm_chat')
 
-# Create a group for AI-related commands
-ai_group = discord.SlashCommandGroup(
-    "ai", 
-    "AI chat commands and utilities"
-)
-
 # Create a group for thread-related commands
 thread_group = discord.SlashCommandGroup(
     "thread", 
@@ -36,8 +30,7 @@ class LLMChat(commands.Cog):
         self.simple_id_mapping = {}
         self.discord_threads = {}
         
-    # Register the command groups with the cog
-    ai = ai_group
+    # Register the thread group with the cog
     thread = thread_group
 
     async def check_internet_connection(self):
@@ -230,8 +223,8 @@ class LLMChat(commands.Cog):
     def cog_unload(self):
         self.prune_task.cancel()
 
-    # AI GROUP COMMANDS
-    @ai_group.command(
+    # CONVERTED TOP-LEVEL COMMANDS (formerly ai_group)
+    @discord.slash_command(
         name="chat",
         description="Send a message to the AI assistant"
     )
@@ -307,14 +300,14 @@ class LLMChat(commands.Cog):
                 "content": f"{ctx.author.display_name}: {message}"
             })
             
-            # First response - show the image if there is one
+            # First response - show the user's message
             if image_embed:
                 await ctx.respond(f"**{ctx.author.display_name}**: {message}", embed=image_embed)
                 # Follow up with processing message
                 processing_msg = await ctx.followup.send("Processing response...")
             else:
-                # Regular processing message if no image
-                await ctx.respond(f"Processing message...")
+                # Show user's message before processing for text-only messages too
+                await ctx.respond(f"**{ctx.author.display_name}**: {message}\n\n_Processing response..._")
                 processing_msg = None
                 
             # Send to API with images if applicable
@@ -348,7 +341,7 @@ class LLMChat(commands.Cog):
             if channel_model:
                 self.openrouter_client.model = current_model
 
-    @ai_group.command(
+    @discord.slash_command(
         name="reset",
         description="Reset the conversation history for this channel"
     )
@@ -360,7 +353,7 @@ class LLMChat(commands.Cog):
         else:
             await ctx.respond("No conversation history found for this channel.")
 
-    @ai_group.command(
+    @discord.slash_command(
         name="memory",
         description="Show how many messages are stored for this channel"
     )
@@ -372,7 +365,7 @@ class LLMChat(commands.Cog):
         else:
             await ctx.respond("No conversation history found for this channel.")
             
-    @ai_group.command(
+    @discord.slash_command(
         name="setmemory",
         description="Set the maximum number of messages to remember per channel"
     )
@@ -381,7 +374,7 @@ class LLMChat(commands.Cog):
         self.max_channel_history = size
         await ctx.respond(f"Channel memory size set to {size} messages.")
         
-    @ai_group.command(
+    @discord.slash_command(
         name="setwindow",
         description="Set the time window for message history in hours"
     )
@@ -394,7 +387,7 @@ class LLMChat(commands.Cog):
         self.time_window_hours = hours
         await ctx.respond(f"Channel memory time window set to {hours} hours.")
         
-    @ai_group.command(
+    @discord.slash_command(
         name="summarize",
         description="Summarize the current conversation history"
     )
@@ -416,7 +409,7 @@ class LLMChat(commands.Cog):
         summary = await self.openrouter_client.send_message_with_history(summary_request)
         await ctx.respond(f"**Conversation Summary:**\n{summary}")
 
-    @ai_group.command(
+    @discord.slash_command(
         name="setmodel",
         description="Set the AI model to use from OpenRouter"
     )
@@ -430,7 +423,7 @@ class LLMChat(commands.Cog):
         self.openrouter_client.model = model_name
         await ctx.respond(f"Model set to {model_name}")
 
-    @ai_group.command(
+    @discord.slash_command(
         name="model",
         description="Show the current AI model being used"
     )
@@ -439,7 +432,7 @@ class LLMChat(commands.Cog):
         await ctx.defer()
         await ctx.respond(f"Current model: `{self.openrouter_client.model}`")
 
-    @ai_group.command(
+    @discord.slash_command(
         name="diagnostic",
         description="Run network diagnostics for the bot"
     )
@@ -472,7 +465,7 @@ class LLMChat(commands.Cog):
         elif not all([result.endswith('✅') for result in results[1:]]):  # If any domain resolution failed
             await ctx.followup.send("⚠️ DNS resolution failed for some domains. Try using alternative DNS servers (e.g., 8.8.8.8 or 1.1.1.1).")
 
-    @ai_group.command(
+    @discord.slash_command(
         name="showsystem",
         description="Show the current system prompt"
     )
@@ -487,7 +480,7 @@ class LLMChat(commands.Cog):
         for chunk in chunks[1:]:
             await ctx.channel.send(f"```\n{chunk}\n```")
     
-    @ai_group.command(
+    @discord.slash_command(
         name="setsystem",
         description="Set a new system prompt (admin only)"
     )
@@ -496,7 +489,7 @@ class LLMChat(commands.Cog):
         self.openrouter_client.system_prompt = new_prompt
         await ctx.respond(f"System prompt updated! New prompt: \n```\n{new_prompt}\n```")
 
-    @ai_group.command(
+    @discord.slash_command(
         name="setchannelmodel",
         description="Set the AI model to use for this specific channel"
     )
@@ -511,7 +504,7 @@ class LLMChat(commands.Cog):
         self.channel_models[channel_id] = model_name
         await ctx.respond(f"Model for this channel set to `{model_name}`")
 
-    @ai_group.command(
+    @discord.slash_command(
         name="channelmodel",
         description="Show the current AI model being used for this channel"
     )
@@ -523,7 +516,7 @@ class LLMChat(commands.Cog):
         else:
             await ctx.respond(f"This channel uses the default model: `{self.openrouter_client.model}`")
 
-    @ai_group.command(
+    @discord.slash_command(
         name="resetchannelmodel",
         description="Reset this channel to use the default model"
     )
@@ -536,7 +529,7 @@ class LLMChat(commands.Cog):
         else:
             await ctx.respond(f"This channel is already using the default model: `{self.openrouter_client.model}`")
 
-    @ai_group.command(
+    @discord.slash_command(
         name="visionmodels",
         description="Show which models support image analysis"
     )
@@ -699,14 +692,14 @@ class LLMChat(commands.Cog):
                         "content": f"{msg['name']}: {msg['content']}" if "name" in msg else msg["content"]
                     })
             
-            # First response - show the image if there is one
+            # First response - show the user's message
             if image_embed:
                 await ctx.respond(f"**{ctx.author.display_name}** in **{thread_name}**: {message}", embed=image_embed)
                 # Follow up with processing message
                 processing_msg = await ctx.followup.send(f"Processing response for thread **{thread_name}**...")
             else:
-                # Regular processing message if no image
-                await ctx.respond(f"Processing message in thread **{thread_name}**...")
+                # Show user's message before processing for text-only messages too
+                await ctx.respond(f"**{ctx.author.display_name}** in **{thread_name}**: {message}\n\n_Processing response..._")
                 processing_msg = None
             
             response = await self.openrouter_client.send_message_with_history(
@@ -852,7 +845,7 @@ class LLMChat(commands.Cog):
         await ctx.respond(f"✅ Renamed thread from **{old_name}** to **{name}**")
 
     @thread_group.command(
-        name="threadmodel",
+        name="setmodel",
         description="Set the AI model for the current thread"
     )
     @commands.has_permissions(administrator=True)
@@ -885,5 +878,3 @@ class LLMChat(commands.Cog):
 def setup(bot):
     cog = LLMChat(bot)
     bot.add_cog(cog)
-  #  bot.add_application_command(ai_group)
-  #  bot.add_application_command(thread_group)

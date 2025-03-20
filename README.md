@@ -9,7 +9,8 @@ Gideon is a feature-rich Discord bot that integrates with OpenRouter AI to provi
 * **Customizable Personality** - Adjustable system prompt for tailored AI behavior  
 * **Network Diagnostics** - Built-in troubleshooting tools for connection issues  
 * **Role-Based Access** - Administrative commands with permission controls  
-* **Dual Command Systems** - Supports both prefix (!) and slash (/) commands  
+* **Thread Support** - Create dedicated conversation threads with independent histories
+* **Multi-Model Access** - Switch between different LLMs for different use cases
 
 ## Requirements
 * Python 3.8+ (recommended)
@@ -67,28 +68,41 @@ python -m src
 ```
 
 ## Command Reference
-Gideon supports both `!` prefix commands and `/` slash commands with auto-completion.
+Gideon uses slash commands with auto-completion.
 
-### Core Interactions
+### Core Commands
 | Command | Description | Example |
 |---------|-------------|---------|
-| `!chat <message>`<br>`/chat message:<message>` | Start/resume conversation | `!chat Explain quantum computing` |
-| `!reset`<br>`/reset` | Clear channel conversation history | - |
-| `!summarize`<br>`/summarize` | Generate conversation summary | - |
+| `/chat message:<message> [image:<file>]` | Chat with the AI | `/chat message:Explain quantum computing` |
+| `/reset` | Clear channel conversation history | `/reset` |
+| `/summarize` | Generate conversation summary | `/summarize` |
+| `/memory` | Show message history stats | `/memory` |
+
+### Thread Commands
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/thread create name:<name>` | Create a conversation thread | `/thread create name:Physics Discussion` |
+| `/thread message id:<id> message:<text>` | Chat in a specific thread | `/thread message id:123 message:Tell me more` |
+| `/thread list` | Show available threads | `/thread list` |
+| `/thread delete id:<id>` | Delete a thread | `/thread delete id:123` |
 
 ### Configuration (Admin Only)
-| Command | Parameters | Functionality |
-|---------|------------|---------------|
-| `!setmemory <5-100>` | Integer | Set message history limit |
-| `!setwindow <1-96>` | Hours | Configure memory time window |
-| `!setmodel <name>` | [Supported Models](#models) | Change AI model |
-| `!setsystem <prompt>` | String | Customize AI personality |
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/setmemory size:<5-100>` | Set message history limit | `/setmemory size:50` |
+| `/setwindow hours:<1-96>` | Configure memory time window | `/setwindow hours:24` |
+| `/setmodel model_name:<name>` | Change global AI model | `/setmodel model_name:openai/gpt-4o` |
+| `/setsystem new_prompt:<prompt>` | Customize AI personality | `/setsystem new_prompt:You are a helpful assistant...` |
+| `/setchannelmodel model_name:<name>` | Set channel-specific model | `/setchannelmodel model_name:anthropic/claude-3.7-sonnet` |
 
-### Diagnostics
-```bash
-!diagnostic   # Network connectivity check
-!channelmemory  # Current message history count
-```
+### Diagnostic Commands
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/diagnostic` | Check network connectivity | `/diagnostic` |
+| `/model` | Show current AI model | `/model` |
+| `/channelmodel` | Show channel's AI model | `/channelmodel` |
+| `/visionmodels` | List models supporting images | `/visionmodels` |
+| `/showsystem` | Display current system prompt | `/showsystem` |
 
 ## Supported Models <a name="models"></a>
 - `openai/gpt-4o-mini`
@@ -109,4 +123,4 @@ Gideon supports both `!` prefix commands and `/` slash commands with auto-comple
 **Unresponsive Bot**  
 - Confirm Message Content Intent activation
 - Check server permission settings
-- Use `!sync` to refresh slash commands (owner only)
+- Use `/sync` to refresh slash commands (owner only)
