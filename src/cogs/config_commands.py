@@ -63,6 +63,13 @@ class ConfigCommands(commands.Cog):
         else:
             # Just show current model info and instructions
             current_model = self.state.get_global_model()
+            
+            # Check if the model is empty and provide a fallback
+            if not current_model:
+                current_model = DEFAULT_MODEL
+                # Update the state with the default model to fix this for future calls
+                self.state.set_global_model(current_model)
+                
             models_list = "\n".join([f"• `{model}`" for model in ALLOWED_MODELS[:5]])  # Show first 5 models
             if len(ALLOWED_MODELS) > 5:
                 models_list += f"\n• ... and {len(ALLOWED_MODELS) - 5} more models"

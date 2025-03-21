@@ -3,6 +3,9 @@ import discord
 import socket
 import platform
 import sys
+import os
+import json
+from datetime import datetime
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
 from ..utils.openrouter_client import OpenRouterClient
@@ -197,6 +200,120 @@ class DiagnosticCommands(commands.Cog):
             value=f"`{current_model}` {'✅ supports' if supports_vision else '❌ does not support'} image analysis",
             inline=False
         )
+        
+        await ctx.respond(embed=embed)
+    
+    @discord.slash_command(
+        name="debugstate", 
+        description="Show detailed information about state file"
+    )
+    @commands.has_permissions(administrator=True)
+    async def debug_state_command(self, ctx):
+        await ctx.defer()
+        
+        from ..utils.persistence import StatePersistence
+        persistence = StatePersistence()
+        # Ensure file exists before trying to examine it
+        persistence.ensure_state_file_exists()
+        
+        embed = discord.Embed(
+            title="State File Debug",
+            description=f"Examining state file at: `{persistence.state_file}`",
+            color=discord.Color.blue()
+        )
+        
+        # Check if file exists
+        if not os.path.exists(persistence.state_file):
+            embed.add_field(
+                name="File Status",
+                value="❌ State file does not exist",
+                inline=False
+            )
+        else:
+            file_size = os.path.getsize(persistence.state_file) / 1024  # KB
+            mod_time = datetime.fromtimestamp(os.path.getmtime(persistence.state_file))
+            
+            embed.add_field(
+                name="File Status",
+                value=f"✅ File exists\n• Size: {file_size:.2f} KB\n• Modified: {mod_time.strftime('%Y-%m-%d %H:%M:%S')}",
+                inline=False
+            )
+            
+            # Try to load the file and check its structure
+            try:
+                with open(persistence.state_file, 'r') as f:
+                    data = json.load(f)
+                    
+                embed.add_field(
+                    name="Content Overview",
+                    value=f"• Version: {data.get('version', 'Missing')}\n• Saved at: {data.get('saved_at', 'Missing')}\n• Keys: {', '.join(data.keys())[:1000]}",
+                    inline=False
+                )
+                
+                # Count items
+                channels = len(data.get('channel_history', {}))
+                threads = sum(len(threads) for channel, threads in data.get('threads', {}).items())
+                
+                embed.add_field(
+                    name="Data Counts",
+                    value=f"• Channels: {channels}\n• Threads: {threads}",
+                    inline=False
+                )
+            except Exception as e:
+                embed.add_field(
+                    name="Error Reading File",
+                    value=f"❌ Failed to parse file: {str(e)}",
+                    inline=False
+                )
+        
+        await ctx.respond(embed=embed)
+    
+    @discord.slash_command(
+        name="statedebug", 
+        description="Debug state manager memory contents"
+    )
+    async def state_debug_command(self, ctx):
+        await ctx.defer()
+        
+        state = BotStateManager()
+        
+        embed = discord.Embed(
+            title="State Manager Memory Debug",
+            description=f"State manager instance ID: {id(state)}",
+            color=discord.Color.blue()
+        )
+        
+        # Count actual objects in memory
+        channels = len(state.channel_history)
+        channel_items = sum(len(history) for history in state.channel_history.values())
+        threads = sum(len(threads) for threads in state.threads.values())
+        
+        embed.add_field(
+            name="Memory Contents",
+            value=f"• Channels: {channels} (with {channel_items} messages)\n• Thread mappings: {len(state.simple_id_mapping)}\n• Discord threads: {len(state.discord_threads)}\n• Channel models: {len(state.channel_models)}",
+            inline=False
+        )
+        
+        # Show a sample of actual data if it exists
+        if state.channel_history:
+            sample_channel = next(iter(state.channel_history))
+            sample_data = f"Channel ID: {sample_channel}\nMessages: {len(state.channel_history[sample_channel])}"
+            embed.add_field(
+                name="Sample Channel Data",
+                value=f"```\n{sample_data}\n```",
+                inline=False
+            )
+        
+        if state.threads:
+            sample_channel = next(iter(state.threads))
+            sample_thread = next(iter(state.threads[sample_channel]))
+            thread_data = state.threads[sample_channel][sample_thread]
+            sample_data = f"Thread: {thread_data.get('name', 'Unknown')}\nMessages: {len(thread_data.get('messages', []))}"
+            embed.add_field(
+                name="Sample Thread Data",
+                value=f"```\n{sample_data}\n```",
+                inline=False
+            )
         
         await ctx.respond(embed=embed)
 

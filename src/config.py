@@ -25,3 +25,11 @@ ALLOWED_MODELS = [model.strip() for model in allowed_models_str.split(',') if mo
 
 # Default model to use
 DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'google/gemini-2.0-flash-exp:free')
+
+# Data storage configuration
+DATA_DIRECTORY = os.getenv("DATA_DIRECTORY", os.path.join(os.path.dirname(os.path.dirname(__file__)), "data"))
+
+# Ensure DATA_DIRECTORY is an absolute path
+if not os.path.isabs(DATA_DIRECTORY):
+    # If relative path is provided, make it absolute based on the script location
+    DATA_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), DATA_DIRECTORY))

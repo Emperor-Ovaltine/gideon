@@ -1,6 +1,9 @@
 """Centralized state management for the bot."""
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
+import logging
+
+logger = logging.getLogger('state_manager')
 
 class BotStateManager:
     """Singleton class to manage shared state across cogs"""
@@ -10,6 +13,9 @@ class BotStateManager:
         if cls._instance is None:
             cls._instance = super(BotStateManager, cls).__new__(cls)
             cls._instance._initialize()
+            logger.info(f"Created new BotStateManager instance with id: {id(cls._instance)}")
+        else:
+            logger.info(f"Reusing existing BotStateManager instance with id: {id(cls._instance)}")
         return cls._instance
         
     def _initialize(self):
@@ -167,3 +173,79 @@ class BotStateManager:
             return self.channel_models[channel_id]
         # Fall back to global model
         return self.global_model
+
+    def prune_old_data(self):
+        """Remove outdated conversations and inactive threads."""
+        # Set cutoff times
+        channel_cutoff = datetime.now() - timedelta(hours=self.time_window_hours * 2)
+        thread_cutoff = datetime.now() - timedelta(days=14)  # 2 weeks for threads
+        
+        # Prune channel history
+        channels_pruned = 0
+        messages_pruned = 0
+        
+        for channel_id in list(self.channel_history.keys()):
+            history = self.channel_history[channel_id]
+            if not history:
+                del self.channel_history[channel_id]
+                channels_pruned += 1
+                continue
+                
+            # Check if the most recent message is older than cutoff
+            if history and isinstance(history, list) and len(history) > 0:
+                last_message_time = history[-1].get("timestamp") if isinstance(history[-1], dict) else None
+                if last_message_time and isinstance(last_message_time, datetime) and last_message_time < channel_cutoff:
+                    del self.channel_history[channel_id]
+                    channels_pruned += 1
+                    messages_pruned += len(history)
+                    
+                    # Also clean up channel model if no longer used
+                    if channel_id in self.channel_models:
+                        del self.channel_models[channel_id]
+                    if channel_id in self.channel_system_prompts:
+                        del self.channel_system_prompts[channel_id]
+        
+        # Prune thread data
+        threads_pruned = 0
+        
+        for channel_id in list(self.threads.keys()):
+            # Skip if not a dict or empty
+            if not isinstance(self.threads[channel_id], dict):
+                continue
+                
+            for thread_id in list(self.threads[channel_id].keys()):
+                thread_data = self.threads[channel_id][thread_id]
+                if not isinstance(thread_data, dict):
+                    continue
+                    
+                # Check last activity in thread
+                messages = thread_data.get("messages", [])
+                if messages and isinstance(messages, list) and len(messages) > 0:
+                    last_message = messages[-1]
+                    if not isinstance(last_message, dict):
+                        continue
+                        
+                    last_time = last_message.get("timestamp")
+                    if not last_time:
+                        last_time = thread_data.get("created_at")
+                    
+                    if last_time and isinstance(last_time, datetime) and last_time < thread_cutoff:
+                        # Clean up mapping if present
+                        if "simple_id" in thread_data:
+                            simple_id = thread_data["simple_id"]
+                            if simple_id in self.simple_id_mapping:
+                                del self.simple_id_mapping[simple_id]
+                        
+                        # Remove thread
+                        del self.threads[channel_id][thread_id]
+                        threads_pruned += 1
+            
+            # Remove empty channels
+            if not self.threads[channel_id]:
+                del self.threads[channel_id]
+        
+        return {
+            "channels_pruned": channels_pruned,
+            "messages_pruned": messages_pruned,
+            "threads_pruned": threads_pruned
+        }

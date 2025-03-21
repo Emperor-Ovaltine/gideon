@@ -517,7 +517,6 @@ class ThreadCommands(commands.Cog):
                     
                     # We found a user message, now we should respond
                     if msg.id == message.id:
-                        # This is the message we're currently processing
                         thread_model = None
                         if thread_id in self.state.discord_threads:
                             thread_model = self.state.discord_threads[thread_id].get("model")
@@ -584,6 +583,48 @@ class ThreadCommands(commands.Cog):
                                 for chunk in chunks[1:]:
                                     await message.channel.send(chunk)
                                 
+                                # Add both the user's message and the bot's response to thread storage
+                                # Let's find the appropriate thread ID in our threads dictionary
+                                channel_id = str(message.channel.parent_id)
+                                full_thread_id = f"{channel_id}-{thread_id}"
+                                
+                                # Ensure thread exists in our data
+                                if channel_id in self.state.threads and full_thread_id in self.state.threads[channel_id]:
+                                    # Add user message
+                                    self.state.threads[channel_id][full_thread_id]["messages"].append({
+                                        "role": "user",
+                                        "name": message.author.display_name,
+                                        "content": message.content,
+                                        "timestamp": datetime.now()
+                                    })
+                                    
+                                    # Add assistant response
+                                    self.state.threads[channel_id][full_thread_id]["messages"].append({
+                                        "role": "assistant",
+                                        "content": response,
+                                        "timestamp": datetime.now()
+                                    })
+                                    
+                                # Also record messages in simple discord_threads dict if needed
+                                if thread_id in self.state.discord_threads:
+                                    if "messages" not in self.state.discord_threads[thread_id]:
+                                        self.state.discord_threads[thread_id]["messages"] = []
+                                    
+                                    # Add user message
+                                    self.state.discord_threads[thread_id]["messages"].append({
+                                        "role": "user",
+                                        "name": message.author.display_name,
+                                        "content": message.content,
+                                        "timestamp": datetime.now()
+                                    })
+                                    
+                                    # Add assistant response
+                                    self.state.discord_threads[thread_id]["messages"].append({
+                                        "role": "assistant",
+                                        "content": response,
+                                        "timestamp": datetime.now()
+                                    })
+                        
                         finally:
                             # Restore original model
                             if thread_model:
