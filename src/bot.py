@@ -21,7 +21,7 @@ bot = commands.Bot(
     # Important: Set this to False initially to avoid duplicate command registration
     sync_commands=False,
     # Add debug_guilds for testing slash commands in specific servers
-    debug_guilds=[123456789012345678]  # Replace with your test server ID(s)
+    # debug_guilds=[123456789012345678]  # Replace with your test server ID(s)
 )
 
 @bot.event
