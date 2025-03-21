@@ -15,6 +15,10 @@
 - **📊 Vision Capabilities** - Analyze and respond to images with compatible models
 - **🛠️ Admin Controls** - Customize settings with administrator-only commands
 - **📱 Easy Setup** - Simple configuration using environment variables
+- **🔄 Automatic Thread Responses** - Bot automatically responds to all messages posted in AI threads
+- **🌅 Image Analysis** - Upload and analyze images with compatible AI models
+- **🆔 Simple Thread IDs** - Each thread gets a short, easy-to-reference ID
+- **🎭 Channel Personalities** - Set different system prompts per channel for specialized assistants
 
 ## 🚀 Quick Start
 
@@ -24,7 +28,7 @@ git clone https://github.com/Emperor-Ovaltine/gideon
 cd gideon
 
 # Set up virtual environment and install dependencies
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
@@ -33,7 +37,7 @@ cp .env.example .env
 # Edit .env with your Discord token and OpenRouter API key
 
 # Launch the bot
-python -m src
+python3 -m src
 ```
 
 ## 📋 Requirements
@@ -108,20 +112,27 @@ python -m src
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `/thread new` | Create a conversation thread | `/thread new name:Physics Discussion` |
+| `/thread new` | Create a conversation thread | `/thread new name:Physics Discussion message:Let's talk about quantum mechanics` |
 | `/thread message` | Chat in a specific thread | `/thread message id:123 message:Tell me more` |
 | `/thread list` | Show available threads | `/thread list` |
 | `/thread delete` | Delete a thread | `/thread delete id:123` |
+| `/thread rename` | Rename an existing thread | `/thread rename id:123 name:New Thread Name` |
+| `/thread setmodel` | Set AI model for a thread | `/thread setmodel model_name:anthropic/claude-3.7-sonnet` |
 
 ### Model & System Configuration (Admin Only)
 
 | Command | Description | Example |
 |---------|-------------|---------|
 | `/setmodel` | Change global AI model | `/setmodel model_name:openai/gpt-4o` |
-| `/setsystem` | Customize AI personality | `/setsystem new_prompt:You are Gideon...` |
+| `/setsystem` | Customize global AI personality | `/setsystem new_prompt:You are Gideon...` |
 | `/setchannelmodel` | Set channel-specific model | `/setchannelmodel model_name:anthropic/claude-3.7-sonnet` |
+| `/setchannelsystem` | Set channel-specific personality | `/setchannelsystem new_prompt:You are a coding assistant...` |
+| `/channelsystem` | Show channel's system prompt | `/channelsystem` |
+| `/resetchannelsystem` | Reset to default system prompt | `/resetchannelsystem` |
+| `/thread setsystem` | Set thread-specific personality | `/thread setsystem new_prompt:You are a history expert...` |
 | `/setmemory` | Set history message limit | `/setmemory size:50` |
 | `/setwindow` | Configure memory time window | `/setwindow hours:24` |
+| `/resetchannelmodel` | Reset to default model | `/resetchannelmodel` |
 
 ### Diagnostic Tools
 
@@ -153,10 +164,15 @@ gideon/
 │   ├── bot.py              # Bot initialization and events
 │   ├── config.py           # Configuration handling
 │   ├── cogs/               # Bot command modules
-│   │   └── llm_chat.py     # Chat functionality
+│   │   ├── chat_commands.py     # Core chat functionality
+│   │   ├── thread_commands.py   # Thread conversation management
+│   │   ├── config_commands.py   # Bot configuration options
+│   │   └── diagnostic_commands.py # Troubleshooting tools
 │   └── utils/              # Utility functions
 │       ├── openrouter_client.py  # OpenRouter API client
-│       └── permissions.py  # Discord permissions handling
+│       ├── state_manager.py      # Centralized state management
+│       ├── conversation.py       # Conversation context handling
+│       └── permissions.py        # Discord permissions handling
 ├── .env.example            # Example environment variables
 ├── LICENSE                 # MIT License
 ├── README.md               # This file

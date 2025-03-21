@@ -5,6 +5,7 @@ import socket
 import logging
 import base64
 from io import BytesIO
+from typing import List, Dict, Any, Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, 
@@ -12,177 +13,150 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger('openrouter_client')
 
 class OpenRouterClient:
-    def __init__(self, api_key, system_prompt=None, default_model="google/gemini-2.0-flash-exp:free"):
+    """Client for interacting with the OpenRouter API."""
+    
+    def __init__(self, api_key: str, system_prompt: str, default_model: str):
         self.api_key = api_key
         self.system_prompt = system_prompt
         self.model = default_model
-        # Updated to ensure correct API endpoint
-        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
-        # Alternative endpoints to try if the main one fails
-        self.alternative_urls = [
-            "https://api.openrouter.ai/api/v1/chat/completions",
-            "https://api.openrouter.ai/v1/chat/completions"
-        ]
-        # Define which models support image inputs
+        self.base_url = "https://openrouter.ai/api/v1"
+        
+        # List of model name fragments that support vision
         self.vision_models = [
-            "openai/gpt-4o",
-            "openai/gpt-4o-mini",
-            "google/gemini-2.0-flash-exp:free",
-            "anthropic/claude-3.7-sonnet",
-            "anthropic/claude-3-opus",
-            "anthropic/claude-3-sonnet"
+            "claude-3", 
+            "gpt-4-vision", 
+            "gpt-4-turbo",
+            "gemini"
         ]
         
-    def model_supports_vision(self):
-        """Check if the current model supports image inputs"""
-        return any(vm in self.model for vm in self.vision_models)
-        
-    async def verify_dns_resolution(self, hostname):
-        """Verify if the hostname can be resolved via DNS"""
+    def model_supports_vision(self) -> bool:
+        """Check if the current model supports vision/images."""
+        return any(vision_model in self.model.lower() for vision_model in self.vision_models)
+    
+    async def verify_dns_resolution(self, domain: str) -> bool:
+        """Verify that we can resolve the DNS for the given domain."""
         try:
-            # Try to resolve the hostname
-            info = await asyncio.get_event_loop().getaddrinfo(
-                hostname, None, family=socket.AF_INET
-            )
-            logger.info(f"Successfully resolved {hostname}: {info[0][4][0]}")
+            await asyncio.get_event_loop().getaddrinfo(domain, 443)
             return True
-        except socket.gaierror as e:
-            logger.error(f"Failed to resolve {hostname}: {e}")
+        except socket.gaierror:
             return False
-
-    async def send_message(self, message, max_retries=3):
-        """Legacy method for backward compatibility"""
-        return await self.send_message_with_history([{"role": "user", "content": message}], max_retries)
-
-    async def encode_image_to_base64(self, image_data):
-        """Encode image data to base64 string"""
-        try:
-            # image_data should be bytes from the attachment
-            encoded = base64.b64encode(image_data).decode('utf-8')
-            return encoded
-        except Exception as e:
-            logger.error(f"Error encoding image: {str(e)}")
-            return None
-
-    async def send_message_with_history(self, message_history, max_retries=3, images=None):
-        """
-        Send message with conversation history and optional images
-        
-        Args:
-            message_history: List of message objects (role, content)
-            max_retries: Number of retry attempts
-            images: List of {'data': binary_data, 'type': 'mime/type'} dictionaries
-        """
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://discord-bot"  # OpenRouter requires a referer
-        }
-        
-        # Create messages array with system prompt if available
-        messages = []
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
-        
-        # Process the rest of the messages
-        if images and len(images) > 0 and self.model_supports_vision():
-            # For the last user message, we'll add the images
-            processed_messages = []
-            for i, msg in enumerate(message_history):
-                # Only process user messages that might need images
-                if i == len(message_history) - 1 and msg["role"] == "user" and images:
-                    # Format with content parts for multimodal
-                    content_parts = [
-                        {"type": "text", "text": msg["content"]}
-                    ]
-                    
-                    # Add images to content parts
-                    for img in images:
-                        if "data" in img and "type" in img:
-                            # Convert image data to base64
-                            b64_image = await self.encode_image_to_base64(img["data"])
-                            if b64_image:
-                                content_parts.append({
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:{img['type']};base64,{b64_image}"
-                                    }
-                                })
-                    
-                    # Add the message with multiple content parts
-                    processed_messages.append({
-                        "role": "user",
-                        "content": content_parts
-                    })
-                else:
-                    # Add regular messages as they are
-                    processed_messages.append(msg)
             
-            # Use processed messages
-            messages.extend(processed_messages)
-        else:
-            # No images or model doesn't support vision
-            messages.extend(message_history)
+    async def send_message_with_history(
+        self, 
+        messages: List[Dict[str, str]],
+        images: List[Dict[str, Any]] = None,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None
+    ) -> str:
+        """Send a message with conversation history to the AI model."""
+        # Use provided system prompt or fall back to default
+        prompt_to_use = system_prompt if system_prompt is not None else self.system_prompt
         
+        # Use provided model or fall back to the default
+        model_to_use = model if model is not None else self.model
+        
+        # Add logging
+        logger.info(f"Using model: {model_to_use}")
+        logger.info(f"System prompt length: {len(prompt_to_use)}")
+        
+        # Prepare the full conversation context with system prompt
+        conversation = [{"role": "system", "content": prompt_to_use}]
+        
+        # Add the message history
+        conversation.extend(messages)
+        
+        # If we have images and the model supports them, format them correctly
+        if images and self.model_supports_vision():
+            # Find the last user message to add images to
+            for i in range(len(conversation) - 1, -1, -1):
+                if conversation[i]["role"] == "user":
+                    # We need to convert the message to the proper format for images
+                    user_message = conversation[i]["content"]
+                    
+                    # Format differs between models
+                    if "claude" in self.model.lower():
+                        # Claude format - XML tags
+                        image_tags = []
+                        for img in images:
+                            base64_image = base64.b64encode(img['data']).decode('utf-8')
+                            mime_type = img['type']
+                            image_tags.append(f'<image format="{mime_type}" base64="{base64_image}" />')
+                        
+                        # Combine text and images
+                        conversation[i]["content"] = "\n".join(image_tags) + "\n\n" + user_message
+                    else:
+                        # GPT-4 Vision and similar formats - content array
+                        content_array = [{"type": "text", "text": user_message}]
+                        
+                        for img in images:
+                            base64_image = base64.b64encode(img['data']).decode('utf-8')
+                            content_array.append({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{img['type']};base64,{base64_image}"
+                                }
+                            })
+                        
+                        # Replace content string with content array
+                        conversation[i]["content"] = content_array
+                    
+                    break
+                    
+        # Prepare the request body
         payload = {
-            "model": self.model,  # Use the selected model
-            "messages": messages
+            "model": model_to_use,
+            "messages": conversation
         }
-
-        # Extract hostname for DNS check
-        from urllib.parse import urlparse
-        parsed_url = urlparse(self.base_url)
-        hostname = parsed_url.netloc
         
-        # Check DNS resolution
-        if not await self.verify_dns_resolution(hostname):
-            return f"DNS resolution failed for {hostname}. Please check your internet connection or DNS settings."
-
-        # Try the main URL first, then fall back to alternatives
-        urls_to_try = [self.base_url] + self.alternative_urls
-        
-        for url in urls_to_try:
-            for attempt in range(max_retries):
-                try:
-                    logger.info(f"Attempting to connect to {url} (Attempt {attempt+1}/{max_retries})")
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(url, json=payload, headers=headers, timeout=30) as response:
-                            if response.status == 200:
-                                data = await response.json()
-                                return data['choices'][0]['message']['content']
-                            elif response.status == 429:
-                                retry_after = int(response.headers.get('retry-after', 5))
-                                logger.warning(f"Rate limited. Retrying after {retry_after} seconds")
-                                await asyncio.sleep(retry_after)
-                                continue
-                            else:
-                                error_text = await response.text()
-                                logger.error(f"API error: {response.status}, {error_text}")
-                                if attempt == max_retries - 1 and url == urls_to_try[-1]:
-                                    return f"Error: {response.status}, {error_text}"
-                except aiohttp.ClientError as e:
-                    logger.error(f"Client error on {url}: {str(e)}")
-                    if attempt == max_retries - 1 and url == urls_to_try[-1]:
-                        return f"Client error: {str(e)}"
-                except aiohttp.ServerTimeoutError:
-                    logger.error(f"Timeout error on {url}")
-                    if attempt == max_retries - 1 and url == urls_to_try[-1]:
-                        return "Error: Request timed out"
-                except Exception as e:
-                    logger.error(f"Unexpected error on {url}: {str(e)}")
-                    if attempt == max_retries - 1 and url == urls_to_try[-1]:
-                        return f"Unexpected error: {str(e)}"
+        # Send the request
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://discord-bot.gideon",
+                    "X-Title": "Gideon Discord Bot",
+                    "X-Client": "openrouter-python"
+                }
                 
-                # If we're here, the attempt failed, so wait before retrying
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
-        
-        return "Failed to connect to OpenRouter API after multiple attempts"
-
-    def estimate_tokens(self, text):
-        """Rough estimate of tokens (4 chars ≈ 1 token)"""
-        return len(text) // 4
-
-    async def get_response(self, message):
-        response = await self.send_message(message)
-        return response if response else "Error: Unable to get response"
+                async with session.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"API Error ({response.status}): {error_text}")
+                        return f"⚠️ API Error ({response.status}): {error_text}"
+                    
+                    result = await response.json()
+                    logger.info(f"Response keys: {result.keys()}")
+                    
+                    try:
+                        if "choices" in result and len(result["choices"]) > 0:
+                            choice = result["choices"][0]
+                            if "message" in choice and "content" in choice["message"]:
+                                return choice["message"]["content"]
+                            else:
+                                logger.error(f"Unexpected choice format: {choice}")
+                                return "⚠️ Choice missing message or content field"
+                        elif "error" in result:
+                            error_msg = result.get("error", {}).get("message", "Unknown error")
+                            error_type = result.get("error", {}).get("type", "")
+                            
+                            logger.error(f"API returned error: {error_msg}, type: {error_type}")
+                            
+                            # Handle rate limit errors with more user-friendly message
+                            if "rate limit" in error_msg.lower() or "ratelimit" in error_msg.lower():
+                                return f"⚠️ Rate limit exceeded for model `{self.model}`.\nPlease try:\n- Waiting a few minutes\n- Selecting a different model with `/setmodel`\n- Using a paid plan on OpenRouter"
+                            
+                            return f"⚠️ API Error: {error_msg}"
+                        else:
+                            logger.error(f"Unexpected API response format: {result}")
+                            return "⚠️ Unexpected API response format. Try using `/setmodel` to switch to a different model."
+                    except Exception as e:
+                        logger.error(f"Error parsing API response: {str(e)}")
+                        return f"⚠️ Error parsing response: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error sending message: {str(e)}")
+            return f"⚠️ Error: {str(e)}"

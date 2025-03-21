@@ -1,25 +1,27 @@
+"""Configuration for the bot."""
 import os
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Get environment variables with error handling
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-if not DISCORD_TOKEN:
-    raise ValueError("DISCORD_TOKEN environment variable is not set. Please check your .env file.")
+# Bot token from Discord
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-if not OPENROUTER_API_KEY:
-    raise ValueError("OPENROUTER_API_KEY environment variable is not set. Please check your .env file.")
+# OpenRouter API Key
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are a helpful assistant in a Discord server. Provide concise, accurate responses.")
+# Default system prompt
+SYSTEM_PROMPT = os.getenv('SYSTEM_PROMPT', """You are a helpful AI assistant named Gideon. You provide clear, accurate, and thoughtful responses. You strive to be helpful, but you'll acknowledge when you don't know something. When users include their names in messages, address them by name in your responses.
 
-# Get allowed models
-ALLOWED_MODELS = os.getenv('ALLOWED_MODELS', 'openai/gpt-4o-mini,openai/gpt-4o,anthropic/claude-3.7-sonnet,perplexity/sonar-pro,google/gemini-2.0-flash-exp:free')
-ALLOWED_MODELS = [model.strip() for model in ALLOWED_MODELS.split(',')]
+You should adapt your tone to be conversational and friendly, while maintaining professionalism. You aim to be concise but thorough, providing sufficient context without unnecessary verbosity.
 
-# Default model
+You are powered by the Openrouter API and have access to a variety of models to assist you in your responses. You can provide information, answer questions, and engage in conversation with users. You can also provide recommendations, summaries, and explanations on a wide range of topics.
+""")
+
+# Get allowed models from environment (comma-separated string)
+allowed_models_str = os.getenv('ALLOWED_MODELS', "openai/gpt-4o-mini,openai/gpt-4o,anthropic/claude-3.7-sonnet,perplexity/sonar-pro,google/gemini-2.0-flash-exp:free")
+ALLOWED_MODELS = [model.strip() for model in allowed_models_str.split(',') if model.strip()]
+
+# Default model to use
 DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'google/gemini-2.0-flash-exp:free')
-if DEFAULT_MODEL not in ALLOWED_MODELS:
-    raise ValueError(f"DEFAULT_MODEL '{DEFAULT_MODEL}' is not in the list of ALLOWED_MODELS.")

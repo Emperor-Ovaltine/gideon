@@ -3,6 +3,7 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 from .config import DISCORD_TOKEN
+from .utils.model_sync import sync_models
 
 # Load environment variables
 load_dotenv()
@@ -41,32 +42,46 @@ async def on_ready():
     except Exception as e:
         print(f"Warning: Could not clear existing commands: {e}")
     
-    # Load cogs after clearing commands
-    try:
-        bot.load_extension("src.cogs.llm_chat")
-        print("LLM Chat extension loaded successfully.")
-        
-        # Sync commands after loading extensions
+    # Load modular cogs
+    cogs = [
+        "src.cogs.chat_commands",
+        "src.cogs.thread_commands", 
+        "src.cogs.config_commands",
+        "src.cogs.diagnostic_commands"
+    ]
+    
+    for cog in cogs:
         try:
-            print("Syncing commands to Discord...")
-            
-            # First sync to the specified guild(s) if debug_guilds is set
-            if hasattr(bot, 'debug_guilds') and bot.debug_guilds:
-                # For guild specific commands
-                for guild_id in bot.debug_guilds:
-                    await bot.sync_commands(guild_ids=[guild_id])
-                print(f"Synced commands to test guilds: {bot.debug_guilds}")
-            
-            # Then sync globally
-            await bot.sync_commands()
-            print("Synced commands globally")
+            bot.load_extension(cog)
+            print(f"{cog} loaded successfully.")
         except Exception as e:
-            print(f"Error syncing commands: {e}")
-            
+            print(f"Error loading {cog}: {e}")
+    
+    # Sync commands after loading extensions
+    try:
+        print("Syncing commands to Discord...")
+        
+        # First sync to the specified guild(s) if debug_guilds is set
+        if hasattr(bot, 'debug_guilds') and bot.debug_guilds:
+            # For guild specific commands
+            for guild_id in bot.debug_guilds:
+                await bot.sync_commands(guild_ids=[guild_id])
+            print(f"Synced commands to test guilds: {bot.debug_guilds}")
+        
+        # Then sync globally
+        await bot.sync_commands()
+        print("Synced commands globally")
     except Exception as e:
-        print(f"Error loading LLM Chat extension: {e}")
+        print(f"Error syncing commands: {e}")
     
     print("Slash commands are now registered. They may take up to an hour to appear across all servers.")
+    
+    # Synchronize model settings across all cogs
+    sync_models(bot)
+    
+    print('Model synchronization complete')
+    print(f'Using global model: {bot.cogs["ConfigCommands"].state.get_global_model()}')
+    print('Ready to serve!')
 
 @bot.slash_command(name="sync", description="Manually sync slash commands (owner only)")
 @commands.is_owner()  # Only you can run this
