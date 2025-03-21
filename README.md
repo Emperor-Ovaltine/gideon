@@ -4,199 +4,131 @@
 ![Py-Cord 2.4+](https://img.shields.io/badge/py--cord-2.4+-blue.svg)
 ![License MIT](https://img.shields.io/badge/license-MIT-green.svg)
 
-> A powerful Discord bot that integrates with OpenRouter to provide intelligent AI conversations and assistance in your Discord server.
+> A powerful Discord bot that connects your server to advanced AI models through OpenRouter, enabling intelligent conversations, thread-based discussions, and image analysis.
 
 ## ✨ Features
 
-- **🤖 AI-Powered Chat** - Access multiple LLMs through OpenRouter including GPT-4o, Claude 3.7, and Gemini
-- **🧠 Conversation Memory** - Maintains context across multiple interactions
-- **🧵 Thread Support** - Create dedicated conversation threads with independent histories
-- **🔄 Multi-Model Switching** - Seamlessly switch between different AI models (OpenAI, Anthropic, Google, etc.)
-- **📊 Vision Capabilities** - Analyze and respond to images with compatible models
-- **🛠️ Admin Controls** - Customize settings with administrator-only commands
-- **📱 Easy Setup** - Simple configuration using environment variables
-- **🔄 Automatic Thread Responses** - Bot automatically responds to all messages posted in AI threads
-- **🌅 Image Analysis** - Upload and analyze images with compatible AI models
-- **🆔 Simple Thread IDs** - Each thread gets a short, easy-to-reference ID
-- **🎭 Channel Personalities** - Set different system prompts per channel for specialized assistants
+### Intelligence
+- **🤖 Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more
+- **🧠 Conversation Memory** - Bot remembers context for natural discussions
+- **🌅 Image Analysis** - Upload and analyze images with vision-capable models
 
-## 🚀 Quick Start
+### Organization
+- **🧵 Conversation Threads** - Create dedicated topics with independent histories
+- **🆔 Simple References** - Each thread gets a short, easy-to-reference ID
+- **🔄 Auto-Responses** - Bot automatically answers all messages in AI threads
+
+### Customization
+- **🔄 Model Switching** - Change AI models on-the-fly with simple commands
+- **🎭 Channel Personalities** - Set different system prompts per channel
+- **🛠️ Admin Controls** - Comprehensive configuration options for server admins
+
+## 🚀 Installation
+
+### Prerequisites
+- Python 3.8+
+- Discord bot token with Message Content Intent enabled
+- OpenRouter API key
+
+### Setup
 
 ```bash
-# Clone the repository
+# Clone and enter repository
 git clone https://github.com/Emperor-Ovaltine/gideon
 cd gideon
 
-# Set up virtual environment and install dependencies
+# Set up environment and dependencies
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Configure environment
+# Configure bot
 cp .env.example .env
 # Edit .env with your Discord token and OpenRouter API key
 
-# Launch the bot
+# Launch
 python3 -m src
 ```
 
-## 📋 Requirements
+### Discord Configuration
 
-- Python 3.8 or higher
-- Discord bot token with Message Content Intent enabled
-- OpenRouter API key
-
-## 💻 Detailed Installation
-
-### 1. Setting Up Your Environment
-
-```bash
-# Create a virtual environment
-python -m venv venv
-
-# Activate the environment
-# On macOS/Linux:
-source venv/bin/activate
-# On Windows:
-venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Configuring the Bot
-
-```bash
-# Copy the example configuration
-cp .env.example .env
-
-# Edit the configuration file with your credentials
-# DISCORD_TOKEN: Your Discord bot token
-# OPENROUTER_API_KEY: Your OpenRouter API key
-# SYSTEM_PROMPT: Customize the bot's personality
-```
-
-### 3. Discord Developer Portal Setup
-
-1. Create a new application at [Discord Developer Portal](https://discord.com/developers/applications)
-2. Navigate to the "Bot" tab and:
+1. Create an application at [Discord Developer Portal](https://discord.com/developers/applications)
+2. Under "Bot" tab:
    - Enable "Message Content Intent"
-   - Copy your bot token to the `.env` file
-3. Generate an invite URL in "OAuth2 > URL Generator":
-   - Required scopes: `bot`, `applications.commands`
-   - Required permissions:
-     - Send Messages
-     - Read Message History
-     - Embed Links
-     - Use Slash Commands
+   - Copy your bot token for the `.env` file
+3. Generate invite URL in "OAuth2 > URL Generator":
+   - Scopes: `bot`, `applications.commands`
+   - Permissions: Send Messages, Read Message History, Embed Links, Use Slash Commands
 
-### 4. Starting Gideon
+## 🤖 Commands
 
-```bash
-# With your virtual environment activated:
-python -m src
-```
-
-## 🤖 Command Reference
-
-### Core Chat Commands
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/chat` | Chat with the AI | `/chat message:Explain quantum computing` |
-| `/reset` | Clear conversation history | `/reset` |
-| `/summarize` | Generate conversation summary | `/summarize` |
-| `/memory` | Show message history stats | `/memory` |
+### Chat Commands
+| Command | Description |
+|---------|-------------|
+| `/chat` | Talk with the AI (supports image attachments) |
+| `/reset` | Clear conversation history |
+| `/summarize` | Create a summary of the current conversation |
+| `/memory` | Show conversation stats for this channel |
 
 ### Thread Management
+| Command | Description |
+|---------|-------------|
+| `/thread new` | Create a conversation thread |
+| `/thread message` | Send a message to a specific thread |
+| `/thread list` | View all threads in this channel |
+| `/thread delete` | Remove a thread |
+| `/thread rename` | Change a thread's name |
+| `/thread setmodel` | Set model for current thread |
+| `/thread setsystem` | Set custom personality for thread |
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/thread new` | Create a conversation thread | `/thread new name:Physics Discussion message:Let's talk about quantum mechanics` |
-| `/thread message` | Chat in a specific thread | `/thread message id:123 message:Tell me more` |
-| `/thread list` | Show available threads | `/thread list` |
-| `/thread delete` | Delete a thread | `/thread delete id:123` |
-| `/thread rename` | Rename an existing thread | `/thread rename id:123 name:New Thread Name` |
-| `/thread setmodel` | Set AI model for a thread | `/thread setmodel model_name:anthropic/claude-3.7-sonnet` |
+### Configuration (Admin Only)
+| Command | Description |
+|---------|-------------|
+| `/setmodel` | Change global AI model |
+| `/model` | View/change current model |
+| `/setsystem` | Customize AI personality |
+| `/setchannelmodel` | Set model for current channel |
+| `/setchannelsystem` | Set personality for current channel |
+| `/setmemory` | Set message history limit |
+| `/setwindow` | Set time window for memory |
 
-### Model & System Configuration (Admin Only)
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/setmodel` | Change global AI model | `/setmodel model_name:openai/gpt-4o` |
-| `/setsystem` | Customize global AI personality | `/setsystem new_prompt:You are Gideon...` |
-| `/setchannelmodel` | Set channel-specific model | `/setchannelmodel model_name:anthropic/claude-3.7-sonnet` |
-| `/setchannelsystem` | Set channel-specific personality | `/setchannelsystem new_prompt:You are a coding assistant...` |
-| `/channelsystem` | Show channel's system prompt | `/channelsystem` |
-| `/resetchannelsystem` | Reset to default system prompt | `/resetchannelsystem` |
-| `/thread setsystem` | Set thread-specific personality | `/thread setsystem new_prompt:You are a history expert...` |
-| `/setmemory` | Set history message limit | `/setmemory size:50` |
-| `/setwindow` | Configure memory time window | `/setwindow hours:24` |
-| `/resetchannelmodel` | Reset to default model | `/resetchannelmodel` |
-
-### Diagnostic Tools
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/diagnostic` | Check network connectivity | `/diagnostic` |
-| `/model` | Show current AI model | `/model` |
-| `/channelmodel` | Show channel's AI model | `/channelmodel` |
-| `/visionmodels` | List models supporting images | `/visionmodels` |
-| `/showsystem` | Display current system prompt | `/showsystem` |
+### Diagnostics
+| Command | Description |
+|---------|-------------|
+| `/diagnostic` | Test connections and configuration |
+| `/visionmodels` | List models supporting image analysis |
+| `/stateinfo` | Show memory usage statistics |
 
 ## 📚 Supported Models
 
-Gideon supports various AI models through OpenRouter, including:
+Gideon works with any model available through OpenRouter, including:
 
-- OpenAI: `openai/gpt-4o-mini`, `openai/gpt-4o`
-- Anthropic: `anthropic/claude-3.7-sonnet`
-- Google: `google/gemini-2.0-flash-exp:free`
-- Microsoft: `microsoft/wizardlm-2-8x22b`
-- Perplexity: `perplexity/sonar-pro`
+- **OpenAI**: GPT-4o, GPT-4o-mini
+- **Anthropic**: Claude 3.7 Sonnet
+- **Google**: Gemini 2.0 Flash
+- **Perplexity**: Sonar Pro
+- **And more!**
+Models can be configured in the `.env` file using the `ALLOWED_MODELS` setting.
 
 ## 📁 Project Structure
 
 ```
 gideon/
-├── src/                    # Main source code
-│   ├── __init__.py         # Package initializer 
-│   ├── __main__.py         # Entry point
-│   ├── bot.py              # Bot initialization and events
-│   ├── config.py           # Configuration handling
-│   ├── cogs/               # Bot command modules
-│   │   ├── chat_commands.py     # Core chat functionality
-│   │   ├── thread_commands.py   # Thread conversation management
-│   │   ├── config_commands.py   # Bot configuration options
-│   │   └── diagnostic_commands.py # Troubleshooting tools
+├── src/                    # Source code
+│   ├── bot.py              # Bot initialization
+│   ├── config.py           # Configuration
+│   ├── cogs/               # Command modules
 │   └── utils/              # Utility functions
-│       ├── openrouter_client.py  # OpenRouter API client
-│       ├── state_manager.py      # Centralized state management
-│       ├── conversation.py       # Conversation context handling
-│       └── permissions.py        # Discord permissions handling
-├── .env.example            # Example environment variables
-├── LICENSE                 # MIT License
-├── README.md               # This file
+├── .env.example            # Environment template
 └── requirements.txt        # Dependencies
 ```
 
-## ❓ FAQ & Troubleshooting
+## ❓ Troubleshooting
 
-### Connection Issues
-
-**Q: Why can't my bot connect to OpenRouter?**
-- Run the `/diagnostic` command to check network connectivity
-- Verify your OpenRouter API key is valid and has available credits
-- Check if your network blocks API requests
-
-**Q: The bot is online but doesn't respond to commands**
-- Ensure you've enabled the Message Content Intent in Discord Developer Portal
-- Check if the bot has the correct permissions in your server
-- Try the `/sync` command (bot owner only) to refresh slash commands
-
-**Q: Some AI models aren't working**
-- Certain models may require credits on your OpenRouter account
-- Check if the model is listed in your ALLOWED_MODELS in the .env file
-- Run `/visionmodels` to check which models support image processing
+- **Connection Issues**: Run `/diagnostic` to check network connectivity
+- **Missing Commands**: Make sure the bot has proper permissions and try `/sync` (owner only)
+- **Model Problems**: Some models require OpenRouter credits - check your account
+- **State Issues**: Use `/savestate` to manually persist bot memory
 
 ## 📝 License
 
