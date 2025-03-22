@@ -36,3 +36,7 @@ if not os.path.isabs(DATA_DIRECTORY):
 
 # AI Horde Configuration
 AI_HORDE_API_KEY = os.getenv('AI_HORDE_API_KEY', '')
+
+# Cloudflare Worker Configuration
+CLOUDFLARE_WORKER_URL = os.getenv('CLOUDFLARE_WORKER_URL', 'https://your-worker-url.workers.dev/')
+CLOUDFLARE_API_KEY = os.getenv('CLOUDFLARE_API_KEY', '')
