@@ -88,8 +88,9 @@ async def on_ready():
         "src.cogs.config_commands",
         "src.cogs.diagnostic_commands",
         "src.cogs.mention_commands",
-        "src.cogs.image_commands",  # Add this line
-        "src.cogs.cloudflare_image_commands"
+        "src.cogs.image_commands",
+        "src.cogs.cloudflare_image_commands",
+        "src.cogs.url_commands"  # Add this line
     ]
     
     for cog in cogs:
