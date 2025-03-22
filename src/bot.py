@@ -86,7 +86,8 @@ async def on_ready():
         "src.cogs.chat_commands",
         "src.cogs.thread_commands", 
         "src.cogs.config_commands",
-        "src.cogs.diagnostic_commands"
+        "src.cogs.diagnostic_commands",
+        "src.cogs.mention_commands"  # Add this line
     ]
     
     for cog in cogs:
