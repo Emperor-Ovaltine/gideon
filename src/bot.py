@@ -87,7 +87,8 @@ async def on_ready():
         "src.cogs.thread_commands", 
         "src.cogs.config_commands",
         "src.cogs.diagnostic_commands",
-        "src.cogs.mention_commands"  # Add this line
+        "src.cogs.mention_commands",
+        "src.cogs.image_commands"  # Add this line
     ]
     
     for cog in cogs:

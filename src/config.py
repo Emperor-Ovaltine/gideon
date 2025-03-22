@@ -33,3 +33,6 @@ DATA_DIRECTORY = os.getenv("DATA_DIRECTORY", os.path.join(os.path.dirname(os.pat
 if not os.path.isabs(DATA_DIRECTORY):
     # If relative path is provided, make it absolute based on the script location
     DATA_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), DATA_DIRECTORY))
+
+# AI Horde Configuration
+AI_HORDE_API_KEY = os.getenv('AI_HORDE_API_KEY', '')
