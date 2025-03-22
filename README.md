@@ -12,7 +12,7 @@
 - **🤖 Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more
 - **🧠 Conversation Memory** - Bot remembers context for natural discussions
 - **🌅 Image Analysis** - Upload and analyze images with vision-capable models
-- **🎨 Image Generation** - Create AI-generated images with various Stable Diffusion models via AI Horde
+- **🎨 Image Generation** - Create AI-generated images with various Stable Diffusion models via AI Horde or via your custom Cloudflare Worker
 
 ### Organization
 - **🧵 Conversation Threads** - Create dedicated topics with independent histories
@@ -31,6 +31,7 @@
 - Discord bot token with Message Content Intent enabled
 - OpenRouter API key
 - AI Horde API key (optional but recommended for better queue priority)
+- Cloudflare Worker URL (optional, for additional image generation capabilities)
 
 ### Setup
 
@@ -62,6 +63,19 @@ python3 -m src
    - Scopes: `bot`, `applications.commands`
    - Permissions: Send Messages, Read Message History, Embed Links, Use Slash Commands
 
+### Cloudflare Worker Configuration (Optional)
+
+**⚠️ IMPORTANT:** Setting up and deploying the Cloudflare Worker is the responsibility of the end user. Gideon does not provide support for configuring or troubleshooting Cloudflare Workers.
+
+If you want to use the `/dream` command for generating images:
+
+1. Create and deploy your own Cloudflare Worker that can generate images
+2. The worker should accept a JSON payload with at least a `prompt` field
+3. Set the `CLOUDFLARE_WORKER_URL` in your `.env` file to your worker's URL
+4. Optionally set `CLOUDFLARE_API_KEY` if your worker requires authentication
+
+An example Cloudflare worker that been tested with Gideon can be found here: https://github.com/Emperor-Ovaltine/flux1-cloudflare-worker
+
 ## 🤖 Commands
 
 ### Chat Commands
@@ -88,6 +102,8 @@ python3 -m src
 |---------|-------------|
 | `/imagine` | Generate an image with AI Horde based on your text prompt |
 | `/hordemodels` | List available image generation models on AI Horde |
+| `/dream` | Generate an image using your configured Cloudflare Worker |
+| `/cftest` | Test connection to your Cloudflare Worker |
 
 ### Configuration (Admin Only)
 | Command | Description |
@@ -116,11 +132,15 @@ python3 -m src
 - **Perplexity**: Sonar Pro
 - **And more!**
 
-### Image Models (via AI Horde)
+### Image Models
+#### Via AI Horde
 - **Stable Diffusion**: SD 2.1, SDXL, and more
 - **Midjourney Diffusion**
 - **Realistic Vision**
 - **And many community models!**
+
+#### Via Cloudflare Worker (requires self-setup)
+- **Custom model implementation** - Your Cloudflare Worker can integrate any image generation model you choose to implement
 
 Text models can be configured in the `.env` file using the `ALLOWED_MODELS` setting.
 
@@ -135,10 +155,12 @@ gideon/
 │   │   ├── chat_commands.py      # Basic chat functionality
 │   │   ├── thread_commands.py    # Thread management
 │   │   ├── image_commands.py     # Image generation
+│   │   ├── cloudflare_image_commands.py # Cloudflare image generation
 │   │   └── ...
 │   └── utils/              # Utility functions
 │       ├── openrouter_client.py  # API client for text models
 │       ├── ai_horde_client.py    # API client for image generation
+│       ├── cloudflare_client.py  # API client for Cloudflare image generation
 │       └── ...
 ├── .env.example            # Environment template
 └── requirements.txt        # Dependencies
@@ -151,6 +173,7 @@ gideon/
 - **Model Problems**: Some models require OpenRouter credits - check your account
 - **State Issues**: Use `/savestate` to manually persist bot memory
 - **Image Generation Issues**: If `/imagine` fails, try smaller dimensions (512×512), fewer steps, or a different model. Some models require more kudos on AI Horde.
+- **Cloudflare Worker Issues**: Use `/cftest` to diagnose Cloudflare Worker connectivity problems. Remember that setting up the worker is your responsibility.
 
 ## 📝 License
 
