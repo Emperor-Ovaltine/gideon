@@ -27,7 +27,7 @@ class CloudflareImageCommands(commands.Cog):
     
     @discord.slash_command(
         name="dream",
-        description="Generate an image with flux1 schnell model via Cloudflare"
+        description="Generate an image via Cloudflare"
     )
     async def dream_slash(self, ctx, 
                         prompt: discord.Option(str, "Describe the image you want to create"),
@@ -61,7 +61,7 @@ class CloudflareImageCommands(commands.Cog):
         
         # Show a thinking message
         thinking_msg = await ctx.respond(
-            f"✨ Dreaming: `{prompt}`\n\n*Generating image with flux1 schnell model...*"
+            f"✨ Dreaming: `{prompt}`\n\n*Generating image...*"
         )
         
         # Update the message periodically to show it's still working
