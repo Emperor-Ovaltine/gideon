@@ -8,6 +8,13 @@ from ..utils.state_manager import BotStateManager
 from ..utils.openrouter_client import OpenRouterClient
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL
 from datetime import datetime
+from ..utils.cloudflare_client import CloudflareWorkerClient
+import os
+import asyncio
+import logging
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 class DungeonMasterCommands(commands.Cog):
     """Commands for AI-powered D&D game sessions."""
@@ -22,6 +29,14 @@ class DungeonMasterCommands(commands.Cog):
             self.state.dnd_adventures = {}
         
         print(f"DungeonMasterCommands cog initialized")
+        
+        # For scene image generation
+        self.turn_counter = 0
+        self.image_frequency = 5  # Generate an image every 5 turns
+        self.cf_client = CloudflareWorkerClient(
+            os.environ.get("CLOUDFLARE_WORKER_URL", "https://image-generator.example.workers.dev"),
+            os.environ.get("CLOUDFLARE_API_KEY")
+        )
     
     adventure_group = discord.SlashCommandGroup(
         "adventure", 
@@ -221,6 +236,13 @@ class DungeonMasterCommands(commands.Cog):
             # Send the response
             await processing_msg.edit(content=f"🎭 **{ctx.author.display_name}**: {action}", embed=embed)
             
+            # Image generation logic
+            # Increment turn counter and check if we should generate an image
+            self.turn_counter += 1
+            if self.image_frequency > 0 and self.turn_counter % self.image_frequency == 0:
+                # Generate image in the background so it doesn't block the game flow
+                asyncio.create_task(self.generate_scene_image(ctx.channel, response))
+            
         finally:
             # Restore original model
             self.openrouter_client.model = current_model
@@ -406,6 +428,125 @@ class DungeonMasterCommands(commands.Cog):
         )
         
         await ctx.respond(embed=embed)
+    
+    async def _create_image_prompt(self, narration):
+        """Use the LLM to create a better image prompt from the narration text."""
+        try:
+            # Store original model
+            current_model = self.openrouter_client.model
+            
+            try:
+                # Set model to global model
+                model_to_use = self.state.get_global_model()
+                self.openrouter_client.model = model_to_use
+                
+                system_prompt = (
+                    "You are an expert at creating vivid image generation prompts. "
+                    "Convert the following D&D game narration into a detailed, visual prompt "
+                    "suitable for fantasy image generation. Focus on describing the visual scene, "
+                    "characters, lighting, mood, and environment. Keep it under 100 words, "
+                    "and make it highly descriptive for an AI image generator."
+                )
+                
+                response = await self.openrouter_client.send_message_with_history(
+                    [{"role": "user", "content": f"Create an image prompt based on this game narration:\n\n{narration}"}],
+                    system_prompt=system_prompt
+                )
+                
+                enhanced_prompt = f"{response.strip()}, fantasy art style, detailed, vibrant colors, dramatic lighting"
+                return enhanced_prompt
+                
+            finally:
+                # Restore original model
+                self.openrouter_client.model = current_model
+                
+            return f"Fantasy RPG scene: {narration[:150]}..."
+        except Exception as e:
+            logger.error(f"Error creating image prompt: {str(e)}")
+            return f"Fantasy RPG scene with characters in a dynamic pose: {narration[:100]}..."
+    
+    async def generate_scene_image(self, channel, narration):
+        """Generate an image based on the current scene and display it to players."""
+        try:
+            thinking_msg = await channel.send("🎨 *Creating a visual of the current scene...*")
+            image_prompt = await self._create_image_prompt(narration)
+            logger.info(f"Generated image prompt: {image_prompt}")
+            progress_task = asyncio.create_task(self._update_progress(thinking_msg))
+            result = await self.cf_client.generate_image(
+                prompt=image_prompt,
+                negative_prompt="blurry, distorted, text, watermark, signature, low quality, disfigured, cartoon",
+                width=768,
+                height=512,
+                steps=30,
+                seed=random.randint(0, 2147483647)
+            )
+            progress_task.cancel()
+            if result.get("success", False):
+                embed = discord.Embed(
+                    title="📜 Scene Visualization",
+                    description=f"*{image_prompt[:200]}{'...' if len(image_prompt) > 200 else ''}*",
+                    color=discord.Color.dark_gold()
+                )
+                if "image_url" in result:
+                    embed.set_image(url=result["image_url"])
+                    await thinking_msg.edit(content=None, embed=embed)
+                elif "local_path" in result:
+                    file = discord.File(result["local_path"], filename="scene.jpg")
+                    embed.set_image(url=f"attachment://scene.jpg")
+                    await thinking_msg.edit(content=None, embed=embed, file=file)
+                return True
+            else:
+                await thinking_msg.delete()
+                return False
+        except Exception as e:
+            logger.error(f"Error generating scene image: {str(e)}")
+            try:
+                await thinking_msg.delete()
+            except:
+                pass
+            return False
+    
+    async def _update_progress(self, message):
+        """Updates the progress message periodically."""
+        dots = 1
+        wait_time = 0
+        try:
+            while True:
+                dot_str = "." * dots
+                await message.edit(content=f"🎨 *Creating a visual of the current scene{dot_str} ({wait_time}s)*")
+                dots = (dots % 3) + 1
+                wait_time += 2
+                await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Error in progress updates: {str(e)}")
+    
+    @adventure_group.command(name="config_images", description="Configure image generation frequency")
+    async def config_images(
+        self, 
+        ctx, 
+        frequency: discord.Option(
+            int, 
+            "Number of turns between image generation (0 to disable)", 
+            min_value=0, 
+            max_value=20,
+            required=True
+        )
+    ):
+        """Configure how often scene images are generated during gameplay."""
+        await ctx.defer()
+        if frequency == 0:
+            self.image_frequency = 0
+            await ctx.respond("📷 Scene image generation has been disabled.")
+        else:
+            self.image_frequency = frequency
+            await ctx.respond(f"📷 Scene images will be generated every {frequency} turns.")
+    
+    async def process_turn(self, ctx, action, *args, **kwargs):
+        """Process a player's turn in the adventure."""
+        # Placeholder for future implementation
+        pass
 
 def setup(bot):
     try:

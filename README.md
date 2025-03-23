@@ -20,7 +20,7 @@
 
 ## 🌟 Overview
 
-Gideon transforms your Discord server into an AI-powered hub, connecting members to state-of-the-art language and image models. With Gideon, users can have intelligent conversations, generate creative images, analyze visual content, create D&D adventures, and organize discussions through an intuitive thread system.
+Gideon transforms your Discord server into an AI-powered hub, connecting members to state-of-the-art language and image models. With Gideon, users can have intelligent conversations, generate creative images, analyze visual content, create fantasy adventures, and organize discussions through an intuitive thread system.
 
 ## ✨ Features
 
@@ -35,11 +35,12 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 - **Simple References** - Each thread gets a short, easy-to-reference ID
 - **Auto-Responses** - Bot automatically responds to all messages in AI threads
 
-### 🎲 D&D Game Master
-- **Interactive Adventures** - Create and explore AI-driven D&D campaigns
+### 🎲 Fantasy Game Master
+- **Interactive Adventures** - Create and explore AI-driven tabletop RPG campaigns
 - **Multiple Settings** - Choose from Fantasy, Sci-Fi, Horror, Modern, or Custom worlds
 - **Dice Rolling** - Integrated dice mechanics with automatic result narration
 - **Campaign State Tracking** - Track progress and character actions throughout your adventure
+- **Automatic Scene Visualization** - Generate images of key moments in your adventure (requires Cloudflare Worker)
 
 ### 🛠️ Customization
 - **Model Switching** - Change AI models on-the-fly with simple commands
@@ -98,6 +99,8 @@ If you want to use the `/dream` command for generating images:
 
 An example Cloudflare worker that been tested with Gideon can be found here: https://github.com/Emperor-Ovaltine/flux1-cloudflare-worker
 
+**Note:** Setting up a Cloudflare Worker is also required for scene visualization in Adventure mode.
+
 ## 🤖 Commands
 
 ### Chat Commands
@@ -119,14 +122,15 @@ An example Cloudflare worker that been tested with Gideon can be found here: htt
 | `/thread setmodel` | Set model for current thread |
 | `/thread setsystem` | Set custom personality for thread |
 
-### D&D Adventure Commands
+### Adventure Commands
 | Command | Description |
 |:-------:|:------------|
-| `/adventure start` | Start a new D&D adventure (Fantasy, Sci-Fi, Horror, Modern, or Custom) |
+| `/adventure start` | Start a new tabletop RPG adventure (Fantasy, Sci-Fi, Horror, Modern, or Custom) |
 | `/adventure action` | Take an action in the current adventure |
 | `/adventure roll` | Roll dice (e.g., 1d20, 2d6, 3d8+2) with narrated results |
 | `/adventure status` | Check the status of the current adventure |
 | `/adventure end` | End the current adventure with summary |
+| `/adventure config_images` | Configure frequency of scene image generation |
 
 ### Image Generation
 | Command | Description |
@@ -187,7 +191,7 @@ gideon/
 │   │   ├── thread_commands.py          # Thread management
 │   │   ├── image_commands.py           # Image generation
 │   │   ├── cloudflare_image_commands.py # Cloudflare image generation
-│   │   ├── dungeon_master_commands.py  # D&D adventure functionality
+│   │   ├── dungeon_master_commands.py  # Adventure functionality
 │   │   └── ...
 │   └── utils/              # Utility functions
 │       ├── openrouter_client.py  # API client for text models
@@ -198,9 +202,9 @@ gideon/
 └── requirements.txt        # Dependencies
 ```
 
-## 🎲 D&D Adventure System
+## 🎲 Adventure System
 
-The D&D Adventure System transforms Gideon into an AI Dungeon Master for immersive roleplaying experiences:
+The Adventure System transforms Gideon into an AI Game Master for immersive tabletop roleplaying experiences:
 
 ### Features
 - **AI-Powered Storytelling**: Dynamic narratives adapt to player actions
@@ -208,6 +212,9 @@ The D&D Adventure System transforms Gideon into an AI Dungeon Master for immersi
 - **Persistent State**: Adventure progress is saved between sessions
 - **Integrated Dice System**: Roll dice with standard RPG notation (1d20, 2d6+3, etc.)
 - **Campaign Management**: Check status and track adventure progress
+- **Scene Visualization**: Automatically generate images of key moments in your adventure
+  - **Note**: This feature requires a configured Cloudflare Worker
+  - Configure visualization frequency with `/adventure config_images`
 
 ### Using the Adventure System
 1. Start an adventure with `/adventure start`
@@ -215,6 +222,7 @@ The D&D Adventure System transforms Gideon into an AI Dungeon Master for immersi
 3. Roll dice when needed with `/adventure roll [dice notation]`
 4. Check your progress with `/adventure status`
 5. End your adventure when complete with `/adventure end`
+6. Adjust image generation with `/adventure config_images [frequency]` (0 to disable)
 
 Each adventure is channel-specific and can use your configured AI model for tailored experiences.
 
@@ -226,7 +234,8 @@ Each adventure is channel-specific and can use your configured AI model for tail
 - **State Issues**: Use `/savestate` to manually persist bot memory
 - **Image Generation Issues**: If `/imagine` fails, try smaller dimensions (512×512), fewer steps, or a different model. Some models require more kudos on AI Horde.
 - **Cloudflare Worker Issues**: Use `/cftest` to diagnose Cloudflare Worker connectivity problems. Remember that setting up the worker is your responsibility.
-- **D&D Adventure Issues**: If an adventure gets stuck, try ending it with `/adventure end` and starting a new one.
+- **Adventure Issues**: If an adventure gets stuck, try ending it with `/adventure end` and starting a new one.
+- **Adventure Image Generation**: If scene images aren't generating in adventure mode, make sure you have properly configured your Cloudflare Worker and tested it with `/cftest`.
 
 ## 📝 License
 
