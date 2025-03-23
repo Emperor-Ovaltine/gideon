@@ -42,9 +42,9 @@ class DungeonMasterCommands(commands.Cog):
                                       "The setting for your adventure",
                                       choices=["Fantasy", "Sci-Fi", "Horror", "Modern", "Custom"]
                                   ) = "Fantasy",
-                                  custom_prompt: discord.Option(
+                                  description: discord.Option(
                                       str, 
-                                      "Custom adventure prompt (if Custom setting is selected)",
+                                      "Adventure description (required for Custom setting, optional for others)",
                                       required=False
                                   ) = None):
         await ctx.defer()
@@ -56,9 +56,14 @@ class DungeonMasterCommands(commands.Cog):
             await ctx.respond("⚠️ There's already an active adventure in this channel. End it with `/adventure end` before starting a new one.")
             return
         
+        # Check if Custom is selected but no prompt provided
+        if setting == "Custom" and not description:
+            await ctx.respond("⚠️ You must provide a description when selecting the Custom setting.")
+            return
+        
         # Build the prompt based on the setting
-        if setting == "Custom" and custom_prompt:
-            adventure_prompt = custom_prompt
+        if setting == "Custom" and description:
+            adventure_prompt = description
         else:
             # Default prompts based on setting
             prompts = {
