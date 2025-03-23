@@ -503,6 +503,12 @@ class ThreadCommands(commands.Cog):
         if isinstance(message.channel, discord.Thread):
             thread_id = str(message.channel.id)
             
+            # Skip if this is an adventure thread (handled by DungeonMasterCommands)
+            if hasattr(self.bot, 'cogs') and 'DungeonMasterCommands' in self.bot.cogs:
+                dnd_cog = self.bot.cogs['DungeonMasterCommands']
+                if hasattr(dnd_cog, 'adventures') and thread_id in dnd_cog.adventures:
+                    return  # Skip processing adventure threads
+            
             # Only process thread messages if:
             # 1. We have the thread in our tracking dict, or
             # 2. The thread was created from a message by the bot
