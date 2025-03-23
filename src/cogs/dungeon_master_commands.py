@@ -62,7 +62,8 @@ class DungeonMasterCommands(commands.Cog):
             return
         
         # Build the prompt based on the setting
-        if setting == "Custom" and description:
+        if description:
+            # If a description is provided, use it regardless of the setting
             adventure_prompt = description
         else:
             # Default prompts based on setting
