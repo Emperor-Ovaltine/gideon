@@ -90,15 +90,26 @@ async def on_ready():
         "src.cogs.mention_commands",
         "src.cogs.image_commands",
         "src.cogs.cloudflare_image_commands",
-        "src.cogs.url_commands"  # Add this line
+        "src.cogs.url_commands",
+        "src.cogs.dungeon_master_commands"  # Add this line
     ]
     
     for cog in cogs:
         try:
             bot.load_extension(cog)
             print(f"{cog} loaded successfully.")
+            
+            # Additional debug info for dungeon master commands
+            if cog == "src.cogs.dungeon_master_commands":
+                print("DND cog commands being registered:")
+                if hasattr(bot.cogs.get("DungeonMasterCommands", {}), "get_commands"):
+                    commands = bot.cogs["DungeonMasterCommands"].get_commands()
+                    for cmd in commands:
+                        print(f"  - {cmd.name}: {type(cmd).__name__}")
         except Exception as e:
             print(f"Error loading {cog}: {e}")
+            if cog == "src.cogs.dungeon_master_commands":
+                print(f"Detailed error for DND cog: {traceback.format_exc()}")
     
     # Sync commands after loading extensions
     try:
@@ -336,6 +347,32 @@ async def state_info_command(ctx):
         )
     
     await ctx.respond(embed=embed)
+
+# Add a direct command to test if the dungeon_master_commands cog is loaded
+@bot.slash_command(name="test_dnd_cog", description="Test if the DND cog is loaded properly")
+@commands.is_owner()
+async def test_dnd_cog(ctx):
+    await ctx.defer()
+    
+    if "DungeonMasterCommands" in bot.cogs:
+        cog = bot.cogs["DungeonMasterCommands"]
+        commands = []
+        if hasattr(cog, "get_commands"):
+            commands = [cmd.name for cmd in cog.get_commands()]
+        
+        # For application commands
+        app_commands = []
+        if hasattr(cog, "get_app_commands"):
+            app_commands = [cmd.name for cmd in cog.get_app_commands()]
+        
+        await ctx.respond(
+            f"✅ DungeonMasterCommands cog is loaded.\n"
+            f"Regular commands: {commands}\n"
+            f"App commands: {app_commands}\n"
+            f"SlashCommandGroup: {hasattr(cog, 'adventure_group')}"
+        )
+    else:
+        await ctx.respond("❌ DungeonMasterCommands cog is NOT loaded.")
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
