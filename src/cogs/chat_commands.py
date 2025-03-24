@@ -2,6 +2,7 @@
 import discord
 import asyncio
 import socket
+import re  # Add this import here
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
 from ..utils.conversation import get_channel_context
@@ -30,6 +31,141 @@ class ChatCommands(commands.Cog):
         """Get the appropriate model for this channel"""
         return self.state.get_effective_model(channel_id)
         
+    def format_perplexity_response(self, response_text):
+        """
+        Formats model responses into embeds with pagination.
+        Returns a list of embed objects ready to be displayed.
+        """
+        # Create embeds with pagination
+        embeds = []
+        
+        # Split main content into chunks of ~4000 characters (embed description limit is 4096)
+        # Try to split on paragraph boundaries
+        paragraphs = response_text.split('\n\n')
+        current_embed = discord.Embed(
+            title="AI Response",
+            color=discord.Color.blue()
+        )
+        current_content = ""
+        
+        for paragraph in paragraphs:
+            # If adding this paragraph would exceed the limit, create a new embed
+            if len(current_content) + len(paragraph) + 2 > 4000:  # +2 for the \n\n
+                current_embed.description = current_content
+                embeds.append(current_embed)
+                current_embed = discord.Embed(
+                    title="AI Response (continued)",
+                    color=discord.Color.blue()
+                )
+                current_content = paragraph
+            else:
+                if current_content:
+                    current_content += "\n\n" + paragraph
+                else:
+                    current_content = paragraph
+        
+        # Don't forget the last embed
+        if current_content:
+            current_embed.description = current_content
+            embeds.append(current_embed)
+        
+        # If no embeds were created (unlikely), create a default one
+        if not embeds:
+            embeds.append(discord.Embed(
+                title="AI Response",
+                description=response_text[:4000] if len(response_text) > 4000 else response_text,
+                color=discord.Color.blue()
+            ))
+        
+        # Add page numbers
+        for i, embed in enumerate(embeds):
+            embed.set_footer(text=f"Page {i+1}/{len(embeds)}")
+        
+        return embeds
+
+    def is_citation_based_model(self, model_name):
+        """
+        Determines if a model uses citations/footnotes in its responses.
+        
+        Args:
+            model_name (str): The model identifier
+            
+        Returns:
+            bool: True if the model typically uses citations
+        """
+        if not model_name:
+            return False
+            
+        # Common identifiers for citation-based models, using more standardized patterns
+        citation_identifiers = [
+            "sonar",
+            "perplexity", 
+            "pplx",
+            "claude-3",  # Covers all Claude 3 models
+            "fireworks/mixtral",
+            "anthropic/claude"
+        ]
+        
+        model_lower = str(model_name).lower()
+        
+        # More detailed logging about the model name
+        print(f"Checking citation model: '{model_name}' (lower: '{model_lower}')")
+        
+        # Check if model contains any of the citation identifiers
+        for identifier in citation_identifiers:
+            if identifier in model_lower:
+                print(f"✅ Model '{model_name}' identified as citation-based (matches '{identifier}')")
+                return True
+                
+        print(f"❌ Model '{model_name}' is NOT identified as citation-based")
+        return False
+        
+    def should_format_citations(self, model_name, response_text):
+        """
+        Determines if a response should be formatted for citations.
+        Checks both the model name and if the response appears to contain citations.
+        
+        Args:
+            model_name (str): The model identifier
+            response_text (str): The model's response
+            
+        Returns:
+            bool: True if the response should be formatted for citations
+        """
+        import re
+        
+        # Explicitly check for Sonar first
+        if "sonar" in str(model_name).lower() or "perplexity" in str(model_name).lower():
+            print(f"✅ Direct match for Sonar/Perplexity model: {model_name}")
+            return True
+            
+        # More robust pattern to detect footnote-style citations
+        # Looks for [number] patterns that likely indicate footnotes
+        footnote_pattern = r'\[\d+\](?:\s+|\n|$)'
+        has_citation_format = bool(re.search(footnote_pattern, response_text))
+        
+        # Check for citation section markers
+        has_reference_section = any(marker in response_text.lower() for marker in 
+                                 ["sources:", "references:", "citations:", "footnotes:"])
+        
+        # Is this a known citation model?
+        is_citation_model = self.is_citation_based_model(model_name)
+        
+        # Log detailed detection info
+        print(f"Citation detection for '{model_name}':")
+        print(f"- Is known citation model: {is_citation_model}")
+        print(f"- Has citation format: {has_citation_format}")
+        print(f"- Has reference section: {has_reference_section}")
+        
+        # More permissive logic:
+        # 1. It's a known citation model OR
+        # 2. It has citation format OR
+        # 3. It has a reference section
+        should_format = is_citation_model or has_citation_format or has_reference_section
+        print(f"Citation formatting decision: {should_format}")
+        
+        return should_format
+
     @discord.slash_command(
         name="chat",
         description="Send a message to the AI assistant"
@@ -140,17 +276,37 @@ class ChatCommands(commands.Cog):
                     "timestamp": datetime.now()
                 })
                 
-                # Split response into chunks of 2000 characters or fewer
-                max_length = 2000
-                chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+                # Debug logs for better troubleshooting
+                is_citation_model = self.is_citation_based_model(model_to_use)
+                has_citation_format = bool(re.search(r'\[\d+\]', response))
+                print(f"Model: {model_to_use}, Is citation model: {is_citation_model}, Has citation format: {has_citation_format}")
                 
-                # Send each chunk as a separate message
-                for i, chunk in enumerate(chunks):
-                    if i == 0:
-                        # Always edit the processing message with first chunk
-                        await processing_msg.edit(content=chunk)
-                    else:
-                        await ctx.channel.send(chunk)
+                # Format responses from models that use citations as paginated embeds
+                if self.should_format_citations(model_to_use, response):
+                    print(f"Formatting response from {model_to_use} with citations")
+                    embeds = self.format_perplexity_response(response)
+                    
+                    # Send the first embed by editing the processing message
+                    if embeds:
+                        await processing_msg.edit(content=None, embed=embeds[0])
+                        
+                        # Send additional embeds if there are more than one
+                        for embed in embeds[1:]:
+                            await ctx.channel.send(embed=embed)
+                else:
+                    print(f"Using standard formatting for model {model_to_use}")
+                    # For non-Sonar models, use the original text response approach
+                    # Split response into chunks of 2000 characters or fewer
+                    max_length = 2000
+                    chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+                    
+                    # Send each chunk as a separate message
+                    for i, chunk in enumerate(chunks):
+                        if i == 0:
+                            # Always edit the processing message with first chunk
+                            await processing_msg.edit(content=chunk)
+                        else:
+                            await ctx.channel.send(chunk)
         finally:
             # Always restore the original model
             self.openrouter_client.model = current_model

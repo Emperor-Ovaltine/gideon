@@ -88,16 +88,15 @@ async def on_ready():
     else:
         print("No saved state found or error loading state, starting fresh")
     
-    # First try to clear all existing commands to start fresh
+    # Get set of existing command names
     try:
-        print("Clearing existing commands...")
-        commands_to_remove = await bot.http.get_global_commands(bot.user.id)
-        for cmd in commands_to_remove:
-            print(f"Removing command: {cmd['name']}")
-            await bot.http.delete_global_command(bot.user.id, cmd['id'])
-        print("Existing commands cleared.")
+        print("Checking existing commands...")
+        existing_commands = await bot.http.get_global_commands(bot.user.id)
+        existing_command_names = {cmd['name'] for cmd in existing_commands}
+        print(f"Found {len(existing_commands)} existing commands")
     except Exception as e:
-        print(f"Warning: Could not clear existing commands: {e}")
+        print(f"Warning: Could not fetch existing commands: {e}")
+        existing_command_names = set()
     
     # Load modular cogs
     cogs = [
@@ -132,7 +131,7 @@ async def on_ready():
             if cog == "src.cogs.dungeon_master_commands":
                 print(f"Detailed error for DND cog: {traceback.format_exc()}")
     
-    # Sync commands after loading extensions
+    # Skip command clearing and just sync
     try:
         print("Syncing commands to Discord...")
         
@@ -142,7 +141,16 @@ async def on_ready():
                 await bot.sync_commands(guild_ids=[guild_id])
             print(f"Synced commands to test guilds: {bot.debug_guilds}")
         
-        # Then sync globally
+        # Then sync globally, but log what's happening
+        current_command_names = {cmd.name for cmd in bot.application_commands}
+        new_commands = current_command_names - existing_command_names
+        removed_commands = existing_command_names - current_command_names
+        
+        if new_commands:
+            print(f"Adding new commands: {', '.join(new_commands)}")
+        if removed_commands:
+            print(f"Removing commands: {', '.join(removed_commands)}")
+            
         await bot.sync_commands()
         print("Synced commands globally")
     except Exception as e:
@@ -213,7 +221,7 @@ async def auto_save_state():
                 channels = len(state.channel_history)
                 threads = sum(len(threads) for threads in state.threads.values())
                 messages = sum(len(history) for history in state.channel_history.values())
-                print(f"Saved data: {channels} channels, {threads} threads, {messages} messages")
+                print(f"Saved data: {channels} channels, {threads} threads, {messages}")
                 
                 # Check if the file was actually written with data
                 if os.path.exists(persistence.state_file):
