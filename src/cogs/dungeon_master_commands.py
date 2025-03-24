@@ -225,7 +225,7 @@ class DungeonMasterCommands(commands.Cog):
 
     @adventure_group.command(
         name="new",
-        description="Start a new D&D adventure in a thread"
+        description="Start a new adventure in a thread"
     )
     async def new_adventure_slash(self, ctx, 
                                name: discord.Option(
