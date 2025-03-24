@@ -2,34 +2,41 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
-from .config import DISCORD_TOKEN
-from .utils.model_sync import sync_models
-from .utils.state_manager import BotStateManager
 import asyncio
+import logging
 from datetime import datetime
-from .utils.persistence import StatePersistence
 import signal
 import sys
 import traceback
 
+# Import configuration 
+from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY
+from .utils.model_sync import sync_models
+from .utils.state_manager import BotStateManager
+from .utils.persistence import StatePersistence
+
+# Configure logger
+logger = logging.getLogger(__name__)
+
 # Load environment variables
 load_dotenv()
 
-# IMPORTANT: The message_content intent is privileged and must be enabled in
-# the Discord Developer Portal: https://discord.com/developers/applications/
-# Select your application, go to "Bot" tab, and enable "Message Content Intent"
+# Create intents
 intents = discord.Intents.default()
-intents.message_content = True  # This requires privileged intent enabled in Discord Developer Portal
+intents.message_content = True
 
 # Create bot with proper command sync settings
 bot = commands.Bot(
     command_prefix="unused!",
     intents=intents,
-    # Important: Set this to False initially to avoid duplicate command registration
     sync_commands=False,
     # Add debug_guilds for testing slash commands in specific servers
     # debug_guilds=[123456789012345678]  # Replace with your test server ID(s)
 )
+
+# Properly import OpenRouterClient - direct import, no try/except
+from .utils.openrouter_client import OpenRouterClient
+from .utils.model_manager import ModelManager
 
 # Create the persistence handler
 persistence = StatePersistence()
@@ -52,6 +59,19 @@ def handle_exit(signum, frame):
 signal.signal(signal.SIGINT, handle_exit)  # Ctrl+C
 signal.signal(signal.SIGTERM, handle_exit)  # Termination signal
 
+# Initialize OpenRouter client
+openrouter_client = OpenRouterClient(
+    api_key=OPENROUTER_API_KEY,
+    system_prompt=SYSTEM_PROMPT,
+    default_model=DEFAULT_MODEL
+)
+
+# Create model manager
+model_manager = ModelManager(openrouter_client, DATA_DIRECTORY)
+
+# Add to bot context or cogs as needed
+bot.model_manager = model_manager
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name} - {bot.user.id}')
@@ -71,11 +91,9 @@ async def on_ready():
     # First try to clear all existing commands to start fresh
     try:
         print("Clearing existing commands...")
-        # For Py-Cord, we should use application_commands property
         commands_to_remove = await bot.http.get_global_commands(bot.user.id)
         for cmd in commands_to_remove:
             print(f"Removing command: {cmd['name']}")
-            # Delete the command
             await bot.http.delete_global_command(bot.user.id, cmd['id'])
         print("Existing commands cleared.")
     except Exception as e:
@@ -91,7 +109,7 @@ async def on_ready():
         "src.cogs.image_commands",
         "src.cogs.cloudflare_image_commands",
         "src.cogs.url_commands",
-        "src.cogs.dungeon_master_commands"  # Add this line
+        "src.cogs.dungeon_master_commands"
     ]
     
     for cog in cogs:
@@ -108,6 +126,9 @@ async def on_ready():
                         print(f"  - {cmd.name}: {type(cmd).__name__}")
         except Exception as e:
             print(f"Error loading {cog}: {e}")
+            # Print full traceback for config_commands to debug issues
+            if cog == "src.cogs.config_commands":
+                print(f"Detailed error for config commands: {traceback.format_exc()}")
             if cog == "src.cogs.dungeon_master_commands":
                 print(f"Detailed error for DND cog: {traceback.format_exc()}")
     
@@ -117,7 +138,6 @@ async def on_ready():
         
         # First sync to the specified guild(s) if debug_guilds is set
         if hasattr(bot, 'debug_guilds') and bot.debug_guilds:
-            # For guild specific commands
             for guild_id in bot.debug_guilds:
                 await bot.sync_commands(guild_ids=[guild_id])
             print(f"Synced commands to test guilds: {bot.debug_guilds}")
@@ -134,11 +154,22 @@ async def on_ready():
     sync_models(bot)
     
     print('Model synchronization complete')
-    print(f'Using global model: {bot.cogs["ConfigCommands"].state.get_global_model()}')
+    
+    # Check if ConfigCommands cog is loaded before accessing it
+    if "ConfigCommands" in bot.cogs:
+        print(f'Using global model: {bot.cogs["ConfigCommands"].state.get_global_model()}')
+    else:
+        # Print debug info about loaded cogs
+        print(f"ConfigCommands cog not found. Available cogs: {list(bot.cogs.keys())}")
+        print(f'Using default model: {DEFAULT_MODEL}')
     
     # Start the auto-save task after everything else is set up
     bot.loop.create_task(auto_save_state())
     print("Auto-save task started")
+    
+    # Load models (will use cached data if available)
+    await bot.model_manager.get_models()
+    logger.info(f"Logged in as {bot.user.name}")
     
     print('Ready to serve!')
 
@@ -195,7 +226,7 @@ async def auto_save_state():
         await asyncio.sleep(save_interval)
 
 @bot.slash_command(name="sync", description="Manually sync slash commands (owner only)")
-@commands.is_owner()  # Only you can run this
+@commands.is_owner()
 async def sync_command_slash(ctx):
     await ctx.defer()
     try:
@@ -225,7 +256,6 @@ async def sync_command_slash(ctx):
     except Exception as e:
         await ctx.followup.send(f"Error syncing commands: {str(e)}")
 
-# Debug function to help identify command registration issues
 @bot.slash_command(name="debug", description="Show registered commands")
 @commands.is_owner()
 async def debug_commands(ctx):
@@ -348,7 +378,6 @@ async def state_info_command(ctx):
     
     await ctx.respond(embed=embed)
 
-# Add a direct command to test if the dungeon_master_commands cog is loaded
 @bot.slash_command(name="test_dnd_cog", description="Test if the DND cog is loaded properly")
 @commands.is_owner()
 async def test_dnd_cog(ctx):

@@ -24,6 +24,15 @@ class ThreadCommands(commands.Cog):
     # Register the thread group with the cog
     thread = thread_group
     
+    async def model_autocomplete(self, ctx):
+        """Dynamic model autocomplete using ModelManager"""
+        current_input = ctx.value.lower() if ctx.value else ""
+        all_models = await self.bot.model_manager.get_models()
+        if not current_input:
+            return all_models[:25]
+        matching_models = [model for model in all_models if current_input in model.lower()]
+        return matching_models[:25] or all_models[:25]
+    
     def get_model_for_channel(self, channel_id):
         """Get the appropriate model for this channel"""
         return self.state.get_effective_model(channel_id)
@@ -429,7 +438,7 @@ class ThreadCommands(commands.Cog):
                                     model_name: discord.Option(
                                         str,
                                         "Select the AI model to use for this thread",
-                                        choices=ALLOWED_MODELS
+                                        autocomplete=self.model_autocomplete
                                     )):
         # Check if we're in a thread
         if not isinstance(ctx.channel, discord.Thread):

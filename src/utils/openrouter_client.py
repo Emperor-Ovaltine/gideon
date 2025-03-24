@@ -26,7 +26,7 @@ class OpenRouterClient:
             "claude-3", 
             "gpt-4-vision", 
             "gpt-4-turbo",
-            "gemini"
+            "gemini",
         ]
         
     def model_supports_vision(self) -> bool:
@@ -160,3 +160,60 @@ class OpenRouterClient:
         except Exception as e:
             logger.error(f"Error sending message: {str(e)}")
             return f"⚠️ Error: {str(e)}"
+
+    async def get_available_models(self) -> Dict[str, Any]:
+        """Fetch available models from OpenRouter API."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "HTTP-Referer": "https://discord-bot.gideon",
+                    "X-Title": "Gideon Discord Bot"
+                }
+                
+                async with session.get(
+                    f"{self.base_url}/models",
+                    headers=headers
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Failed to get models: ({response.status}) {error_text}")
+                        return {"success": False, "error": f"API Error ({response.status}): {error_text}"}
+                    
+                    models_data = await response.json()
+                    
+                    # Process data to extract useful info and identify vision-capable models
+                    processed_models = []
+                    vision_models = []
+                    
+                    for model in models_data.get("data", []):
+                        model_id = model.get("id")
+                        context_length = model.get("context_length", 0)
+                        pricing = model.get("pricing", {})
+                        
+                        # Check if model supports vision based on capabilities
+                        supports_vision = False
+                        if model.get("capabilities", {}).get("vision", False):
+                            supports_vision = True
+                            vision_models.append(model_id)
+                        
+                        processed_models.append({
+                            "id": model_id,
+                            "name": model.get("name", "Unknown"),
+                            "description": model.get("description", ""),
+                            "context_length": context_length,
+                            "supports_vision": supports_vision,
+                            "pricing": pricing
+                        })
+                    
+                    # Update the vision models list dynamically
+                    self.vision_models = vision_models
+                    
+                    return {
+                        "success": True,
+                        "models": processed_models,
+                        "raw_data": models_data
+                    }
+        except Exception as e:
+            logger.error(f"Error getting models: {str(e)}")
+            return {"success": False, "error": f"Error getting models: {str(e)}"}

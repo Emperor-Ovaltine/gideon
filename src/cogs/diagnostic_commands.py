@@ -165,19 +165,15 @@ class DiagnosticCommands(commands.Cog):
     )
     async def vision_models_slash(self, ctx):
         await ctx.defer()
-        
-        # Get the list of models that support vision
         vision_fragments = self.openrouter_client.vision_models
-        vision_models = [model for model in ALLOWED_MODELS if 
-                         any(fragment in model.lower() for fragment in vision_fragments)]
-        
-        # Create an embed
+        all_models = await self.bot.model_manager.get_models()
+        vision_models = [model for model in all_models if 
+                        any(fragment in model.lower() for fragment in vision_fragments)]
         embed = discord.Embed(
             title="Vision-Capable Models",
             description="These models can analyze images:",
             color=discord.Color.blue()
         )
-        
         if vision_models:
             model_list = "\n".join([f"• `{model}`" for model in vision_models])
             embed.add_field(
@@ -191,16 +187,13 @@ class DiagnosticCommands(commands.Cog):
                 value="No vision-capable models found in your allowed models list.",
                 inline=False
             )
-            
         current_model = self.state.get_global_model()
         supports_vision = any(fragment in current_model.lower() for fragment in vision_fragments)
-        
         embed.add_field(
             name="Current Model",
             value=f"`{current_model}` {'✅ supports' if supports_vision else '❌ does not support'} image analysis",
             inline=False
         )
-        
         await ctx.respond(embed=embed)
     
     @discord.slash_command(

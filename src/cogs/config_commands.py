@@ -1,12 +1,14 @@
 """Configuration commands for the bot."""
 import discord
 from discord.ext import commands
+from discord import Option
 from ..utils.state_manager import BotStateManager
 from ..utils.openrouter_client import OpenRouterClient
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 from ..utils.model_sync import sync_models
+from ..utils.model_manager import get_model_choices
 
-class ConfigCommands(commands.Cog):
+class ConfigCommands(commands.Cog, name="ConfigCommands"):
     """Commands for bot configuration."""
     
     def __init__(self, bot):
@@ -14,66 +16,56 @@ class ConfigCommands(commands.Cog):
         self.state = BotStateManager()
         self.openrouter_client = OpenRouterClient(OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL)
     
+    async def model_autocomplete(self, ctx):
+        """Dynamic model autocomplete using ModelManager"""
+        current_input = ctx.value.lower() if ctx.value else ""
+        all_models = await self.bot.model_manager.get_models()
+        if not current_input:
+            return all_models[:25]
+        matching_models = [model for model in all_models if current_input in model.lower()]
+        return matching_models[:25] or all_models[:25]
+
     @discord.slash_command(
         name="setmodel",
         description="Set the AI model to use from OpenRouter"
     )
     @commands.has_permissions(administrator=True)
-    async def set_model_slash(self, ctx, 
-                             model_name: discord.Option(
-                                 str,
-                                 "Select the AI model to use",
-                                 choices=ALLOWED_MODELS
-                             )):
-        # Update both the client and the state manager
+    async def set_model_slash(
+        self, 
+        ctx, 
+        model_name: discord.Option(str, "Select the AI model to use", autocomplete=model_autocomplete)
+    ):
         self.openrouter_client.model = model_name
         self.state.set_global_model(model_name)
-        
-        # Sync the model change across all cogs
         sync_models(self.bot)
-        
         await ctx.respond(f"Model set to {model_name}")
     
     @discord.slash_command(
         name="model",
         description="Show the current AI model being used or change to a new model"
     )
-    async def show_model_slash(self, ctx, 
-                              new_model: discord.Option(
-                                  str,
-                                  "Select a new model to use (optional)",
-                                  choices=ALLOWED_MODELS,
-                                  required=False
-                              )):
+    async def show_model_slash(
+        self, 
+        ctx, 
+        new_model: discord.Option(str, "Select a new model to use (optional)", autocomplete=model_autocomplete, required=False)
+    ):
         await ctx.defer()
         
         if new_model:
-            # User provided a new model, so change to it (same as setmodel)
             if ctx.author.guild_permissions.administrator:
-                # Update both the client and the state manager
                 self.openrouter_client.model = new_model
                 self.state.set_global_model(new_model)
-                
-                # Sync the model change across all cogs
                 sync_models(self.bot)
-                
                 await ctx.respond(f"✅ Model changed to: `{new_model}`")
             else:
                 await ctx.respond("⚠️ Only administrators can change the model. Use `/setmodel` if you have admin permissions.")
         else:
-            # Just show current model info and instructions
-            current_model = self.state.get_global_model()
-            
-            # Check if the model is empty and provide a fallback
-            if not current_model:
-                current_model = DEFAULT_MODEL
-                # Update the state with the default model to fix this for future calls
-                self.state.set_global_model(current_model)
-                
-            models_list = "\n".join([f"• `{model}`" for model in ALLOWED_MODELS[:5]])  # Show first 5 models
-            if len(ALLOWED_MODELS) > 5:
-                models_list += f"\n• ... and {len(ALLOWED_MODELS) - 5} more models"
-                
+            current_model = self.state.get_global_model() or DEFAULT_MODEL
+            self.state.set_global_model(current_model)
+            models = await self.bot.model_manager.get_models()
+            models_list = "\n".join([f"• `{model}`" for model in models[:5]])
+            if len(models) > 5:
+                models_list += f"\n• ... and {len(models) - 5} more models"
             await ctx.respond(f"**Current model**: `{current_model}`\n\n"
                              f"To change models, use `/setmodel` (admin only) or add the 'new_model' parameter to this command.\n\n"
                              f"**Available models include**:\n{models_list}")
@@ -114,12 +106,11 @@ class ConfigCommands(commands.Cog):
         description="Set the AI model to use for this specific channel"
     )
     @commands.has_permissions(administrator=True)
-    async def set_channel_model_slash(self, ctx, 
-                                     model_name: discord.Option(
-                                         str,
-                                         "Select the AI model to use for this channel",
-                                         choices=ALLOWED_MODELS
-                                     )):
+    async def set_channel_model_slash(
+        self, 
+        ctx, 
+        model_name: discord.Option(str, "Select the AI model to use for this channel", autocomplete=model_autocomplete)
+    ):
         channel_id = str(ctx.channel.id)
         self.state.channel_models[channel_id] = model_name
         await ctx.respond(f"Model for this channel set to `{model_name}`")
@@ -157,7 +148,6 @@ class ConfigCommands(commands.Cog):
     async def set_channel_system_slash(self, ctx, new_prompt: str):
         channel_id = str(ctx.channel.id)
         self.state.set_channel_system_prompt(channel_id, new_prompt)
-        # Split system prompt into chunks if very long
         max_length = 1950
         chunks = [new_prompt[i:i+max_length] for i in range(0, len(new_prompt), max_length)]
         
@@ -175,7 +165,6 @@ class ConfigCommands(commands.Cog):
         prompt = self.state.get_channel_system_prompt(channel_id)
         
         if prompt:
-            # Split system prompt into chunks of 1950 characters or fewer
             max_length = 1950
             chunks = [prompt[i:i+max_length] for i in range(0, len(prompt), max_length)]
             
@@ -183,7 +172,6 @@ class ConfigCommands(commands.Cog):
             for chunk in chunks[1:]:
                 await ctx.followup.send(f"```\n{chunk}\n```")
         else:
-            # Show default prompt
             from ..config import SYSTEM_PROMPT
             max_length = 1950
             chunks = [SYSTEM_PROMPT[i:i+max_length] for i in range(0, len(SYSTEM_PROMPT), max_length)]
@@ -204,5 +192,18 @@ class ConfigCommands(commands.Cog):
         else:
             await ctx.respond(f"ℹ️ This channel is already using the default system prompt.")
 
+    @commands.slash_command(name="select_model", description="Select a model")
+    async def select_model(self, ctx, model: Option(str, "Choose a model", autocomplete=model_autocomplete)):
+        """Select a model from available options."""
+        if ctx.author.guild_permissions.administrator:
+            self.openrouter_client.model = model
+            self.state.set_global_model(model)
+            sync_models(self.bot)
+            await ctx.respond(f"✅ Model changed to: `{model}`")
+        else:
+            await ctx.respond("⚠️ Only administrators can change the model.")
+    
 def setup(bot):
-    bot.add_cog(ConfigCommands(bot))
+    config_cog = ConfigCommands(bot)
+    bot.add_cog(config_cog)
+    print(f"ConfigCommands cog registered successfully as '{config_cog.__class__.__name__}'!")
