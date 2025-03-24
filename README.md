@@ -103,60 +103,52 @@ An example Cloudflare worker that been tested with Gideon can be found here: htt
 
 ## 🤖 Commands
 
-### Chat Commands
+### General Commands
 | Command | Description |
 |:-------:|:------------|
-| `/chat` | Talk with the AI (supports image attachments) |
-| `/reset` | Clear conversation history |
-| `/summarize` | Create a summary of the current conversation |
-| `/memory` | Show conversation stats for this channel |
+| `/chat` | Start a conversation with the AI |
+| `/reset` | Clear the conversation history |
+| `/summarize` | Summarize the current conversation |
+| `/memory` | Show conversation statistics |
 
-### Thread Management
+### Thread Commands
 | Command | Description |
 |:-------:|:------------|
-| `/thread new` | Create a conversation thread |
+| `/thread new` | Create a new AI conversation thread |
 | `/thread message` | Send a message to a specific thread |
-| `/thread list` | View all threads in this channel |
+| `/thread list` | View all threads |
 | `/thread delete` | Remove a thread |
-| `/thread rename` | Change a thread's name |
-| `/thread setmodel` | Set model for current thread |
-| `/thread setsystem` | Set custom personality for thread |
+| `/thread rename` | Change the name of a thread |
+| `/thread setmodel` | Set the AI model for a thread |
+| `/thread setsystem` | Set the system prompt for a thread |
+
+### Configuration Commands
+| Command | Description |
+|:-------:|:------------|
+| `/setmodel` | Change the global AI model |
+| `/model` | View or change the current model |
+| `/setsystem` | Customize the AI personality |
+| `/setchannelmodel` | Set the AI model for the current channel |
+| `/setchannelsystem` | Set the system prompt for the current channel |
+| `/setmemory` | Set the message history limit |
+| `/setwindow` | Set the time window for memory |
+
+### Image Commands
+| Command | Description |
+|:-------:|:------------|
+| `/imagine` | Generate images from text using AI Horde |
+| `/hordemodels` | List available AI Horde models |
+| `/dream` | Generate images using Cloudflare Workers |
+| `/cftest` | Test the connection to Cloudflare Worker |
 
 ### Adventure Commands
 | Command | Description |
 |:-------:|:------------|
-| `/adventure start` | Start a new tabletop RPG adventure (Fantasy, Sci-Fi, Horror, Modern, or Custom) |
-| `/adventure action` | Take an action in the current adventure |
+| `/adventure new` | Start a new tabletop RPG adventure (Fantasy, Sci-Fi, Horror, Modern, or Custom) |
 | `/adventure roll` | Roll dice (e.g., 1d20, 2d6, 3d8+2) with narrated results |
 | `/adventure status` | Check the status of the current adventure |
 | `/adventure end` | End the current adventure with summary |
 | `/adventure config_images` | Configure frequency of scene image generation |
-
-### Image Generation
-| Command | Description |
-|:-------:|:------------|
-| `/imagine` | Generate an image with AI Horde based on your text prompt |
-| `/hordemodels` | List available image generation models on AI Horde |
-| `/dream` | Generate an image using your configured Cloudflare Worker |
-| `/cftest` | Test connection to your Cloudflare Worker |
-
-### Configuration (Admin Only)
-| Command | Description |
-|:-------:|:------------|
-| `/setmodel` | Change global AI model |
-| `/model` | View/change current model |
-| `/setsystem` | Customize AI personality |
-| `/setchannelmodel` | Set model for current channel |
-| `/setchannelsystem` | Set personality for current channel |
-| `/setmemory` | Set message history limit |
-| `/setwindow` | Set time window for memory |
-
-### Diagnostics
-| Command | Description |
-|:-------:|:------------|
-| `/diagnostic` | Test connections and configuration |
-| `/visionmodels` | List models supporting image analysis |
-| `/stateinfo` | Show memory usage statistics |
 
 ## 📚 Supported Models
 
@@ -246,3 +238,26 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 <div align="center">
 Made with ❤️ by <a href="https://github.com/Emperor-Ovaltine">Emperor-Ovaltine</a>
 </div>
+
+## 📖 Documentation
+
+For detailed technical information about Gideon's architecture, implementation details, and advanced setup instructions, please refer to the [Technical Documentation](documentation.md).
+
+The documentation provides in-depth explanations of:
+- Core components and architecture
+- State management system
+- Command implementation details
+- API integration specifics
+- Adventure system mechanics
+- Error handling and security considerations
+
+## Getting Started
+
+To get started with Gideon, follow these steps:
+
+1. Clone the repository
+2. Install the required dependencies
+3. Set up your environment variables
+4. Run the bot
+
+For more detailed setup instructions, please refer to the [Technical Documentation](documentation.md).
