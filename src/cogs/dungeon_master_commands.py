@@ -35,6 +35,16 @@ class DungeonMasterCommands(commands.Cog):
         self.pending_image_tasks = {}  # Track ongoing image generation tasks
         self.processed_messages = set()  # Track which messages we've already processed
         
+        # Centralized DM system prompt
+        self.dm_system_prompt = (
+            "You are an experienced and creative Dungeon Master for a tabletop RPG game. "
+            "Your responses should be descriptive, engaging, and help move the story forward. "
+            "Include sensory details, NPC dialogue, and opportunities for player choices. "
+            "Keep your responses concise (300 words or less). "
+            "When players roll dice, acknowledge the result and incorporate it into the narrative. "
+            "If players want to add new characters, help them do so."
+        )
+        
         # Important: Restore any existing thread adventures from state
         for channel_id, adventure in self.state.dnd_adventures.items():
             if "thread_id" in adventure and adventure.get("active", False):
@@ -52,7 +62,6 @@ class DungeonMasterCommands(commands.Cog):
                 logger.info(f"Restored adventure in thread {thread_id}")
         
         # For scene image generation
-        self.turn_counter = 0
         self.image_frequency = 5  # Generate an image every 5 turns
         self.cf_client = CloudflareWorkerClient(
             os.environ.get("CLOUDFLARE_WORKER_URL", "https://image-generator.example.workers.dev"),
@@ -89,6 +98,121 @@ class DungeonMasterCommands(commands.Cog):
         # Log that we didn't find this thread ID
         logger.warning(f"Thread ID {thread_id} not found in adventures dict with keys: {list(self.adventures.keys())}")
         return thread_id
+    
+    # Helper methods for common operations
+    async def _get_model_for_context(self, channel_id=None):
+        """Get the appropriate model for the current context."""
+        # Store original model
+        current_model = self.openrouter_client.model
+        
+        if channel_id:
+            # Set model to channel-specific or global model
+            model_to_use = self.state.get_effective_model(channel_id)
+            self.openrouter_client.model = model_to_use
+            
+        return current_model
+    
+    async def _restore_model(self, original_model):
+        """Restore the original model after API calls."""
+        self.openrouter_client.model = original_model
+    
+    async def _generate_dm_response(self, context, channel_id=None):
+        """Generate a DM response based on the conversation context."""
+        # Set appropriate model
+        original_model = await self._get_model_for_context(channel_id)
+        
+        try:
+            # Send to API
+            response = await self.openrouter_client.send_message_with_history(
+                context,
+                system_prompt=self.dm_system_prompt
+            )
+            return response
+        finally:
+            # Restore original model
+            await self._restore_model(original_model)
+    
+    def _build_conversation_context(self, adventure, limit=5):
+        """Build conversation context for the AI based on adventure history."""
+        context = []
+        
+        # Add the last few interactions to maintain context
+        history_limit = min(limit, len(adventure["player_actions"]))
+        for i in range(max(0, len(adventure["player_actions"]) - history_limit), len(adventure["player_actions"])):
+            player_action = adventure["player_actions"][i]
+            context.append({
+                "role": "user", 
+                "content": f"{player_action['player']}: {player_action['content']}"
+            })
+            
+            # Add corresponding DM response if available
+            if i < len(adventure["dm_responses"]):
+                context.append({
+                    "role": "assistant", 
+                    "content": adventure["dm_responses"][i]["content"]
+                })
+        
+        return context
+    
+    def _initialize_adventure(self, thread_id, name, setting, description, started_by):
+        """Initialize a new adventure in the adventures dictionary."""
+        self.adventures[thread_id] = {
+            'name': name,
+            'setting': setting,
+            'description': description,
+            'started_at': datetime.now(),
+            'started_by': started_by,
+            'active': True,
+            'player_actions': [],
+            'dm_responses': []
+        }
+        logger.info(f"Created new adventure in thread {thread_id}")
+        return self.adventures[thread_id]
+    
+    def _update_adventure_state(self, thread_id, channel_id, adventure_data):
+        """Update adventure state in both thread dictionary and channel state."""
+        # Update thread-specific state
+        self.adventures[thread_id] = adventure_data
+        
+        # Update channel-based state for backward compatibility
+        self.state.dnd_adventures[channel_id] = {
+            "active": adventure_data["active"],
+            "thread_id": thread_id,
+            "setting": adventure_data["setting"],
+            "name": adventure_data["name"],
+            "description": adventure_data.get("description", ""),
+            "started_at": adventure_data["started_at"],
+            "started_by": adventure_data["started_by"],
+            "player_actions": adventure_data["player_actions"],
+            "dm_responses": adventure_data["dm_responses"],
+            "characters": adventure_data.get("characters", {})
+        }
+    
+    async def _handle_image_generation(self, channel, thread_id, response):
+        """Handle image generation for the adventure."""
+        if self.image_generation_available:
+            # Initialize counter if needed
+            if thread_id not in self.turn_counters:
+                self.turn_counters[thread_id] = 0
+                
+            # Increment adventure-specific counter
+            self.turn_counters[thread_id] += 1
+            
+            # Check if we should generate an image
+            if self.image_frequency > 0 and self.turn_counters[thread_id] % self.image_frequency == 0:
+                logger.info(f"Generating image for adventure {thread_id} (turn {self.turn_counters[thread_id]})")
+                
+                # Create and store the task with a reference
+                task = asyncio.create_task(self.generate_scene_image(channel, response))
+                self.pending_image_tasks[thread_id] = task
+                
+                # Add a callback to clean up when task completes
+                def task_done_callback(completed_task):
+                    if thread_id in self.pending_image_tasks and self.pending_image_tasks[thread_id] == completed_task:
+                        del self.pending_image_tasks[thread_id]
+                        logger.info(f"Image generation for thread {thread_id} completed")
+                
+                task.add_done_callback(task_done_callback)
     
     adventure_group = discord.SlashCommandGroup(
         "adventure", 
@@ -155,279 +279,31 @@ class DungeonMasterCommands(commands.Cog):
                 auto_archive_duration=1440  # Auto-archive after 24 hours of inactivity
             )
             
-            # Initialize this adventure in the thread-specific state - IMPORTANT: use str() for ID
+            # Initialize this adventure in the thread-specific state
             thread_id = str(thread.id)
-            self.adventures[thread_id] = {
-                'name': name,
-                'setting': setting,
-                'description': adventure_prompt,
-                'started_at': datetime.now(),
-                'started_by': ctx.author.display_name,
-                'active': True,
-                'player_actions': [],
-                'dm_responses': []
-            }
-            logger.info(f"Created new adventure in thread {thread_id}")
-            logger.info(f"Adventures after creating new: {list(self.adventures.keys())}")
-            
-            # Also add to the channel-based state for backward compatibility
             channel_id = str(ctx.channel.id)
-            self.state.dnd_adventures[channel_id] = {
-                "active": True,
-                "thread_id": thread_id,
-                "setting": setting,
-                "started_at": datetime.now(),
-                "started_by": ctx.author.display_name,
-                "player_actions": [],
-                "dm_responses": [],
-                "characters": {}
-            }
             
-            # Create the DM system prompt
-            dm_system_prompt = (
-                "You are an experienced and creative Dungeon Master for a tabletop RPG game. "
-                "Your responses should be descriptive, engaging, and help move the story forward. "
-                "Include sensory details, NPC dialogue, and opportunities for player choices. "
-                "Keep your responses concise (300 words or less). "
-                "When players roll dice, acknowledge the result and incorporate it into the narrative. "
-                "If players want to add new characters, help them do so."
+            # Initialize adventure
+            adventure = self._initialize_adventure(
+                thread_id=thread_id,
+                name=name,
+                setting=setting,
+                description=adventure_prompt,
+                started_by=ctx.author.display_name
             )
+            
+            # Update state in both places
+            self._update_adventure_state(thread_id, channel_id, adventure)
             
             # Get the initial scene from the AI
             setup_message = f"Start a new adventure in {adventure_prompt}. Describe the opening scene, introduce the setting, and give the players a situation to respond to."
             
-            # Store the original model to restore later
-            current_model = self.openrouter_client.model
+            # Send initial thinking message to thread
+            thinking_msg = await thread.send("🎲 *The Dungeon Master is creating your adventure...*")
             
-            try:
-                # Set model to channel-specific or global model
-                model_to_use = self.state.get_effective_model(channel_id)
-                self.openrouter_client.model = model_to_use
-                
-                # Send initial thinking message to thread
-                thinking_msg = await thread.send("🎲 *The Dungeon Master is creating your adventure...*")
-                
-                # Send to API
-                response = await self.openrouter_client.send_message_with_history(
-                    [{"role": "user", "content": setup_message}],
-                    system_prompt=dm_system_prompt
-                )
-                
-                # Store the DM's response in both places to ensure consistency
-                self.adventures[thread_id]["dm_responses"].append({
-                    "content": response,
-                    "timestamp": datetime.now()
-                })
-                self.state.dnd_adventures[channel_id]["dm_responses"].append({
-                    "content": response,
-                    "timestamp": datetime.now()
-                })
-                
-                # Create an embed for the adventure start
-                embed = discord.Embed(
-                    title=f"🎲 Adventure: {name}",
-                    description=response,
-                    color=discord.Color.dark_gold()
-                )
-                embed.set_footer(text=f"Adventure started by {ctx.author.display_name} | Just type in this thread to continue")
-                
-                # Update the thinking message
-                await thinking_msg.edit(content=None, embed=embed)
-                
-                # Add welcome message in the thread
-                welcome_msg = (
-                    "✅ Adventure thread created! You can interact with the AI Dungeon Master by just sending "
-                    "regular messages in this thread. I'll respond to everything automatically.\n\n"
-                    "Special commands:\n"
-                    "• To roll dice, type `/adventure roll` (e.g., `/adventure roll 1d20`)\n"
-                    "• To check adventure status, type `/adventure status`\n"
-                    "• To end the adventure, type `/adventure end`"
-                )
-                await thread.send(welcome_msg)
-                
-                # Reply to the slash command
-                await ctx.respond(f"✅ Created new adventure thread: **{name}**\nJoin the thread to begin your adventure!")
-                
-            finally:
-                # Restore original model
-                self.openrouter_client.model = current_model
-                
-        except discord.Forbidden:
-            await ctx.respond("⚠️ I don't have permission to create threads in this channel.")
-        except discord.HTTPException as e:
-            await ctx.respond(f"⚠️ Failed to create thread: {str(e)}")
-
-    @adventure_group.command(
-        name="start",
-        description="Start a new D&D adventure"            
-    )
-    async def start_adventure_slash(self, ctx, 
-                                  setting: discord.Option(
-                                      str, 
-                                      "The setting for your adventure",
-                                      choices=["Fantasy", "Sci-Fi", "Horror", "Modern", "Custom"]
-                                  ) = "Fantasy",
-                                  description: discord.Option(
-                                      str, 
-                                      "Adventure description (required for Custom setting, optional for others)",
-                                      required=False
-                                  ) = None):
-        await ctx.defer()
-        channel_id = str(ctx.channel.id)
-        
-        # Check if there's already an adventure in this channel
-        if channel_id in self.state.dnd_adventures and self.state.dnd_adventures[channel_id]["active"]:
-            await ctx.respond("⚠️ There's already an active adventure in this channel. End it with `/adventure end` before starting a new one.")
-            return
-        
-        # Check if Custom is selected but no prompt provided
-        if setting == "Custom" and not description:
-            await ctx.respond("⚠️ You must provide a description when selecting the Custom setting.")
-            return
-        
-        # Build the prompt based on the setting
-        if description:
-            # If a description is provided, use it regardless of the setting
-            adventure_prompt = description
-        else:
-            # Default prompts based on setting
-            prompts = {
-                "Fantasy": "a medieval fantasy world with magic, dragons, and brave heroes",
-                "Sci-Fi": "a futuristic space adventure with advanced technology and alien species",
-                "Horror": "a suspenseful horror story in an abandoned mansion",
-                "Modern": "a modern-day adventure in a city with mysterious events"
-            }
-            adventure_prompt = prompts.get(setting, prompts["Fantasy"])
-        
-        # Initialize this adventure in state
-        self.state.dnd_adventures[channel_id] = {
-            "active": True,
-            "setting": setting,
-            "started_at": datetime.now(),
-            "started_by": ctx.author.display_name,
-            "player_actions": [],
-            "dm_responses": [],
-            "characters": {}
-        }
-        
-        # Create the DM system prompt
-        dm_system_prompt = (
-            "You are an experienced and creative Dungeon Master for a tabletop RPG game. "
-            "Your responses should be descriptive, engaging, and help move the story forward. "
-            "Include sensory details, NPC dialogue, and opportunities for player choices. "
-            "Keep your responses concise (300 words or less). "
-            "When players roll dice, acknowledge the result and incorporate it into the narrative. "
-            "If players want to add new characters, help them do so."
-        )
-        
-        # Get the initial scene from the AI
-        setup_message = f"Start a new adventure in {adventure_prompt}. Describe the opening scene, introduce the setting, and give the players a situation to respond to."
-        
-        # Store the original model to restore later
-        current_model = self.openrouter_client.model
-        
-        try:
-            # Set model to channel-specific or global model
-            model_to_use = self.state.get_effective_model(channel_id)
-            self.openrouter_client.model = model_to_use
-            
-            # Send to API
-            response = await self.openrouter_client.send_message_with_history(
-                [{"role": "user", "content": setup_message}],
-                system_prompt=dm_system_prompt
-            )
-            
-            # Store the DM's response
-            self.state.dnd_adventures[channel_id]["dm_responses"].append({
-                "content": response,
-                "timestamp": datetime.now()
-            })
-            
-            # Create an embed for the adventure start
-            embed = discord.Embed(
-                title=f"🎲 New Adventure: {setting} Realm",
-                description=response,
-                color=discord.Color.dark_gold()
-            )
-            embed.set_footer(text=f"Adventure started by {ctx.author.display_name} | Use /adventure action to continue")
-            
-            await ctx.respond(embed=embed)
-            
-        finally:
-            # Restore original model
-            self.openrouter_client.model = current_model
-    
-    @adventure_group.command(
-        name="action",
-        description="Take an action in the current adventure"        
-    )
-    async def take_action_slash(self, ctx, 
-                              action: discord.Option(
-                                  str, 
-                                  "Describe what you want to do"
-                              )):
-        await ctx.defer()
-        
-        channel_id = str(ctx.channel.id)
-        
-        # Check if there's an active adventure
-        if channel_id not in self.state.dnd_adventures or not self.state.dnd_adventures[channel_id]["active"]:
-            await ctx.respond("⚠️ There's no active adventure in this channel. Start one with `/adventure start`.")
-            return
-        
-        # Add the player's action to history
-        adventure = self.state.dnd_adventures[channel_id]
-        adventure["player_actions"].append({
-            "player": ctx.author.display_name,
-            "content": action,
-            "timestamp": datetime.now()
-        })
-        
-        # Build conversation context for the AI
-        dm_system_prompt = (
-            "You are an experienced and creative Dungeon Master for a tabletop RPG game. "
-            "Your responses should be descriptive, engaging, and help move the story forward. "
-            "Include sensory details, NPC dialogue, and opportunities for player choices. "
-            "Keep your responses concise (300 words or less). "
-            "When players roll dice, acknowledge the result and incorporate it into the narrative. "
-            "If players want to add new characters, help them do so."
-        )
-        
-        context = []
-        # Add the last few interactions to maintain context (up to 10 total)
-        history_limit = min(5, len(adventure["player_actions"]))
-        for i in range(max(0, len(adventure["player_actions"]) - history_limit), len(adventure["player_actions"])):
-            player_action = adventure["player_actions"][i]
-            context.append({
-                "role": "user", 
-                "content": f"{player_action['player']}: {player_action['content']}"
-            })
-            
-            # Add corresponding DM response if available
-            if i < len(adventure["dm_responses"]):
-                context.append({
-                    "role": "assistant", 
-                    "content": adventure["dm_responses"][i]["content"]
-                })
-                
-        # Store original model
-        current_model = self.openrouter_client.model
-        
-        processing_msg = None
-        
-        try:
-            # First show the player's action
-            processing_msg = await ctx.respond(f"🎭 **{ctx.author.display_name}**: {action}\n\n*The Dungeon Master is thinking...*")
-            
-            # Set model to channel-specific or global model
-            model_to_use = self.state.get_effective_model(channel_id)
-            self.openrouter_client.model = model_to_use
-            
-            # Send to API
-            response = await self.openrouter_client.send_message_with_history(
-                context,
-                system_prompt=dm_system_prompt
-            )
+            # Generate DM response
+            context = [{"role": "user", "content": setup_message}]
+            response = await self._generate_dm_response(context, channel_id)
             
             # Store the DM's response
             adventure["dm_responses"].append({
@@ -435,54 +311,38 @@ class DungeonMasterCommands(commands.Cog):
                 "timestamp": datetime.now()
             })
             
-            # Create an embed for the DM's response
+            # Update state
+            self._update_adventure_state(thread_id, channel_id, adventure)
+            
+            # Create an embed for the adventure start
             embed = discord.Embed(
-                title="🎲 Dungeon Master",
+                title=f"🎲 Adventure: {name}",
                 description=response,
-                color=discord.Color.dark_purple()
+                color=discord.Color.dark_gold()
             )
+            embed.set_footer(text=f"Adventure started by {ctx.author.display_name} | Just type in this thread to continue")
             
-            # Add debug logging
-            logger.info(f"Attempting to edit message with DM response embed in channel {channel_id}")
+            # Update the thinking message
+            await thinking_msg.edit(content=None, embed=embed)
             
-            # Send the response
-            try:
-                await processing_msg.edit(content=f"🎭 **{ctx.author.display_name}**: {action}", embed=embed)
-                logger.info(f"Successfully edited message with DM response in channel {channel_id}")
-            except Exception as edit_error:
-                logger.error(f"Error editing action response message: {str(edit_error)}")
-                # If editing fails, send a new message
-                try:
-                    await ctx.send(f"🎭 **{ctx.author.display_name}**: {action}", embed=embed)
-                    logger.info(f"Sent new message with DM response after edit failure in channel {channel_id}")
-                except Exception as send_error:
-                    logger.error(f"Error sending new message after edit failure: {str(send_error)}")
+            # Add welcome message in the thread
+            welcome_msg = (
+                "✅ Adventure thread created! You can interact with the AI Dungeon Master by just sending "
+                "regular messages in this thread. I'll respond to everything automatically.\n\n"
+                "Special commands:\n"
+                "• To roll dice, type `/adventure roll` (e.g., `/adventure roll 1d20`)\n"
+                "• To check adventure status, type `/adventure status`\n"
+                "• To end the adventure, type `/adventure end`"
+            )
+            await thread.send(welcome_msg)
             
-            # Image generation logic
-            # Initialize counter if needed
-            if channel_id not in self.turn_counters:
-                self.turn_counters[channel_id] = 0
-
-            # Increment adventure-specific counter
-            self.turn_counters[channel_id] += 1
-
-            # Check if we should generate an image
-            if self.image_frequency > 0 and self.turn_counters[channel_id] % self.image_frequency == 0:
-                # Generate image in the background so it doesn't block the game flow
-                task = asyncio.create_task(self.generate_scene_image(ctx.channel, response))
-                self.pending_image_tasks[channel_id] = task
+            # Reply to the slash command
+            await ctx.respond(f"✅ Created new adventure thread: **{name}**\nJoin the thread to begin your adventure!")
                 
-                # Add a callback to clean up when task completes
-                def task_done_callback(completed_task):
-                    if channel_id in self.pending_image_tasks and self.pending_image_tasks[channel_id] == completed_task:
-                        del self.pending_image_tasks[channel_id]
-                        logger.info(f"Image generation for channel {channel_id} completed")
-                
-                task.add_done_callback(task_done_callback)
-            
-        finally:
-            # Restore original model
-            self.openrouter_client.model = current_model
+        except discord.Forbidden:
+            await ctx.respond("⚠️ I don't have permission to create threads in this channel.")
+        except discord.HTTPException as e:
+            await ctx.respond(f"⚠️ Failed to create thread: {str(e)}")
 
     @adventure_group.command(
         name="roll",
@@ -494,8 +354,6 @@ class DungeonMasterCommands(commands.Cog):
                                 "Dice to roll (e.g., 1d20, 2d6, 3d8+2)",
                                 required=True
                             )):
-        channel_id = str(ctx.channel.id)
-        
         # Parse the dice string
         dice_pattern = re.compile(r'(\d+)d(\d+)(?:([+-])(\d+))?')
         match = dice_pattern.match(dice)
@@ -541,14 +399,17 @@ class DungeonMasterCommands(commands.Cog):
         embed.add_field(name="Total", value=str(total), inline=True)
         embed.set_footer(text=f"Rolled by {ctx.author.display_name}")
         
-        # Check if there's an active adventure to add this as an action
-        if channel_id in self.state.dnd_adventures and self.state.dnd_adventures[channel_id]["active"]:
-            adventure = self.state.dnd_adventures[channel_id]
-            adventure["player_actions"].append({
-                "player": ctx.author.display_name,
-                "content": f"rolled {dice} and got {total}",
-                "timestamp": datetime.now()
-            })
+        # Check if we're in a thread and it's an active adventure
+        if isinstance(ctx.channel, discord.Thread):
+            thread_id = self._verify_thread_id(str(ctx.channel.id))
+            
+            if thread_id in self.adventures and self.adventures[thread_id].get("active", False):
+                adventure = self.adventures[thread_id]
+                adventure["player_actions"].append({
+                    "player": ctx.author.display_name,
+                    "content": f"rolled {dice} and got {total}",
+                    "timestamp": datetime.now()
+                })
         
         await ctx.respond(embed=embed)
 
@@ -557,110 +418,118 @@ class DungeonMasterCommands(commands.Cog):
         description="Check the status of the current adventure"        
     )
     async def check_status_slash(self, ctx):
-        channel_id = str(ctx.channel.id)
-        
-        # Check if there's an active adventure
-        if channel_id not in self.state.dnd_adventures or not self.state.dnd_adventures[channel_id]["active"]:
-            await ctx.respond("⚠️ There's no active adventure in this channel. Start one with `/adventure start`.")
-            return
-        
-        adventure = self.state.dnd_adventures[channel_id]
-        
-        # Calculate duration
-        started_at = adventure["started_at"]
-        duration = datetime.now() - started_at
-        
-        # Create an embed for the status
-        embed = discord.Embed(
-            title="🎲 Adventure Status",
-            description=f"Setting: {adventure['setting']}",
-            color=discord.Color.green()
-        )
-        
-        embed.add_field(
-            name="Started By", 
-            value=adventure["started_by"],  
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Duration", 
-            value=f"{duration.days}d {duration.seconds // 3600}h {(duration.seconds // 60) % 60}m", 
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Actions", 
-            value=str(len(adventure["player_actions"])), 
-            inline=True
-        )
-        
-        # List the last 5 actions
-        if adventure["player_actions"]:
-            recent_actions = adventure["player_actions"][-5:]
-            action_list = "\n".join([f"• **{action['player']}**: {action['content'][:50]}..." if len(action['content']) > 50 else f"• **{action['player']}**: {action['content']}" for action in recent_actions])
-            embed.add_field(
-                name="Recent Actions", 
-                value=action_list,  
-                inline=False
-            )
-        
-        await ctx.respond(embed=embed)
+        # Check if we're in a thread
+        if isinstance(ctx.channel, discord.Thread):
+            thread_id = self._verify_thread_id(str(ctx.channel.id))
+            
+            if thread_id in self.adventures and self.adventures[thread_id].get("active", False):
+                adventure = self.adventures[thread_id]
+                
+                # Calculate duration
+                started_at = adventure["started_at"]
+                duration = datetime.now() - started_at
+                
+                # Create an embed for the status
+                embed = discord.Embed(
+                    title="🎲 Adventure Status",
+                    description=f"Setting: {adventure['setting']}",
+                    color=discord.Color.green()
+                )
+                
+                embed.add_field(
+                    name="Name", 
+                    value=adventure["name"],  
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Started By", 
+                    value=adventure["started_by"],  
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Duration", 
+                    value=f"{duration.days}d {duration.seconds // 3600}h {(duration.seconds // 60) % 60}m", 
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Actions", 
+                    value=str(len(adventure["player_actions"])), 
+                    inline=True
+                )
+                
+                # List the last 5 actions
+                if adventure["player_actions"]:
+                    recent_actions = adventure["player_actions"][-5:]
+                    action_list = "\n".join([f"• **{action['player']}**: {action['content'][:50]}..." if len(action['content']) > 50 else f"• **{action['player']}**: {action['content']}" for action in recent_actions])
+                    embed.add_field(
+                        name="Recent Actions", 
+                        value=action_list,  
+                        inline=False
+                    )
+                
+                await ctx.respond(embed=embed)
+                return
+                
+        await ctx.respond("⚠️ There's no active adventure in this thread.")
     
     @adventure_group.command(
         name="end", 
         description="End the current adventure"           
     )
     async def end_adventure_slash(self, ctx):
-        channel_id = str(ctx.channel.id)
-        
-        # Check if there's an active adventure
-        if channel_id not in self.state.dnd_adventures or not self.state.dnd_adventures[channel_id]["active"]:
-            await ctx.respond("⚠️ There's no active adventure in this channel.")
-            return
-        
-        adventure = self.state.dnd_adventures[channel_id]
-        
-        # Mark the adventure as inactive
-        adventure["active"] = False
-        adventure["ended_at"] = datetime.now()
-        adventure["ended_by"] = ctx.author.display_name
-        
-        # Calculate stats
-        duration = adventure["ended_at"] - adventure["started_at"]
-        
-        # Create an embed for the end
-        embed = discord.Embed(
-            title="🎲 Adventure Concluded",
-            description=f"Your {adventure['setting']} adventure has ended.",
-            color=discord.Color.dark_red()
-        )
-        
-        embed.add_field(
-            name="Started By", 
-            value=adventure["started_by"], 
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Ended By", 
-            value=adventure["ended_by"], 
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Duration", 
-            value=f"{duration.days}d {duration.seconds // 3600}h {(duration.seconds // 60) % 60}m", 
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Actions", 
-            value=str(len(adventure["player_actions"])), 
-            inline=True
-        )
-        
-        await ctx.respond(embed=embed)
+        # Check if we're in a thread
+        if isinstance(ctx.channel, discord.Thread):
+            thread_id = self._verify_thread_id(str(ctx.channel.id))
+            
+            if thread_id in self.adventures and self.adventures[thread_id].get("active", False):
+                adventure = self.adventures[thread_id]
+                
+                # Mark the adventure as inactive
+                adventure["active"] = False
+                adventure["ended_at"] = datetime.now()
+                adventure["ended_by"] = ctx.author.display_name
+                
+                # Calculate stats
+                duration = adventure["ended_at"] - adventure["started_at"]
+                
+                # Create an embed for the end
+                embed = discord.Embed(
+                    title="🎲 Adventure Concluded",
+                    description=f"Your {adventure['setting']} adventure has ended.",
+                    color=discord.Color.dark_red()
+                )
+                
+                embed.add_field(
+                    name="Started By", 
+                    value=adventure["started_by"], 
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Ended By", 
+                    value=adventure["ended_by"], 
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Duration", 
+                    value=f"{duration.days}d {duration.seconds // 3600}h {(duration.seconds // 60) % 60}m", 
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Actions", 
+                    value=str(len(adventure["player_actions"])), 
+                    inline=True
+                )
+                
+                await ctx.respond(embed=embed)
+                return
+                
+        await ctx.respond("⚠️ There's no active adventure in this thread.")
     
     async def _create_image_prompt(self, narration):
         """Use the LLM to create a better image prompt from the narration text."""
@@ -801,25 +670,6 @@ class DungeonMasterCommands(commands.Cog):
             self.image_frequency = frequency
             await ctx.respond(f"📷 Scene images will be generated every {frequency} turns.")
     
-    async def process_turn(self, ctx, action, *args, **kwargs):
-        """Process a player's turn in the adventure."""
-        # Placeholder for future implementation
-        pass
-
-    @commands.command(name='adventure_start')
-    async def adventure_start(self, ctx, *, adventure_name: str):
-        """Starts a new adventure in a dedicated thread."""    
-        thread = await ctx.channel.create_thread(name=adventure_name, type=discord.ChannelType.public_thread)
-        self.adventures[thread.id] = {
-            'name': adventure_name,
-            'state': 'initial_state',  # Replace with actual initial state
-            'players': [],
-            'active': True,
-            'player_actions': [],
-            'dm_responses': []
-        }
-        await thread.send(f"Adventure '{adventure_name}' has started! Use this thread for all actions.")
-    
     @commands.Cog.listener()
     async def on_message(self, message):
         """Listen for messages in adventure threads to process player actions"""
@@ -860,16 +710,14 @@ class DungeonMasterCommands(commands.Cog):
                         parent_adventure = self.state.dnd_adventures[parent_id]
                         thread_name = getattr(message.channel, 'name', 'Adventure Thread')
                         
-                        self.adventures[thread_id] = {
-                            'name': thread_name,
-                            'setting': parent_adventure.get("setting", "Fantasy"),
-                            'description': "Adopted from parent channel adventure",
-                            'started_at': parent_adventure.get("started_at", datetime.now()),
-                            'started_by': parent_adventure.get("started_by", "Unknown"),
-                            'active': True,
-                            'player_actions': [],  # Start fresh - don't inherit actions
-                            'dm_responses': []
-                        }
+                        # Initialize new adventure in thread
+                        self._initialize_adventure(
+                            thread_id=thread_id,
+                            name=thread_name,
+                            setting=parent_adventure.get("setting", "Fantasy"),
+                            description="Adopted from parent channel adventure",
+                            started_by=parent_adventure.get("started_by", "Unknown")
+                        )
                         logger.info(f"Adopted thread {thread_id} as adventure thread, keys now: {list(self.adventures.keys())}")
                         is_adventure_thread = True
                 
@@ -906,54 +754,19 @@ class DungeonMasterCommands(commands.Cog):
                 })
                 
                 # Build conversation context for the AI
-                dm_system_prompt = (
-                    "You are an experienced and creative Dungeon Master for a tabletop RPG game. "
-                    "Your responses should be descriptive, engaging, and help move the story forward. "
-                    "Include sensory details, NPC dialogue, and opportunities for player choices. "
-                    "Keep your responses concise (300 words or less). "
-                    "When players roll dice, acknowledge the result and incorporate it into the narrative. "
-                    "If players want to add new characters, help them do so."
-                )
+                context = self._build_conversation_context(adventure)
                 
-                context = []
-                
-                # Add the last few interactions to maintain context (up to 10 total)
-                history_limit = min(5, len(adventure["player_actions"]))
-                for i in range(max(0, len(adventure["player_actions"]) - history_limit), len(adventure["player_actions"])):
-                    player_action = adventure["player_actions"][i]
-                    context.append({
-                        "role": "user", 
-                        "content": f"{player_action['player']}: {player_action['content']}"
-                    })
-                    
-                    # Add corresponding DM response if available
-                    if i < len(adventure["dm_responses"]):
-                        context.append({
-                            "role": "assistant", 
-                            "content": adventure["dm_responses"][i]["content"]
-                        })
-                
-                # Store original model
-                current_model = self.openrouter_client.model
+                # First send a "thinking" message - force disable embed for thinking status
+                thinking_msg = await message.channel.send("🎲 *The Dungeon Master is thinking...*")
                 
                 try:
-                    # First send a "thinking" message - force disable embed for thinking status
-                    thinking_msg = await message.channel.send("🎲 *The Dungeon Master is thinking...*")
-                    
-                    # Set model to channel-specific or global model
+                    # Get channel ID for model selection
+                    channel_id = None
                     if message.channel.parent:
                         channel_id = str(message.channel.parent.id)
-                        model_to_use = self.state.get_effective_model(channel_id)
-                    else:
-                        model_to_use = self.openrouter_client.model
-                        
-                    self.openrouter_client.model = model_to_use
                     
-                    # Send to API
-                    response = await self.openrouter_client.send_message_with_history(
-                        context,
-                        system_prompt=dm_system_prompt
-                    )
+                    # Generate DM response
+                    response = await self._generate_dm_response(context, channel_id)
                     
                     # Store the DM's response
                     adventure["dm_responses"].append({
@@ -986,30 +799,8 @@ class DungeonMasterCommands(commands.Cog):
                         await message.channel.send(embed=embed)
                         logger.info(f"Sent new message with embed after edit failure in thread {thread_id}")
                     
-                    # Image generation logic
-                    if self.image_generation_available:
-                        # Initialize counter if needed
-                        if thread_id not in self.turn_counters:
-                            self.turn_counters[thread_id] = 0
-                            
-                        # Increment adventure-specific counter
-                        self.turn_counters[thread_id] += 1
-                        
-                        # Check if we should generate an image
-                        if self.image_frequency > 0 and self.turn_counters[thread_id] % self.image_frequency == 0:
-                            logger.info(f"Generating image for adventure {thread_id} (turn {self.turn_counters[thread_id]})")
-                            
-                            # Create and store the task with a reference
-                            task = asyncio.create_task(self.generate_scene_image(message.channel, response))
-                            self.pending_image_tasks[thread_id] = task
-                            
-                            # Add a callback to clean up when task completes
-                            def task_done_callback(completed_task):
-                                if thread_id in self.pending_image_tasks and self.pending_image_tasks[thread_id] == completed_task:
-                                    del self.pending_image_tasks[thread_id]
-                                    logger.info(f"Image generation for thread {thread_id} completed")
-                            
-                            task.add_done_callback(task_done_callback)
+                    # Handle image generation
+                    await self._handle_image_generation(message.channel, thread_id, response)
                     
                     # Mark that we've handled this message to prevent the regular thread cog from also processing it
                     return True
@@ -1021,9 +812,6 @@ class DungeonMasterCommands(commands.Cog):
                         await thinking_msg.edit(content=f"⚠️ Error: {str(e)[:100]}...")
                     except:
                         pass
-                finally:
-                    # Restore original model
-                    self.openrouter_client.model = current_model
 
 def setup(bot):
     try:
