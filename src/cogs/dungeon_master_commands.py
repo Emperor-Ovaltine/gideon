@@ -67,7 +67,7 @@ class DungeonMasterCommands(commands.Cog):
         self.image_frequency = 5  # Generate an image every 5 turns
         self.cf_client = CloudflareWorkerClient(
             os.environ.get("CLOUDFLARE_WORKER_URL", "https://image-generator.example.workers.dev"),
-            os.environ.get("CLOUDFLARE_API_KEY")
+            os.environ.get("CLOUDFLRE_API_KEY")
         )
         
         print(f"DungeonMasterCommands cog initialized with {len(self.adventures)} adventures")
@@ -118,18 +118,41 @@ class DungeonMasterCommands(commands.Cog):
         """Restore the original model after API calls."""
         self.openrouter_client.model = original_model
     
-    async def _generate_dm_response(self, context, channel_id=None):
+    async def _generate_dm_response(self, context, channel_id=None, max_retries=3, min_length=40):
         """Generate a DM response based on the conversation context."""
         # Set appropriate model
         original_model = await self._get_model_for_context(channel_id)
         
         try:
-            # Send to API
-            response = await self.openrouter_client.send_message_with_history(
-                context,
-                system_prompt=self.dm_system_prompt
-            )
-            return response
+            retries = 0
+            response = ""
+            
+            while retries < max_retries:
+                # Send to API
+                response = await self.openrouter_client.send_message_with_history(
+                    context,
+                    system_prompt=self.dm_system_prompt
+                )
+                
+                # Check if response is valid (not empty and longer than minimum length)
+                if response and len(response.strip()) >= min_length:
+                    return response
+                
+                # Log retry attempt
+                retries += 1
+                logger.warning(f"DM response too short ({len(response.strip()) if response else 0} chars). Retrying ({retries}/{max_retries})")
+                
+                # Add a short delay before retrying to avoid rate limits
+                await asyncio.sleep(1)
+            
+            # If all retries fail but we have some text, return it anyway
+            if response and len(response.strip()) > 0:
+                logger.warning(f"Using short response after {max_retries} retries: '{response[:30]}...'")
+                return response
+                
+            # Complete failure - return default message
+            logger.error(f"Failed to generate valid DM response after {max_retries} retries")
+            return "The Dungeon Master ponders for a moment... \"Let me gather my thoughts and continue the adventure shortly.\""
         finally:
             # Restore original model
             await self._restore_model(original_model)
