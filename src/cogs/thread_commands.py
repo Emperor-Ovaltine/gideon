@@ -1,6 +1,5 @@
 """Thread-based conversation commands."""
 import discord
-import random
 import logging
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
@@ -85,36 +84,17 @@ class ThreadCommands(commands.Cog):
                 auto_archive_duration=1440  # Auto-archive after 24 hours of inactivity
             )
             
-            # Store basic thread information in our tracking dict
-            self.state.discord_threads[str(thread.id)] = {
-                "name": name,
-                "channel_id": str(ctx.channel.id),
-                "created_at": datetime.now(),
-                "model": self.state.get_effective_model(str(ctx.channel.id))
-            }
-            
-            # Add to thread tracking if we also use the old system
+            # Store thread information in our tracking dict
+            thread_id = str(thread.id)
             channel_id = str(ctx.channel.id)
-            thread_id = f"{channel_id}-{thread.id}"
             
-            # Create simple ID for easier reference
-            simple_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=5))
-            
-            # Initialize channel in threads dict if needed
-            if channel_id not in self.state.threads:
-                self.state.threads[channel_id] = {}
-                
-            # Add thread to threads dict
-            self.state.threads[channel_id][thread_id] = {
+            self.state.discord_threads[thread_id] = {
                 "name": name,
-                "messages": [],
+                "channel_id": channel_id,
                 "created_at": datetime.now(),
-                "simple_id": simple_id,
-                "model": self.state.get_effective_model(channel_id)
+                "model": self.state.get_effective_model(channel_id),
+                "messages": []
             }
-            
-            # Map simple ID to full thread ID
-            self.state.simple_id_mapping[simple_id] = thread_id
             
             # Welcome message in the thread
             welcome_msg = f"✅ Thread created! You can chat with the AI by just sending regular messages in this thread. I'll respond to everything automatically."
@@ -123,7 +103,7 @@ class ThreadCommands(commands.Cog):
             # If a message was provided, process it immediately in the new thread
             if message:
                 # Add user message to thread history
-                self.state.threads[channel_id][thread_id]["messages"].append({
+                self.state.discord_threads[thread_id]["messages"].append({
                     "role": "user",
                     "name": ctx.author.display_name,
                     "content": message,
@@ -161,7 +141,7 @@ class ThreadCommands(commands.Cog):
                 )
                 
                 # Add AI response to thread history
-                self.state.threads[channel_id][thread_id]["messages"].append({
+                self.state.discord_threads[thread_id]["messages"].append({
                     "role": "assistant",
                     "content": response,
                     "timestamp": datetime.now()
@@ -198,41 +178,17 @@ class ThreadCommands(commands.Cog):
                          image: discord.Attachment = None):
         await ctx.defer()
         
-        # Check if this is a simple ID or a full thread ID
-        thread_id = None
-        if id in self.state.simple_id_mapping:
-            # This is a simple ID, get the full thread ID
-            thread_id = self.state.simple_id_mapping[id]
-            channel_id = thread_id.split('-')[0]
-        else:
-            # Try to parse as a full thread ID
-            try:
-                channel_id = id.split('-')[0]
-                # Search through threads to find the matching ID
-                found = False
-                for thread_key in self.state.threads.get(channel_id, {}):
-                    if id == thread_key or (
-                        "simple_id" in self.state.threads[channel_id][thread_key] and 
-                        self.state.threads[channel_id][thread_key]["simple_id"] == id
-                    ):
-                        thread_id = thread_key
-                        found = True
-                        break
-                
-                if not found:
-                    await ctx.respond("⚠️ Thread not found. Use `/thread list` to see available threads.")
-                    return
-            except:
-                await ctx.respond("⚠️ Invalid thread ID format. Use `/thread list` to see available threads.")
-                return
+        # Get thread by Discord thread ID
+        thread_id = id
         
         # Check if thread exists
-        if channel_id not in self.state.threads or thread_id not in self.state.threads[channel_id]:
+        if thread_id not in self.state.discord_threads:
             await ctx.respond("⚠️ Thread not found. Use `/thread list` to see available threads.")
             return
         
-        thread_data = self.state.threads[channel_id][thread_id]
+        thread_data = self.state.discord_threads[thread_id]
         thread_name = thread_data["name"]
+        channel_id = thread_data["channel_id"]
         
         # Set model for this thread if different from current
         current_model = self.openrouter_client.model
@@ -269,6 +225,9 @@ class ThreadCommands(commands.Cog):
         
         try:
             # Add user message to thread
+            if "messages" not in thread_data:
+                thread_data["messages"] = []
+                
             thread_data["messages"].append({
                 "role": "user",
                 "name": ctx.author.display_name,
@@ -297,9 +256,7 @@ class ThreadCommands(commands.Cog):
                 processing_msg = None
             
             # Get thread-specific system prompt
-            thread_system_prompt = None
-            if thread_id in self.state.discord_threads:
-                thread_system_prompt = self.state.discord_threads[thread_id].get("system_prompt")
+            thread_system_prompt = thread_data.get("system_prompt")
             
             # Or fall back to channel-specific prompt
             if not thread_system_prompt:
@@ -339,100 +296,45 @@ class ThreadCommands(commands.Cog):
     async def list_threads_slash(self, ctx):
         channel_id = str(ctx.channel.id)
         
-        if channel_id not in self.state.threads or not self.state.threads[channel_id]:
+        # Find threads for this channel
+        channel_threads = []
+        for thread_id, thread_data in self.state.discord_threads.items():
+            if thread_data.get("channel_id") == channel_id:
+                channel_threads.append((thread_id, thread_data))
+        
+        if not channel_threads:
             await ctx.respond("No active threads in this channel. Create one with `/thread new`")
             return
         
         threads_list = []
-        for thread_id, thread_data in self.state.threads[channel_id].items():
+        for thread_id, thread_data in channel_threads:
             thread_name = thread_data["name"]
-            message_count = len(thread_data["messages"])
+            message_count = len(thread_data.get("messages", []))
             created_time = thread_data["created_at"].strftime("%Y-%m-%d %H:%M")
-            simple_id = thread_data.get("simple_id", thread_id.split('-')[1] if '-' in thread_id else "???")
-            threads_list.append(f"• **{thread_name}** (ID: `{simple_id}`)\n  Created: {created_time} | Messages: {message_count}")
+            threads_list.append(f"• **{thread_name}** (ID: `{thread_id}`)\n  Created: {created_time} | Messages: {message_count}")
         
         await ctx.respond(f"**Active Conversation Threads:**\n\n" + "\n".join(threads_list) + 
                           "\n\nUse `/thread message id:<thread_id> message:<your message>` to continue a conversation.")
 
-    async def delete_thread_slash(self, ctx, 
-                           id: str):
-        # Check if this is a simple ID
-        thread_id = None
-        channel_id = None
-        
-        if id in self.state.simple_id_mapping:
-            # This is a simple ID, get the full thread ID
-            thread_id = self.state.simple_id_mapping[id]
-            channel_id = thread_id.split('-')[0]
-            
-            # Clean up the mapping when deleting
-            del self.state.simple_id_mapping[id]
-        else:
-            # Try to parse as a full thread ID
-            try:
-                channel_id = id.split('-')[0]
-                # Search through threads to find the matching ID
-                for thread_key in list(self.state.threads.get(channel_id, {}).keys()):
-                    if id == thread_key or (
-                        "simple_id" in self.state.threads[channel_id][thread_key] and 
-                        self.state.threads[channel_id][thread_key]["simple_id"] == id
-                    ):
-                        thread_id = thread_key
-                        # Also clean up the mapping
-                        simple_id = self.state.threads[channel_id][thread_key].get("simple_id")
-                        if simple_id in self.state.simple_id_mapping:
-                            del self.state.simple_id_mapping[simple_id]
-                        break
-            except:
-                await ctx.respond("⚠️ Invalid thread ID format. Use `/thread list` to see available threads.")
-                return
-        
-        if not thread_id or channel_id not in self.state.threads or thread_id not in self.state.threads[channel_id]:
+    async def delete_thread_slash(self, ctx, id: str):
+        # Check if thread exists
+        if id not in self.state.discord_threads:
             await ctx.respond("⚠️ Thread not found. Use `/thread list` to see available threads.")
             return
         
-        thread_name = self.state.threads[channel_id][thread_id]["name"]
-        del self.state.threads[channel_id][thread_id]
+        thread_name = self.state.discord_threads[id]["name"]
+        del self.state.discord_threads[id]
         
-        # Clean up empty channel entries
-        if not self.state.threads[channel_id]:
-            del self.state.threads[channel_id]
-            
         await ctx.respond(f"✅ Deleted thread: **{thread_name}**")
 
-    async def rename_thread_slash(self, ctx, 
-                           id: str,
-                           name: str):
-        # Check if this is a simple ID
-        thread_id = None
-        channel_id = None
-        
-        if id in self.state.simple_id_mapping:
-            # This is a simple ID, get the full thread ID
-            thread_id = self.state.simple_id_mapping[id]
-            channel_id = thread_id.split('-')[0]
-        else:
-            # Try to parse as a full thread ID
-            try:
-                channel_id = id.split('-')[0]
-                # Search through threads to find the matching ID
-                for thread_key in self.state.threads.get(channel_id, {}).keys():
-                    if id == thread_key or (
-                        "simple_id" in self.state.threads[channel_id][thread_key] and 
-                        self.state.threads[channel_id][thread_key]["simple_id"] == id
-                    ):
-                        thread_id = thread_key
-                        break
-            except:
-                await ctx.respond("⚠️ Invalid thread ID format. Use `/thread list` to see available threads.")
-                return
-        
-        if not thread_id or channel_id not in self.state.threads or thread_id not in self.state.threads[channel_id]:
+    async def rename_thread_slash(self, ctx, id: str, name: str):
+        # Check if thread exists
+        if id not in self.state.discord_threads:
             await ctx.respond("⚠️ Thread not found. Use `/thread list` to see available threads.")
             return
         
-        old_name = self.state.threads[channel_id][thread_id]["name"]
-        self.state.threads[channel_id][thread_id]["name"] = name
+        old_name = self.state.discord_threads[id]["name"]
+        self.state.discord_threads[id]["name"] = name
         
         await ctx.respond(f"✅ Renamed thread from **{old_name}** to **{name}**")
 
@@ -473,26 +375,18 @@ class ThreadCommands(commands.Cog):
         
         thread_id = str(ctx.channel.id)
         channel_id = str(ctx.channel.parent_id)
-        full_thread_id = f"{channel_id}-{thread_id}"
         
-        # Initialize discord_threads if it doesn't exist
-        if not hasattr(self.state, 'discord_threads'):
-            self.state.discord_threads = {}
-            
-        # Create or update thread entry in discord_threads
+        # Initialize thread entry if it doesn't exist
         if thread_id not in self.state.discord_threads:
             self.state.discord_threads[thread_id] = {
                 "name": ctx.channel.name,
                 "channel_id": channel_id,
-                "created_at": datetime.now()
+                "created_at": datetime.now(),
+                "messages": []
             }
         
-        # Set the model in discord_threads
+        # Set the model for this thread
         self.state.discord_threads[thread_id]["model"] = model_name
-        
-        # Also update in the threads dictionary if it exists
-        if channel_id in self.state.threads and full_thread_id in self.state.threads[channel_id]:
-            self.state.threads[channel_id][full_thread_id]["model"] = model_name
         
         await ctx.respond(f"✅ Model for this thread set to `{model_name}`")
 
@@ -504,16 +398,13 @@ class ThreadCommands(commands.Cog):
             
         thread_id = str(ctx.channel.id)
         
-        # Initialize discord_threads if it doesn't exist
-        if not hasattr(self.state, 'discord_threads'):
-            self.state.discord_threads = {}
-            
-        # Create or update thread entry
+        # Initialize thread entry if it doesn't exist
         if thread_id not in self.state.discord_threads:
             self.state.discord_threads[thread_id] = {
                 "name": ctx.channel.name,
                 "channel_id": str(ctx.channel.parent_id),
-                "created_at": datetime.now()
+                "created_at": datetime.now(),
+                "messages": []
             }
         
         # Set the system prompt
@@ -629,47 +520,34 @@ class ThreadCommands(commands.Cog):
                                 for chunk in chunks[1:]:
                                     await message.channel.send(chunk)
                                 
-                                # Add both the user's message and the bot's response to thread storage
-                                # Let's find the appropriate thread ID in our threads dictionary
-                                channel_id = str(message.channel.parent_id)
-                                full_thread_id = f"{channel_id}-{thread_id}"
+                                # Store the messages in our thread data
+                                if thread_id not in self.state.discord_threads:
+                                    # Initialize if this is a bot-owned thread but not in our dict yet
+                                    self.state.discord_threads[thread_id] = {
+                                        "name": message.channel.name,
+                                        "channel_id": str(message.channel.parent_id),
+                                        "created_at": datetime.now(),
+                                        "messages": []
+                                    }
                                 
-                                # Ensure thread exists in our data
-                                if channel_id in self.state.threads and full_thread_id in self.state.threads[channel_id]:
-                                    # Add user message
-                                    self.state.threads[channel_id][full_thread_id]["messages"].append({
-                                        "role": "user",
-                                        "name": message.author.display_name,
-                                        "content": message.content,
-                                        "timestamp": datetime.now()
-                                    })
-                                    
-                                    # Add assistant response
-                                    self.state.threads[channel_id][full_thread_id]["messages"].append({
-                                        "role": "assistant",
-                                        "content": response,
-                                        "timestamp": datetime.now()
-                                    })
-                                    
-                                # Also record messages in simple discord_threads dict if needed
-                                if thread_id in self.state.discord_threads:
-                                    if "messages" not in self.state.discord_threads[thread_id]:
-                                        self.state.discord_threads[thread_id]["messages"] = []
-                                    
-                                    # Add user message
-                                    self.state.discord_threads[thread_id]["messages"].append({
-                                        "role": "user",
-                                        "name": message.author.display_name,
-                                        "content": message.content,
-                                        "timestamp": datetime.now()
-                                    })
-                                    
-                                    # Add assistant response
-                                    self.state.discord_threads[thread_id]["messages"].append({
-                                        "role": "assistant",
-                                        "content": response,
-                                        "timestamp": datetime.now()
-                                    })
+                                # Ensure messages list exists
+                                if "messages" not in self.state.discord_threads[thread_id]:
+                                    self.state.discord_threads[thread_id]["messages"] = []
+                                
+                                # Add user message
+                                self.state.discord_threads[thread_id]["messages"].append({
+                                    "role": "user",
+                                    "name": message.author.display_name,
+                                    "content": message.content,
+                                    "timestamp": datetime.now()
+                                })
+                                
+                                # Add assistant response
+                                self.state.discord_threads[thread_id]["messages"].append({
+                                    "role": "assistant",
+                                    "content": response,
+                                    "timestamp": datetime.now()
+                                })
                         
                         finally:
                             # Restore original model

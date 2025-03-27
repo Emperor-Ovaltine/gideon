@@ -82,9 +82,9 @@ async def on_ready():
     state_loaded = persistence.load_state(state)
     if state_loaded:
         channels = len(state.channel_history)
-        threads = sum(len(threads) for threads in state.threads.values())
+        threads = len(state.discord_threads)  # Updated to use discord_threads
         messages = sum(len(msgs) for msgs in state.channel_history.values())
-        print(f"Successfully loaded saved state: {channels} channels, {threads} threads, {messages} messages")
+        print(f"Successfully loaded saved state: {channels} channels, {threads} threads, {messages}")
     else:
         print("No saved state found or error loading state, starting fresh")
     
@@ -192,9 +192,9 @@ async def auto_save_state():
         try:
             state = BotStateManager()
             
-            # Log detailed state info before saving
+            # Updated logging to include discord_threads
             channels = len(state.channel_history)
-            threads = sum(len(threads) for threads in state.threads.values())
+            threads = len(state.discord_threads)  # Updated to use discord_threads
             messages = sum(len(history) for history in state.channel_history.values())
             print(f"State before saving - Channels: {channels}, Threads: {threads}, Messages: {messages}, State ID: {id(state)}")
             
@@ -219,7 +219,7 @@ async def auto_save_state():
                 
                 # Log statistics about saved data
                 channels = len(state.channel_history)
-                threads = sum(len(threads) for threads in state.threads.values())
+                threads = len(state.discord_threads)  # Updated to use discord_threads
                 messages = sum(len(history) for history in state.channel_history.values())
                 print(f"Saved data: {channels} channels, {threads} threads, {messages}")
                 
@@ -306,7 +306,7 @@ async def save_state_command(ctx):
         if persistence.save_state(state):
             # Count some stats for the response
             channels = len(state.channel_history)
-            threads = sum(len(threads) for threads in state.threads.values())
+            threads = len(state.discord_threads)  # Updated to use discord_threads
             messages = sum(len(history) for history in state.channel_history.values())
             
             # Get file size information
@@ -347,15 +347,15 @@ async def state_info_command(ctx):
         color=discord.Color.blue()
     )
     
-    # Count statistics
+    # Updated statistics to include discord_threads
     channels = len(state.channel_history)
-    threads = sum(len(threads) for threads in state.threads.values())
+    threads = len(state.discord_threads)
     messages = sum(len(history) for history in state.channel_history.values())
+    thread_messages = sum(len(thread.get("messages", [])) for thread in state.discord_threads.values())
     
-    # Add memory statistics
     embed.add_field(
         name="Memory Statistics",
-        value=f"• Active channels: {channels}\n• Active threads: {threads}\n• Stored messages: {messages}",
+        value=f"• Active channels: {channels}\n• Active threads: {threads}\n• Stored messages: {messages + thread_messages}",
         inline=False
     )
     

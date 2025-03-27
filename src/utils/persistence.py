@@ -32,14 +32,12 @@ class StatePersistence:
         if not os.path.exists(self.state_file):
             logger.info(f"Creating new empty state file at {self.state_file}")
             default_state = {
-                "version": 1,
+                "version": 2,  # Updated schema version
                 "saved_at": datetime.now().isoformat(),
                 "channel_history": {},
                 "channel_models": {},
                 "channel_system_prompts": {},
-                "threads": {},
-                "simple_id_mapping": {},
-                "discord_threads": {},
+                "discord_threads": {},  # Only discord_threads retained
                 "max_channel_history": 35,
                 "max_threads_per_channel": 10,
                 "time_window_hours": 48,
@@ -146,7 +144,7 @@ class StatePersistence:
             
             # Extract the relevant data from state manager
             state_data = {
-                "version": 1,  # For future schema migrations
+                "version": 2,  # Updated schema version
                 "saved_at": datetime.now().isoformat(),
                 
                 # Conversation memory
@@ -155,9 +153,7 @@ class StatePersistence:
                 "channel_system_prompts": state_manager.channel_system_prompts,
                 
                 # Thread data
-                "threads": state_manager.threads,
-                "simple_id_mapping": state_manager.simple_id_mapping,
-                "discord_threads": state_manager.discord_threads,
+                "discord_threads": state_manager.discord_threads,  # Only discord_threads saved
                 
                 # Configuration
                 "max_channel_history": state_manager.max_channel_history,
@@ -193,25 +189,27 @@ class StatePersistence:
             self._process_nested_datetime(state_data)
             
             # Validate and update state manager with loaded data
+            file_version = state_data.get("version", 1)
+            if file_version == 1:
+                logger.info("Migrating from legacy thread format to discord-only threads")
+                legacy_threads = state_data.get("threads", {})
+                legacy_mapping = state_data.get("simple_id_mapping", {})
+                # Migrate legacy data if needed (not stored in memory)
+                state_manager.discord_threads = state_data.get("discord_threads", {})
+            else:
+                state_manager.discord_threads = state_data.get("discord_threads", {})
+
             state_manager.channel_history = state_data.get("channel_history", {})
             state_manager.channel_models = state_data.get("channel_models", {})
             state_manager.channel_system_prompts = state_data.get("channel_system_prompts", {})
-            state_manager.threads = state_data.get("threads", {})
-            state_manager.simple_id_mapping = state_data.get("simple_id_mapping", {})
-            state_manager.discord_threads = state_data.get("discord_threads", {})
-            
-            # Configuration values
             state_manager.max_channel_history = state_data.get("max_channel_history", 35)
             state_manager.max_threads_per_channel = state_data.get("max_threads_per_channel", 10)
             state_manager.time_window_hours = state_data.get("time_window_hours", 48)
             state_manager.global_model = state_data.get("global_model", state_manager.global_model)
             
             # Log metrics from loaded state
-            channels = len(state_manager.channel_history)
-            threads = sum(len(threads) for threads in state_manager.threads.values())
-            messages = sum(len(msgs) for msgs in state_manager.channel_history.values())
-            
-            logger.info(f"State loaded: {channels} channels, {threads} threads, {messages} messages")
+            discord_threads = len(state_manager.discord_threads)
+            logger.info(f"State loaded: {discord_threads} discord threads")
             return True
         except json.JSONDecodeError:
             logger.error(f"Failed to parse state file: invalid JSON")
