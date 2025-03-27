@@ -112,6 +112,7 @@ An example Cloudflare worker that been tested with Gideon can be found here: htt
 | `/memory` | Show conversation statistics |
 
 ### Thread Commands
+Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
 | Command | Description |
 |:-------:|:------------|
 | `/thread new` | Create a new AI conversation thread |
@@ -205,11 +206,12 @@ The Adventure System transforms Gideon into an AI Game Master for immersive tabl
 - **Integrated Dice System**: Roll dice with standard RPG notation (1d20, 2d6+3, etc.)
 - **Campaign Management**: Check status and track adventure progress
 - **Scene Visualization**: Automatically generate images of key moments in your adventure
-  - **Note**: This feature requires a configured Cloudflare Worker
-  - Configure visualization frequency with `/adventure config_images`
+  - Images are triggered at important narrative moments (combat, discoveries, etc.)
+  - Frequency is configurable with `/adventure config_images`
+  - Requires a properly configured Cloudflare Worker
 
 ### Using the Adventure System
-1. Start an adventure with `/adventure start`
+1. Start an adventure with `/adventure new`
 2. Take actions with `/adventure action [what you want to do]`
 3. Roll dice when needed with `/adventure roll [dice notation]`
 4. Check your progress with `/adventure status`
@@ -261,3 +263,13 @@ To get started with Gideon, follow these steps:
 4. Run the bot
 
 For more detailed setup instructions, please refer to the [Technical Documentation](documentation.md).
+
+# Configuration Variables in .env
+DISCORD_TOKEN=         # Your Discord bot token
+OPENROUTER_API_KEY=    # Your OpenRouter API key
+SYSTEM_PROMPT=         # Default AI personality
+DEFAULT_MODEL=         # Default AI model
+AI_HORDE_API_KEY=      # Optional: For better queue priority
+CLOUDFLARE_WORKER_URL= # Optional: For /dream command & adventures
+CLOUDFLARE_API_KEY=    # Optional: For worker authentication
+DATA_DIRECTORY=        # Optional: Where to store conversation data

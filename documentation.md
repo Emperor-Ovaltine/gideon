@@ -178,6 +178,7 @@ The `BotStateManager` maintains these key data structures:
        }
    }
    ```
+   Note: Gideon uses Discord's native thread system. The older custom thread implementation has been deprecated.
 
 4. **Configuration**
    ```python
@@ -256,7 +257,7 @@ Implementation details:
 
 ### ThreadCommands (`thread_commands.py`)
 
-Manages Discord thread-based conversations:
+Manages conversations within Discord's native thread system:
 - `/thread new` - Create new AI conversation thread
 - `/thread message` - Send to specific thread
 - `/thread list` - View all threads
@@ -266,10 +267,9 @@ Manages Discord thread-based conversations:
 - `/thread setsystem` - Set prompt for thread
 
 Implementation details:
-- Tracks thread state separately from channel history
+- Leverages Discord's built-in thread functionality
 - Maintains separate configuration per thread
-- Provides thread discovery mechanisms
-- Uses simple ID mapping for thread references
+- Tracks thread state through BotStateManager
 
 ### ConfigCommands (`config_commands.py`)
 
@@ -404,6 +404,10 @@ The tabletop RPG system is a complex feature combining:
    - Implicit character stats tracking
    - Action outcome determination
    - Game balance considerations
+
+### Adventure Commands
+
+Use `/adventure new` to start a new adventure.
 
 ## Error Handling and Logging
 
