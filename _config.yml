@@ -18,7 +18,7 @@ github:
 
 # Navigation
 header_pages:
-  - README.md
+  - index.md
   - documentation.md
 
 # Default layout
