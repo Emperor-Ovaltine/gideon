@@ -3,25 +3,27 @@ layout: default
 title: Gideon - AI Assistant for Discord
 ---
 
-<div align="center">
+<p align="center">
+  <img src="assets/images/gideon-logo.jpeg" alt="Gideon Logo" width="400"/>
+</p>
+
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.8+"></a>
+  <a href="https://github.com/Pycord-Development/pycord"><img src="https://img.shields.io/badge/py--cord-2.4+-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="Py-Cord 2.4+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge" alt="License MIT"></a>
+</p>
+
+<p align="center"><em>Your server's intelligent companion powered by cutting-edge AI models</em></p>
+
+<p align="center">
+  <a href="#-installation">Installation</a> •
+  <a href="#-features">Features</a> •
+  <a href="#-commands">Commands</a> •
+  <a href="#-supported-models">Models</a> •
+  <a href="#-troubleshooting">Troubleshooting</a>
+</p>
 
 # 🤖 Gideon - AI Assistant for Discord
-
-<img src="assets/images/gideon-logo.jpeg" alt="Gideon Logo" width="400"/>
-
-<a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.8+"></a>
-<a href="https://github.com/Pycord-Development/pycord"><img src="https://img.shields.io/badge/py--cord-2.4+-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="Py-Cord 2.4+"></a>
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge" alt="License MIT"></a>
-
-*Your server's intelligent companion powered by cutting-edge AI models*
-
-[Installation](#-installation) • 
-[Features](#-features) • 
-[Commands](#-commands) • 
-[Models](#-supported-models) • 
-[Troubleshooting](#-troubleshooting)
-
-</div>
 
 ## 🌟 Overview
 
@@ -109,16 +111,18 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 ## 🤖 Commands
 
 ### General Commands
+
 | Command | Description |
-|:-------:|:------------|
+|---------|-------------|
 | `/chat` | Start a conversation with the AI |
 | `/reset` | Clear the conversation history |
 | `/summarize` | Summarize the current conversation |
 | `/memory` | Show conversation statistics |
 
 ### Thread Commands
+
 | Command | Description |
-|:-------:|:------------|
+|---------|-------------|
 | `/thread new` | Create a new AI conversation thread |
 | `/thread message` | Send a message to a specific thread |
 | `/thread list` | View all threads |
@@ -128,8 +132,9 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 | `/thread setsystem` | Set the system prompt for a thread |
 
 ### Configuration Commands
+
 | Command | Description |
-|:-------:|:------------|
+|---------|-------------|
 | `/setmodel` | Change the global AI model |
 | `/model` | View or change the current model |
 | `/setsystem` | Customize the AI personality |
@@ -139,16 +144,18 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 | `/setwindow` | Set the time window for memory |
 
 ### Image Commands
+
 | Command | Description |
-|:-------:|:------------|
+|---------|-------------|
 | `/imagine` | Generate images from text using AI Horde |
 | `/hordemodels` | List available AI Horde models |
 | `/dream` | Generate images using Cloudflare Workers |
 | `/cftest` | Test the connection to Cloudflare Worker |
 
 ### Adventure Commands
+
 | Command | Description |
-|:-------:|:------------|
+|---------|-------------|
 | `/adventure new` | Start a new tabletop RPG adventure |
 | `/adventure action` | Take an action in your adventure |
 | `/adventure roll` | Roll dice with narrated results |
@@ -210,6 +217,6 @@ The Adventure System transforms Gideon into an AI Game Master for immersive tabl
 
 For detailed technical information about Gideon's architecture, implementation details, and advanced setup instructions, please refer to the [Technical Documentation](documentation.md).
 
-<div align="center">
+<p align="center">
 Made with ❤️ by <a href="https://github.com/Emperor-Ovaltine">Emperor-Ovaltine</a>
-</div>
+</p>
