@@ -2,7 +2,7 @@
 
 # 🤖 Gideon - AI Assistant for Discord
 
-<img src="https://i.imgur.com/vgdWnD7.png" alt="Gideon Logo" width="400"/>
+<img src="https://i.imgur.com/JQ3FHqS.jpeg" alt="Gideon Logo" width="400"/>
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Py-Cord 2.4+](https://img.shields.io/badge/py--cord-2.4+-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://github.com/Pycord-Development/pycord)
