@@ -1,7 +1,7 @@
 # Site settings
 title: Gideon - AI Assistant for Discord
 description: Your server's intelligent companion powered by cutting-edge AI models
-url: # your-github-username.github.io/gideon3
+url: https://emperor-ovaltine.github.io/gideon
 baseurl: "" # If your site is in a subdirectory, put it here (e.g., /gideon3)
 
 # Theme settings
