@@ -1,0 +1,36 @@
+# Site settings
+title: Gideon - AI Assistant for Discord
+description: Your server's intelligent companion powered by cutting-edge AI models
+url: # your-github-username.github.io/gideon3
+baseurl: "" # If your site is in a subdirectory, put it here (e.g., /gideon3)
+
+# Theme settings
+remote_theme: pages-themes/cayman@v0.2.0
+plugins:
+  - jekyll-remote-theme
+
+# Customization
+show_downloads: true
+github:
+  repository_url: https://github.com/Emperor-Ovaltine/gideon
+  zip_url: https://github.com/Emperor-Ovaltine/gideon/archive/refs/heads/main.zip
+  tar_url: https://github.com/Emperor-Ovaltine/gideon/archive/refs/heads/main.tar.gz
+
+# Navigation
+header_pages:
+  - README.md
+  - documentation.md
+
+# Default layout
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+      
+# Markdown settings
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
