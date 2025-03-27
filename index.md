@@ -1,7 +1,3 @@
----
-layout: default
----
-
 <div align="center">
 
 # 🤖 Gideon - AI Assistant for Discord
