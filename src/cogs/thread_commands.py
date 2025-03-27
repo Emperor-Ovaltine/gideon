@@ -1,11 +1,15 @@
 """Thread-based conversation commands."""
 import discord
 import random
+import logging
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
 from ..utils.openrouter_client import OpenRouterClient
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 from datetime import datetime, timedelta
+
+# Create logger
+logger = logging.getLogger(__name__)
 
 class ThreadCommands(commands.Cog):
     """Commands for managing AI conversation threads."""
@@ -32,7 +36,7 @@ class ThreadCommands(commands.Cog):
         model_option = discord.Option(
             str, 
             "Select the AI model to use for this thread",
-            autocomplete=lambda ctx: self.model_autocomplete(ctx)
+            autocomplete=self.model_autocomplete  # Pass the method directly
         )
         
         # Create an async wrapper method
@@ -438,23 +442,59 @@ class ThreadCommands(commands.Cog):
             await ctx.respond("⚠️ This command can only be used within a thread.")
             return
             
+        try:
+            # Get all available models
+            all_models = await self.bot.model_manager.get_models()
+            
+            # Case-insensitive model validation
+            model_found = False
+            valid_model_name = model_name  # Default to the provided name
+            
+            for model in all_models:
+                # Handle both string models and model objects
+                model_str = str(model)
+                if model_str.lower() == model_name.lower():
+                    valid_model_name = model_str  # Use the correctly cased model name
+                    model_found = True
+                    break
+                    
+            if not model_found:
+                # Show available models in the error message
+                model_list = "\n".join([str(m) for m in all_models[:10]])
+                await ctx.respond(f"⚠️ Model `{model_name}` not found. Available models include:\n```\n{model_list}\n```")
+                return
+                
+            # Use the validated model name
+            model_name = valid_model_name
+                
+        except Exception as e:
+            await ctx.respond(f"⚠️ Error validating model: {str(e)}")
+            return
+        
         thread_id = str(ctx.channel.id)
+        channel_id = str(ctx.channel.parent_id)
+        full_thread_id = f"{channel_id}-{thread_id}"
         
         # Initialize discord_threads if it doesn't exist
         if not hasattr(self.state, 'discord_threads'):
             self.state.discord_threads = {}
             
-        # Create or update thread entry
+        # Create or update thread entry in discord_threads
         if thread_id not in self.state.discord_threads:
             self.state.discord_threads[thread_id] = {
                 "name": ctx.channel.name,
-                "channel_id": str(ctx.channel.parent_id),
+                "channel_id": channel_id,
                 "created_at": datetime.now()
             }
         
-        # Set the model
+        # Set the model in discord_threads
         self.state.discord_threads[thread_id]["model"] = model_name
-        await ctx.respond(f"Model for this thread set to `{model_name}`")
+        
+        # Also update in the threads dictionary if it exists
+        if channel_id in self.state.threads and full_thread_id in self.state.threads[channel_id]:
+            self.state.threads[channel_id][full_thread_id]["model"] = model_name
+        
+        await ctx.respond(f"✅ Model for this thread set to `{model_name}`")
 
     async def set_thread_system_slash(self, ctx, new_prompt: str):
         # Check if we're in a thread
@@ -527,10 +567,13 @@ class ThreadCommands(commands.Cog):
                         # Set thread-specific model if available, otherwise use global
                         current_model = self.openrouter_client.model
                         if thread_model:
+                            logger.debug(f"Using thread-specific model: {thread_model} for thread {thread_id}")
                             self.openrouter_client.model = thread_model
                         else:
                             channel_id = str(message.channel.parent_id)
-                            self.openrouter_client.model = self.get_model_for_channel(channel_id)
+                            model = self.get_model_for_channel(channel_id)
+                            logger.debug(f"Using channel model: {model} for thread {thread_id}")
+                            self.openrouter_client.model = model
                         
                         try:
                             # Get thread history for context
