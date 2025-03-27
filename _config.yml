@@ -2,7 +2,7 @@
 title: Gideon - AI Assistant for Discord
 description: Your server's intelligent companion powered by cutting-edge AI models
 url: https://emperor-ovaltine.github.io
-baseurl: "" # If your site is in a subdirectory, put it here (e.g., /gideon3)
+baseurl: "/gideon" # If your site is in a subdirectory, put it here (e.g., /gideon3)
 
 # Theme settings
 remote_theme: pages-themes/cayman@v0.2.0
