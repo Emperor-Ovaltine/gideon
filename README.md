@@ -265,11 +265,11 @@ To get started with Gideon, follow these steps:
 For more detailed setup instructions, please refer to the [Technical Documentation](documentation.md).
 
 # Configuration Variables in .env
-DISCORD_TOKEN=         # Your Discord bot token
-OPENROUTER_API_KEY=    # Your OpenRouter API key
-SYSTEM_PROMPT=         # Default AI personality
-DEFAULT_MODEL=         # Default AI model
-AI_HORDE_API_KEY=      # Optional: For better queue priority
-CLOUDFLARE_WORKER_URL= # Optional: For /dream command & adventures
-CLOUDFLARE_API_KEY=    # Optional: For worker authentication
+- DISCORD_TOKEN=         # Your Discord bot token
+- OPENROUTER_API_KEY=    # Your OpenRouter API key
+- SYSTEM_PROMPT=         # Default AI personality
+- DEFAULT_MODEL=         # Default AI model
+- AI_HORDE_API_KEY=      # Optional: For better queue priority
+- CLOUDFLARE_WORKER_URL= # Optional: For /dream command & adventures
+- CLOUDFLARE_API_KEY=    # Optional: For worker authentication
 DATA_DIRECTORY=        # Optional: Where to store conversation data
