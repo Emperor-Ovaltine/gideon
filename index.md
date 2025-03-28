@@ -33,14 +33,59 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 
 ### 🧠 Intelligence
 - **Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more through OpenRouter
+
+<p align="center">
+  <img src="assets/images/dynamic-model-search.png" alt="ai-thread-demo" width="1176"/>
+</p>
+
 - **Conversation Memory** - Natural conversations with context across messages
 - **Image Analysis** - Upload and analyze images with vision-capable AI models
+
+<p align="center">
+  <img src="assets/images/imagine-analyze-screenshot.png" alt="analyze-demo" width="626"/>
+</p>
+
+
 - **Image Generation** - Create stunning visuals with various Stable Diffusion models
+
+<p align="center">
+  <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="1216"/>
+</p>
+
+<p align="center">
+  <img src="assets/images/imagine-queue.png" alt="imagine-queue" width="366"/>
+</p>
+
+<p align="center">
+  <img src="assets/images/imagine-tea-screenshot.png" alt="imagine-queue" width="1080"/>
+</p>
 
 ### 🧵 Organization
 - **Conversation Threads** - Create dedicated topics with independent histories
-- **Simple References** - Each thread gets a short, easy-to-reference ID
 - **Auto-Responses** - Bot automatically responds to all messages in AI threads
+
+<p align="center">
+  <img src="assets/images/ai-chat-threads.png" alt="ai-thread-demo" width="492"/>
+</p>
+
+<p align="center">
+  <img src="assets/images/ai-chat-threads2.png" alt="ai-thread-demo" width="532"/>
+</p>
+
+<p align="center">
+  <img src="assets/images/ai-threads3.png" alt="ai-thread-demo" width="532"/>
+</p>
+
+- **Dynamic URL Summarization** - Instantly extracts and distills key information from any shared webpage, providing concise, up-to-date summaries directly in your chat. 
+
+<p align="center">
+  <img src="assets/images/url-summarize-entry-screenshot.png" alt="ai-thread-demo" width="134"/>
+</p>
+
+<p align="center">
+  <img src="assets/images/url-summary-screenshot.png" alt="ai-thread-demo" width="1080"/>
+</p>
+
 
 ### 🎲 Fantasy Game Master
 - **Interactive Adventures** - Create and explore AI-driven tabletop RPG campaigns
@@ -107,6 +152,13 @@ If you want to use the `/dream` command for generating images:
 An example Cloudflare worker that has been tested with Gideon can be found here: [flux1-cloudflare-worker](https://github.com/Emperor-Ovaltine/flux1-cloudflare-worker)
 
 **Note:** Setting up a Cloudflare Worker is also required for scene visualization in Adventure mode.
+
+**Example /dream output**
+
+<p align="center">
+  <img src="assets/images/dream-tea-screenshot.png" alt="imagine-queue" width="1080"/>
+</p>
+
 
 ## 🤖 Commands
 
