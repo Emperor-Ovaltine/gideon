@@ -35,14 +35,14 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 - **Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more through OpenRouter
 
 <p align="center">
-  <img src="assets/images/dynamic-model-search.png" alt="ai-thread-demo" width="1176"/>
+  <img src="assets/images/dynamic-model-search.png" alt="dynamic-model-search" width="1176"/>
 </p>
 
 - **Conversation Memory** - Natural conversations with context across messages
 - **Image Analysis** - Upload and analyze images with vision-capable AI models
 
 <p align="center">
-  <img src="assets/images/imagine-analyze-screenshot.png" alt="analyze-demo" width="626"/>
+  <img src="assets/images/image-analyze-screenshot.png" alt="analyze-demo" width="626"/>
 </p>
 
 
@@ -53,7 +53,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 </p>
 
 <p align="center">
-  <img src="assets/images/imagine-queue.png" alt="imagine-queue" width="366"/>
+  <img src="assets/images/imagine-queue-screenshot.png" alt="imagine-queue" width="366"/>
 </p>
 
 <p align="center">
@@ -69,21 +69,21 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 </p>
 
 <p align="center">
-  <img src="assets/images/ai-chat-threads2.png" alt="ai-thread-demo" width="532"/>
+  <img src="assets/images/ai-chat-threads-2.png" alt="ai-thread-demo" width="532"/>
 </p>
 
 <p align="center">
-  <img src="assets/images/ai-threads3.png" alt="ai-thread-demo" width="532"/>
+  <img src="assets/images/ai-threads-3.png" alt="ai-thread-demo" width="532"/>
 </p>
 
 - **Dynamic URL Summarization** - Instantly extracts and distills key information from any shared webpage, providing concise, up-to-date summaries directly in your chat. 
 
 <p align="center">
-  <img src="assets/images/url-summarize-entry-screenshot.png" alt="ai-thread-demo" width="134"/>
+  <img src="assets/images/url-summarize-entry-screenshot.png" alt="url-summary-demo" width="400"/>
 </p>
 
 <p align="center">
-  <img src="assets/images/url-summary-screenshot.png" alt="ai-thread-demo" width="1080"/>
+  <img src="assets/images/url-summary-screenshot.png" alt="url-summary-demo" width="1080"/>
 </p>
 
 
