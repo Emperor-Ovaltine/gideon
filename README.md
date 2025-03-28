@@ -33,6 +33,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 - **Image Analysis** - Upload and analyze images with vision-capable AI models
 
 <img src="assets/images/image-analyze-screenshot.png" alt="analyze-demo" width="800"/>
+<img src="assets/images/replys-to-at-tags.png" alt="analyze-demo" width="800"/>
 
 - **Image Generation** - Create stunning visuals with various Stable Diffusion models
 
