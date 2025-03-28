@@ -314,7 +314,6 @@ Implementation details:
 
 Implements the tabletop RPG adventure system:
 - `/adventure start` - Start new RPG adventure
-- `/adventure action` - Take action in adventure
 - `/adventure roll` - Roll dice with narration
 - `/adventure status` - Check adventure status
 - `/adventure end` - End current adventure
