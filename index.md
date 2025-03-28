@@ -35,29 +35,29 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 - **Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more through OpenRouter
 
 <p align="center">
-  <img src="assets/images/dynamic-model-search.png" alt="dynamic-model-search" width="1176"/>
+  <img src="assets/images/dynamic-model-search.png" alt="dynamic-model-search" width="1200"/>
 </p>
 
 - **Conversation Memory** - Natural conversations with context across messages
 - **Image Analysis** - Upload and analyze images with vision-capable AI models
 
 <p align="center">
-  <img src="assets/images/image-analyze-screenshot.png" alt="analyze-demo" width="626"/>
+  <img src="assets/images/image-analyze-screenshot.png" alt="analyze-demo" width="1200"/>
 </p>
 
 
 - **Image Generation** - Create stunning visuals with various Stable Diffusion models
 
 <p align="center">
-  <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="1216"/>
+  <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="1200"/>
 </p>
 
 <p align="center">
-  <img src="assets/images/imagine-queue-screenshot.png" alt="imagine-queue" width="366"/>
+  <img src="assets/images/imagine-queue-screenshot.png" alt="imagine-queue" width="1200"/>
 </p>
 
 <p align="center">
-  <img src="assets/images/imagine-tea-screenshot.png" alt="imagine-queue" width="1080"/>
+  <img src="assets/images/imagine-tea-screenshot.png" alt="imagine-queue" width="1200"/>
 </p>
 
 ### 🧵 Organization
@@ -65,25 +65,25 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 - **Auto-Responses** - Bot automatically responds to all messages in AI threads
 
 <p align="center">
-  <img src="assets/images/ai-chat-threads.png" alt="ai-thread-demo" width="492"/>
+  <img src="assets/images/ai-chat-threads.png" alt="ai-thread-demo" width="1200"/>
 </p>
 
 <p align="center">
-  <img src="assets/images/ai-chat-threads-2.png" alt="ai-thread-demo" width="532"/>
+  <img src="assets/images/ai-chat-threads-2.png" alt="ai-thread-demo" width="1200"/>
 </p>
 
 <p align="center">
-  <img src="assets/images/ai-threads-3.png" alt="ai-thread-demo" width="532"/>
+  <img src="assets/images/ai-threads-3.png" alt="ai-thread-demo" width="1200"/>
 </p>
 
 - **Dynamic URL Summarization** - Instantly extracts and distills key information from any shared webpage, providing concise, up-to-date summaries directly in your chat. 
 
 <p align="center">
-  <img src="assets/images/url-summarize-entry-screenshot.png" alt="url-summary-demo" width="400"/>
+  <img src="assets/images/url-summarize-entry-screenshot.png" alt="url-summary-demo" width="1200"/>
 </p>
 
 <p align="center">
-  <img src="assets/images/url-summary-screenshot.png" alt="url-summary-demo" width="1080"/>
+  <img src="assets/images/url-summary-screenshot.png" alt="url-summary-demo" width="1200"/>
 </p>
 
 
