@@ -26,14 +26,28 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 
 ### 🧠 Intelligence
 - **Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more through OpenRouter
+
+<img src="assets/images/dynamic-model-search.png" alt="dynamic-model-search" width="800"/>
+
 - **Conversation Memory** - Natural conversations with context across messages
 - **Image Analysis** - Upload and analyze images with vision-capable AI models
+
+<img src="assets/images/image-analyze-screenshot.png" alt="analyze-demo" width="800"/>
+
 - **Image Generation** - Create stunning visuals with various Stable Diffusion models
+
+<img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="800"/>
 
 ### 🧵 Organization
 - **Conversation Threads** - Create dedicated topics with independent histories
-- **Simple References** - Each thread gets a short, easy-to-reference ID
 - **Auto-Responses** - Bot automatically responds to all messages in AI threads
+
+<img src="assets/images/ai-chat-threads.png" alt="ai-thread-demo" width="800"/>
+
+- **Dynamic URL Summarization** - Instantly extracts and distills key information from any shared webpage, providing concise, up-to-date summaries directly in your chat
+
+<img src="assets/images/url-summarize-entry-screenshot.png" alt="url-summary-demo" width="800"/>
+<img src="assets/images/url-summary-screenshot.png" alt="url-summary-demo" width="800"/>
 
 ### 🎲 Fantasy Game Master
 - **Interactive Adventures** - Create and explore AI-driven tabletop RPG campaigns
@@ -97,9 +111,13 @@ If you want to use the `/dream` command for generating images:
 3. Set the `CLOUDFLARE_WORKER_URL` in your `.env` file to your worker's URL
 4. Optionally set `CLOUDFLARE_API_KEY` if your worker requires authentication
 
-An example Cloudflare worker that been tested with Gideon can be found here: https://github.com/Emperor-Ovaltine/flux1-cloudflare-worker
+An example Cloudflare worker that has been tested with Gideon can be found here: [flux1-cloudflare-worker](https://github.com/Emperor-Ovaltine/flux1-cloudflare-worker)
 
 **Note:** Setting up a Cloudflare Worker is also required for scene visualization in Adventure mode.
+
+**Example /dream output**
+
+<img src="assets/images/dream-tea-screenshot.png" alt="dream-output" width="800"/>
 
 ## 🤖 Commands
 
@@ -206,13 +224,10 @@ The Adventure System transforms Gideon into an AI Game Master for immersive tabl
 - **Integrated Dice System**: Roll dice with standard RPG notation (1d20, 2d6+3, etc.)
 - **Campaign Management**: Check status and track adventure progress
 - **Scene Visualization**: Automatically generate images of key moments in your adventure
-  - Images are triggered at important narrative moments (combat, discoveries, etc.)
-  - Frequency is configurable with `/adventure config_images`
-  - Requires a properly configured Cloudflare Worker
 
 ### Using the Adventure System
 1. Start an adventure with `/adventure new`
-2. Take actions with `/adventure action [what you want to do]`
+2. Send messages normally in the channel to interact with your adventure
 3. Roll dice when needed with `/adventure roll [dice notation]`
 4. Check your progress with `/adventure status`
 5. End your adventure when complete with `/adventure end`
@@ -226,16 +241,9 @@ Each adventure is channel-specific and can use your configured AI model for tail
 - **Missing Commands**: Make sure the bot has proper permissions and try `/sync` (owner only)
 - **Model Problems**: Some models require OpenRouter credits - check your account
 - **State Issues**: Use `/savestate` to manually persist bot memory
-- **Image Generation Issues**: If `/imagine` fails, try smaller dimensions (512×512), fewer steps, or a different model. Some models require more kudos on AI Horde.
-- **Cloudflare Worker Issues**: Use `/cftest` to diagnose Cloudflare Worker connectivity problems. Remember that setting up the worker is your responsibility.
-- **Adventure Issues**: If an adventure gets stuck, try ending it with `/adventure end` and starting a new one.
-- **Adventure Image Generation**: If scene images aren't generating in adventure mode, make sure you have properly configured your Cloudflare Worker and tested it with `/cftest`.
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
+- **Image Generation Issues**: If `/imagine` fails, try smaller dimensions (512×512), fewer steps, or a different model
+- **Cloudflare Worker Issues**: Use `/cftest` to diagnose Cloudflare Worker connectivity problems
+- **Adventure Issues**: If an adventure gets stuck, try ending it with `/adventure end` and starting a new one
 
 <div align="center">
 Made with ❤️ by <a href="https://github.com/Emperor-Ovaltine">Emperor-Ovaltine</a>
@@ -272,4 +280,4 @@ For more detailed setup instructions, please refer to the [Technical Documentati
 - AI_HORDE_API_KEY=      # Optional: For better queue priority
 - CLOUDFLARE_WORKER_URL= # Optional: For /dream command & adventures
 - CLOUDFLARE_API_KEY=    # Optional: For worker authentication
-DATA_DIRECTORY=        # Optional: Where to store conversation data
+- DATA_DIRECTORY=        # Optional: Where to store conversation data
