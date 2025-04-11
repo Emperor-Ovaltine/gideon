@@ -336,6 +336,7 @@ Provides access to multiple AI models through a unified API:
 - Handles context window limitations
 - Manages rate limiting and retry logic
 - Processes vision inputs for compatible models
+- Note that the web search feature takes advantage of Openrouter's model-agnostic searching abilites and does incur extra cost, see https://openrouter.ai/docs/features/web-search for details
 
 Implementation details:
 - Formats messages according to model requirements

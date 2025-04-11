@@ -39,6 +39,13 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 </p>
 
 - **Conversation Memory** - Natural conversations with context across messages
+
+- **Web Search** - Search the web for current information through conversational AI responses
+
+<img src="assets/images/web-search1.png" alt="web-search-demo" width="800"/>
+<img src="assets/images/web-search2.png" alt="web-search-demo" width="800"/>
+<img src="assets/images/web-search3.png" alt="web-search-demo" width="800"/>
+
 - **Image Analysis** - Upload and analyze images with vision-capable AI models
 
 <p align="center">

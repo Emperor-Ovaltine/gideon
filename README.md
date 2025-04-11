@@ -36,6 +36,11 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 <img src="assets/images/replys-to-at-tags.png" alt="analyze-demo" width="800"/>
 
 - **Web Search** - Search the web for current information through conversational AI responses
+
+<img src="assets/images/web-search1.png" alt="web-search-demo" width="800"/>
+<img src="assets/images/web-search2.png" alt="web-search-demo" width="800"/>
+<img src="assets/images/web-search3.png" alt="web-search-demo" width="800"/>
+
 - **Image Generation** - Create stunning visuals with various Stable Diffusion models
 
 <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="800"/>
