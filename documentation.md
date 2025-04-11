@@ -245,6 +245,7 @@ Commands use Discord's permission system for access control:
 
 Handles core AI conversation features:
 - `/chat` - Main conversation command with image support
+- `/search` - Web search command for current information
 - `/reset` - Clears conversation history
 - `/summarize` - Creates summary of current conversation
 - `/memory` - Shows conversation statistics
@@ -254,6 +255,7 @@ Implementation details:
 - Processes image attachments for vision models
 - Handles streaming responses from AI models
 - Implements markdown and code block formatting
+- Integrates web search functionality
 
 ### ThreadCommands (`thread_commands.py`)
 

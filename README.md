@@ -35,6 +35,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 <img src="assets/images/image-analyze-screenshot.png" alt="analyze-demo" width="800"/>
 <img src="assets/images/replys-to-at-tags.png" alt="analyze-demo" width="800"/>
 
+- **Web Search** - Search the web for current information through conversational AI responses
 - **Image Generation** - Create stunning visuals with various Stable Diffusion models
 
 <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="800"/>
@@ -126,6 +127,7 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 | Command | Description |
 |:-------:|:------------|
 | `/chat` | Start a conversation with the AI |
+| `/search` | Search the web for current information |
 | `/reset` | Clear the conversation history |
 | `/summarize` | Summarize the current conversation |
 | `/memory` | Show conversation statistics |

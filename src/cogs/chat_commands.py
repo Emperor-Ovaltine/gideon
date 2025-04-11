@@ -3,12 +3,16 @@ import discord
 import asyncio
 import socket
 import re  # Add this import here
+import logging
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
 from ..utils.conversation import get_channel_context
 from ..utils.openrouter_client import OpenRouterClient
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 from datetime import datetime
+
+# Set up logging
+logger = logging.getLogger('chat_commands')
 
 class ChatCommands(commands.Cog):
     """Commands for basic AI chat functionality."""
@@ -357,6 +361,92 @@ class ChatCommands(commands.Cog):
         
         summary = await self.openrouter_client.send_message_with_history(summary_request)
         await ctx.respond(f"**Conversation Summary:**\n{summary}")
+
+    @discord.slash_command(
+        name="search",
+        description="Search the web for current information"
+    )
+    async def search_slash(self, ctx, 
+                         query: discord.Option(str, "What would you like to search for?"),
+                         model: discord.Option(str, "AI model to use (optional)", required=False) = None):
+        """Search the web for current information using AI."""
+        await ctx.defer()
+        
+        # Get the channel ID and set the model
+        channel_id = str(ctx.channel.id)
+        
+        # Store current model to restore later
+        current_model = self.openrouter_client.model
+        
+        # Use provided model or the effective model for this channel
+        model_to_use = model if model else self.state.get_effective_model(channel_id)
+        self.openrouter_client.model = model_to_use
+        
+        try:
+            # Create a thinking message
+            processing_msg = await ctx.respond(f"🔍 Searching for information about: **{query}**...")
+            
+            # Prepare the user message
+            user_message = {
+                "role": "user",
+                "content": query
+            }
+            
+            # Get channel-specific system prompt if it exists
+            channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+            
+            # Add a search-focused wrapper to the system prompt
+            search_system_prompt = channel_system_prompt
+            if search_system_prompt:
+                search_system_prompt += "\n\nYou have access to web search. When answering, use the most current information available from searching the web."
+            else:
+                search_system_prompt = "You are a helpful AI assistant with access to web search. When answering questions, use the most current information available from searching the web. Always cite your sources."
+            
+            # Send to AI with web search enabled
+            response = await self.openrouter_client.send_message_with_history(
+                messages=[user_message],
+                system_prompt=search_system_prompt,
+                web_search=True  # Enable web search
+            )
+            
+            # Check if response is an error
+            if response.startswith("⚠️"):
+                # If it's an error, don't format and just show the error
+                await processing_msg.edit(content=response)
+            else:
+                # Format responses from models that use citations as paginated embeds
+                if self.should_format_citations(model_to_use, response):
+                    print(f"Formatting search response from {model_to_use} with citations")
+                    embeds = self.format_perplexity_response(response)
+                    
+                    # Customize the first embed for search results
+                    if embeds:
+                        embeds[0].title = f"🔍 Search Results: {query}"
+                        embeds[0].set_footer(text=f"Using {model_to_use} • Web search enabled")
+                        
+                        # Send the first embed by editing the processing message
+                        await processing_msg.edit(content=None, embed=embeds[0])
+                        
+                        # Send additional embeds if there are more than one
+                        for embed in embeds[1:]:
+                            embed.set_footer(text=f"Using {model_to_use} • Web search enabled")
+                            await ctx.channel.send(embed=embed)
+                else:
+                    # For non-citation models, use a single embed
+                    embed = discord.Embed(
+                        title=f"🔍 Search Results: {query}",
+                        description=response,
+                        color=discord.Color.blue()
+                    )
+                    embed.set_footer(text=f"Using {model_to_use} • Web search enabled")
+                    await processing_msg.edit(content=None, embed=embed)
+                    
+        except Exception as e:
+            logger.error(f"Error in search command: {str(e)}", exc_info=True)
+            await processing_msg.edit(content=f"⚠️ Error: {str(e)}")
+        finally:
+            # Always restore the original model
+            self.openrouter_client.model = current_model
 
 def setup(bot):
     bot.add_cog(ChatCommands(bot))

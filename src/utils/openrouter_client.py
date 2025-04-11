@@ -46,7 +46,8 @@ class OpenRouterClient:
         messages: List[Dict[str, str]],
         images: List[Dict[str, Any]] = None,
         system_prompt: Optional[str] = None,
-        model: Optional[str] = None
+        model: Optional[str] = None,
+        web_search: bool = False
     ) -> str:
         """Send a message with conversation history to the AI model."""
         # Use provided system prompt or fall back to default
@@ -58,6 +59,7 @@ class OpenRouterClient:
         # Add logging
         logger.info(f"Using model: {model_to_use}")
         logger.info(f"System prompt length: {len(prompt_to_use)}")
+        logger.info(f"Web search enabled: {web_search}")
         
         # Prepare the full conversation context with system prompt
         conversation = [{"role": "system", "content": prompt_to_use}]
@@ -107,6 +109,10 @@ class OpenRouterClient:
             "model": model_to_use,
             "messages": conversation
         }
+        
+        # Add web search parameter if enabled
+        if web_search:
+            payload["web_search"] = True
         
         # Send the request
         try:
