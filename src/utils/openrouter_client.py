@@ -110,9 +110,9 @@ class OpenRouterClient:
             "messages": conversation
         }
         
-        # Add web search parameter if enabled
+        # Add web search parameter if enabled using the 'plugins' field
         if web_search:
-            payload["web_search"] = True
+            payload["plugins"] = [{"id": "web"}]
         
         # Send the request
         try:
