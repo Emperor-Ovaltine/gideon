@@ -781,6 +781,20 @@ class DungeonMasterCommands(commands.Cog):
                 # Build conversation context for the AI
                 context = self._build_conversation_context(adventure)
                 
+                # Add a final instruction to guide the response based on the last action AND recent context.
+                last_player_action = adventure["player_actions"][-1]
+                reinforcement_message = (
+                    f"Considering the recent conversation history provided, respond to the latest action from "
+                    f"{last_player_action['player']}: \"{last_player_action['content']}\". "
+                    f"Narrate the outcome, describe the scene incorporating details from the history, "
+                    f"and prompt the player(s) for their next move. Maintain narrative consistency. "
+                    f"Keep your response concise (around 300 words or less)."
+                )
+                context.append({
+                    "role": "system", # Or "user" if system role causes issues
+                    "content": reinforcement_message
+                })
+                
                 # First send a "thinking" message - force disable embed for thinking status
                 thinking_msg = await message.channel.send("🎲 *The Dungeon Master is thinking...*")
                 
