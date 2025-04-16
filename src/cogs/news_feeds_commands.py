@@ -40,7 +40,15 @@ class NewsFeedsCommands(commands.Cog):
         else:
             logger.info(f"Loaded existing news_article_history with {len(self.state.news_article_history)} feeds")
             
+        # Initialize update frequency setting if it doesn't exist (default: 6 hours)
+        if not hasattr(self.state, 'news_update_frequency'):
+            logger.info("Initializing news_update_frequency in state manager")
+            self.state.news_update_frequency = 6  # Default: 6 hours
+        else:
+            logger.info(f"Loaded existing news_update_frequency: {self.state.news_update_frequency} hours")
+            
         # Start the background task when the cog is loaded
+        self.check_news_feeds.change_interval(hours=self.state.news_update_frequency)
         self.check_news_feeds.start()
         
         # Log the loaded feeds for debugging
@@ -52,10 +60,10 @@ class NewsFeedsCommands(commands.Cog):
         """Stop tasks when the cog is unloaded."""
         self.check_news_feeds.cancel()
     
-    @tasks.loop(hours=6)
+    @tasks.loop()  # Remove the hardcoded hours parameter, we'll set it dynamically
     async def check_news_feeds(self):
-        """Background task to check feeds every 6 hours."""
-        logger.info("Starting scheduled news feed check")
+        """Background task to check feeds based on configured frequency."""
+        logger.info(f"Starting scheduled news feed check (every {self.state.news_update_frequency} hours)")
         await self.process_all_feeds()
     
     @check_news_feeds.before_loop
@@ -681,6 +689,54 @@ class NewsFeedsCommands(commands.Cog):
             await ctx.followup.send(f"⚠️ Error fetching news: {str(e)}")
     
     @discord.slash_command(
+        name="setfeedfrequency",
+        description="Set how often the bot checks for news feed updates (in hours)"
+    )
+    @commands.has_permissions(administrator=True)
+    async def set_feed_frequency_slash(self, ctx,
+                                   hours: discord.Option(int, "Hours between feed checks (1-24)", 
+                                                     min_value=1, max_value=24, required=True)):
+        """Set how often the bot checks for news feed updates."""
+        await ctx.defer()
+        
+        # Update frequency in state
+        old_frequency = self.state.news_update_frequency
+        self.state.news_update_frequency = hours
+        
+        # Update the task interval - safely restart it
+        try:
+            # Check if task is running before trying to cancel
+            if self.check_news_feeds.is_running():
+                self.check_news_feeds.cancel()
+                
+            # Reconfigure the task with new interval
+            self.check_news_feeds.change_interval(hours=hours)
+            
+            # Only start if it's not already running
+            if not self.check_news_feeds.is_running():
+                self.check_news_feeds.start()
+            
+            task_updated = True
+        except Exception as e:
+            logger.error(f"Error updating feed check task: {str(e)}", exc_info=True)
+            task_updated = False
+        
+        # Save state
+        from ..utils.persistence import StatePersistence
+        persistence = StatePersistence()
+        saved = persistence.save_state(self.state)
+        
+        # Send confirmation
+        status_message = f"✅ Feed update frequency changed from {old_frequency} to {hours} hours."
+        if not task_updated:
+            status_message += f"\n⚠️ Warning: Task could not be updated, but will apply on restart."
+        status_message += (f" Configuration saved." if saved else f"\n⚠️ Warning: State could not be saved.")
+        
+        await ctx.respond(status_message)
+        
+        logger.info(f"Feed update frequency changed to {hours} hours")
+    
+    @discord.slash_command(
         name="feedstatus",
         description="Show status of news feed processing"
     )
@@ -744,7 +800,7 @@ class NewsFeedsCommands(commands.Cog):
             inline=False
         )
         
-        # Add global schedule information - Fixed timezone issue here
+        # Update global schedule information to include the current frequency
         next_check = self.check_news_feeds.next_iteration
         if next_check:
             # Make sure we're using timezone-aware datetime for comparison
@@ -763,7 +819,7 @@ class NewsFeedsCommands(commands.Cog):
             
         embed.add_field(
             name="Global Schedule",
-            value=f"{schedule_info}\nUpdates occur every 6 hours",
+            value=f"{schedule_info}\nUpdates occur every {self.state.news_update_frequency} hours",
             inline=False
         )
         
