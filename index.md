@@ -70,6 +70,23 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   <img src="assets/images/imagine-tea-screenshot.png" alt="imagine-queue" width="1200"/>
 </p>
 
+### 📰 News Feed Summaries
+- **RSS Feed Monitoring** - Add and manage RSS feeds by category (tech, world, finance, etc.)
+
+<p align="center">
+  <img src="assets/images/rss-feed1.png" alt="rss-feed-setup" width="1200"/>
+</p>
+
+- **AI Summarization** - Automatically summarize new articles using configured AI models
+
+<p align="center">
+  <img src="assets/images/rss-feed2.png" alt="rss-feed-summary" width="1200"/>
+</p>
+
+- **Channel Subscriptions** - Subscribe channels to specific news categories or all feeds
+- **Scheduled Updates** - Configure how often the bot checks for and posts news updates
+- **Manual Fetching** - Manually trigger news updates or fetch news on demand
+
 ### 🧵 Organization
 - **Conversation Threads** - Create dedicated topics with independent histories
 - **Auto-Responses** - Bot automatically responds to all messages in AI threads
@@ -177,9 +194,23 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 | Command | Description |
 |---------|-------------|
 | `/chat` | Start a conversation with the AI |
+| `/search` | Search the web for current information |
 | `/reset` | Clear the conversation history |
 | `/summarize` | Summarize the current conversation |
 | `/memory` | Show conversation statistics |
+
+### News Feed Commands
+| Command | Description | Permissions |
+|:-------:|:------------|:------------|
+| `/addfeed` | Add a new RSS feed to monitor | Admin |
+| `/removefeed` | Remove an RSS feed | Admin |
+| `/listfeeds` | List all configured RSS feeds | All Users |
+| `/subscribechannel` | Subscribe the current channel to news categories | Admin |
+| `/unsubscribechannel` | Unsubscribe the current channel from news updates | Admin |
+| `/feedupdate` | Manually trigger an update for all feeds | Admin |
+| `/getnews` | Fetch and display the latest news in the current channel | All Users |
+| `/setfeedfrequency` | Set how often the bot checks for news (in hours) | Admin |
+| `/feedstatus` | Show the status of news feeds and subscriptions | All Users |
 
 ### Thread Commands
 

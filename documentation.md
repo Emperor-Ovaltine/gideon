@@ -40,7 +40,8 @@ gideon/
 │   │   ├── image_commands.py           # AI Horde image generation
 │   │   ├── cloudflare_image_commands.py # Cloudflare-based image generation
 │   │   ├── url_commands.py             # URL handling
-│   │   └── dungeon_master_commands.py  # RPG adventure system
+│   │   ├── dungeon_master_commands.py  # RPG adventure system
+│   │   └── news_feeds_commands.py      # RSS News Feed Summaries
 │   └── utils/              # Utility functions
 │       ├── openrouter_client.py  # OpenRouter API wrapper
 │       ├── ai_horde_client.py    # AI Horde API wrapper
@@ -190,6 +191,27 @@ The `BotStateManager` maintains these key data structures:
    channel_system_prompts = {
        "channel_id_1": "Custom prompt for this channel"
    }
+   # News Feed Configuration
+   news_feeds = {
+       "feed_id_1": {
+           "url": "http://example.com/rss",
+           "name": "Example News",
+           "category": "tech",
+           "added_at": 1678886400.0,
+           "last_checked": 1678890000.0
+       }
+   }
+   news_channel_config = {
+       "channel_id_1": {"categories": ["tech", "world"]},
+       "channel_id_2": {"categories": ["all"]}
+   }
+   news_article_history = {
+       "feed_id_1": {
+           "article_guid_1": 1678890000.0,
+           "article_guid_2": 1678890000.0
+       }
+   }
+   news_update_frequency = 6 # Default hours
    ```
 
 ### Pruning Mechanism
@@ -326,6 +348,32 @@ Implementation details:
 - Implements dice rolling mechanism
 - Manages adventure story progression
 - Integrates with image generation for scene visualization
+
+### NewsFeedsCommands (`news_feeds_commands.py`)
+
+Handles fetching, summarizing, and distributing news articles from RSS feeds.
+
+- `/addfeed` (Admin): Adds a new RSS feed URL to monitor, assigning it a name and category.
+- `/removefeed` (Admin): Removes a previously added RSS feed using its unique ID.
+- `/listfeeds`: Lists all currently configured RSS feeds, grouped by category.
+- `/subscribechannel` (Admin): Subscribes the current channel to receive updates from specified news categories (or 'all').
+- `/unsubscribechannel` (Admin): Unsubscribes the current channel from all news updates.
+- `/feedupdate` (Admin): Manually triggers a check for new articles across all feeds and posts updates to subscribed channels. Supports a `force_refresh` option.
+- `/getnews`: Fetches and displays the latest news articles (up to 5 per feed) directly in the current channel, optionally filtering by category. Supports a `force_refresh` option.
+- `/setfeedfrequency` (Admin): Sets how often (in hours) the bot automatically checks for new articles (1-24 hours).
+- `/feedstatus`: Displays the status of configured feeds, including the last check time, channel subscriptions, and the next scheduled update time.
+
+Implementation details:
+- Uses `feedparser` library to parse RSS/Atom feeds.
+- Integrates with `OpenRouterClient` to summarize article content using a configured AI model.
+- Maintains state via `BotStateManager` for:
+    - `news_feeds`: Dictionary of configured feeds (URL, name, category, last checked time).
+    - `news_channel_config`: Dictionary mapping channel IDs to subscribed categories.
+    - `news_article_history`: Dictionary tracking seen article IDs per feed to prevent duplicates.
+    - `news_update_frequency`: Integer representing hours between automatic checks.
+- Runs a background task (`check_news_feeds`) using `discord.ext.tasks` to periodically fetch and distribute updates based on the configured frequency.
+- Handles potential errors during feed fetching, parsing, summarization, and posting.
+- Truncates summaries to fit Discord embed limits.
 
 ## API Integrations
 

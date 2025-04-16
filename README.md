@@ -45,6 +45,20 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 
 <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="800"/>
 
+### 📰 News Feed Summaries
+- **RSS Feed Monitoring** - Add and manage RSS feeds by category (tech, world, finance, etc.)
+
+<img src="assets/images/rss-feed1.png" alt="imagine-queue" width="800"/>
+
+- **AI Summarization** - Automatically summarize new articles using configured AI models
+
+
+<img src="assets/images/rss-feed2.png" alt="imagine-queue" width="800"/>
+
+- **Channel Subscriptions** - Subscribe channels to specific news categories or all feeds
+- **Scheduled Updates** - Configure how often the bot checks for and posts news updates
+- **Manual Fetching** - Manually trigger news updates or fetch news on demand
+
 ### 🧵 Organization
 - **Conversation Threads** - Create dedicated topics with independent histories
 - **Auto-Responses** - Bot automatically responds to all messages in AI threads
@@ -137,6 +151,19 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 | `/summarize` | Summarize the current conversation |
 | `/memory` | Show conversation statistics |
 
+### News Feed Commands
+| Command | Description | Permissions |
+|:-------:|:------------|:------------|
+| `/addfeed` | Add a new RSS feed to monitor | Admin |
+| `/removefeed` | Remove an RSS feed | Admin |
+| `/listfeeds` | List all configured RSS feeds | All Users |
+| `/subscribechannel` | Subscribe the current channel to news categories | Admin |
+| `/unsubscribechannel` | Unsubscribe the current channel from news updates | Admin |
+| `/feedupdate` | Manually trigger an update for all feeds | Admin |
+| `/getnews` | Fetch and display the latest news in the current channel | All Users |
+| `/setfeedfrequency` | Set how often the bot checks for news (in hours) | Admin |
+| `/feedstatus` | Show the status of news feeds and subscriptions | All Users |
+
 ### Thread Commands
 Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
 | Command | Description |
@@ -211,11 +238,14 @@ gideon/
 │   │   ├── image_commands.py           # Image generation
 │   │   ├── cloudflare_image_commands.py # Cloudflare image generation
 │   │   ├── dungeon_master_commands.py  # Adventure functionality
+│   │   ├── news_feeds_commands.py      # RSS News Feed Summaries
 │   │   └── ...
 │   └── utils/              # Utility functions
 │       ├── openrouter_client.py  # API client for text models
 │       ├── ai_horde_client.py    # API client for image generation
 │       ├── cloudflare_client.py  # API client for Cloudflare image generation
+│       ├── state_manager.py      # State management
+│       ├── persistence.py        # State persistence
 │       └── ...
 ├── .env.example            # Environment template
 └── requirements.txt        # Dependencies
