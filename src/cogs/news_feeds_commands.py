@@ -48,6 +48,7 @@ class NewsFeedsCommands(commands.Cog):
             logger.info(f"Loaded existing news_update_frequency: {self.state.news_update_frequency} hours")
             
         # Start the background task when the cog is loaded
+        self.check_news_feeds.cancel()  # Cancel any existing task
         self.check_news_feeds.change_interval(hours=self.state.news_update_frequency)
         self.check_news_feeds.start()
         
@@ -60,7 +61,7 @@ class NewsFeedsCommands(commands.Cog):
         """Stop tasks when the cog is unloaded."""
         self.check_news_feeds.cancel()
     
-    @tasks.loop()  # Remove the hardcoded hours parameter, we'll set it dynamically
+    @tasks.loop(hours=6)  # Define default interval (will be overridden by change_interval)
     async def check_news_feeds(self):
         """Background task to check feeds based on configured frequency."""
         logger.info(f"Starting scheduled news feed check (every {self.state.news_update_frequency} hours)")
