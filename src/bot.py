@@ -108,7 +108,8 @@ async def on_ready():
         "src.cogs.image_commands",
         "src.cogs.cloudflare_image_commands",
         "src.cogs.url_commands",
-        "src.cogs.dungeon_master_commands"
+        "src.cogs.dungeon_master_commands",
+        "src.cogs.news_feeds_commands"  # Add our new cog here
     ]
     
     for cog in cogs:
@@ -353,9 +354,23 @@ async def state_info_command(ctx):
     messages = sum(len(history) for history in state.channel_history.values())
     thread_messages = sum(len(thread.get("messages", [])) for thread in state.discord_threads.values())
     
+    # Get news feed statistics
+    feeds_count = getattr(state, 'news_feeds', {})
+    news_channels = getattr(state, 'news_channel_config', {})
+    articles_history = getattr(state, 'news_article_history', {})
+    
+    news_article_count = sum(len(history) for history in articles_history.values())
+    
     embed.add_field(
         name="Memory Statistics",
         value=f"• Active channels: {channels}\n• Active threads: {threads}\n• Stored messages: {messages + thread_messages}",
+        inline=False
+    )
+    
+    # Add news feed statistics
+    embed.add_field(
+        name="News Feed Statistics",
+        value=f"• RSS Feeds: {len(feeds_count)}\n• News channel subscriptions: {len(news_channels)}\n• Tracked articles: {news_article_count}",
         inline=False
     )
     

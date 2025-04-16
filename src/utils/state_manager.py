@@ -37,6 +37,11 @@ class BotStateManager:
         self.allowed_models = ALLOWED_MODELS
         self.global_model = DEFAULT_MODEL  # NEW: Store the global model
         
+        # News feed related state - explicitly initialize these attributes
+        self.news_feeds = {}
+        self.news_channel_config = {}
+        self.news_article_history = {}
+    
     # Getters and setters for all state properties
     # This allows controlled access to the state from different cogs
     
@@ -127,10 +132,27 @@ class BotStateManager:
                 del self.discord_threads[thread_id]
                 threads_pruned += 1
         
+        # Also prune old news article history
+        news_entries_pruned = 0
+        if hasattr(self, 'news_article_history'):
+            news_cutoff = datetime.now() - timedelta(days=7)  # 1 week for news articles
+            for feed_id in list(self.news_article_history.keys()):
+                if feed_id in self.news_article_history:
+                    before_count = len(self.news_article_history[feed_id])
+                    for entry_id in list(self.news_article_history[feed_id]):
+                        timestamp = self.news_article_history[feed_id][entry_id]
+                        if datetime.fromtimestamp(timestamp) < news_cutoff:
+                            del self.news_article_history[feed_id][entry_id]
+                            news_entries_pruned += 1
+                    # If empty after pruning, remove the feed entry entirely
+                    if not self.news_article_history[feed_id]:
+                        del self.news_article_history[feed_id]
+        
         return {
             "channels_pruned": channels_pruned,
             "messages_pruned": messages_pruned,
-            "threads_pruned": threads_pruned
+            "threads_pruned": threads_pruned,
+            "news_entries_pruned": news_entries_pruned
         }
     
     # NEW: System prompt methods
@@ -166,3 +188,12 @@ class BotStateManager:
             return self.channel_models[channel_id]
         # Fall back to global model
         return self.global_model
+    
+    # NEWS FEED METHODS
+    def get_news_feeds_count(self) -> int:
+        """Get the count of configured news feeds."""
+        return len(getattr(self, 'news_feeds', {}))
+    
+    def get_news_channel_config_count(self) -> int:
+        """Get the count of channels configured for news."""
+        return len(getattr(self, 'news_channel_config', {}))

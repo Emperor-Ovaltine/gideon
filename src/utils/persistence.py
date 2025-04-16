@@ -159,7 +159,12 @@ class StatePersistence:
                 "max_channel_history": state_manager.max_channel_history,
                 "max_threads_per_channel": state_manager.max_threads_per_channel,
                 "time_window_hours": state_manager.time_window_hours,
-                "global_model": state_manager.global_model
+                "global_model": state_manager.global_model,
+                
+                # News Feed Data (Added)
+                "news_feeds": getattr(state_manager, 'news_feeds', {}),
+                "news_channel_config": getattr(state_manager, 'news_channel_config', {}),
+                "news_article_history": getattr(state_manager, 'news_article_history', {})
             }
             
             # Write to file with pretty formatting
@@ -207,9 +212,15 @@ class StatePersistence:
             state_manager.time_window_hours = state_data.get("time_window_hours", 48)
             state_manager.global_model = state_data.get("global_model", state_manager.global_model)
             
+            # Load News Feed Data (Added)
+            state_manager.news_feeds = state_data.get("news_feeds", {})
+            state_manager.news_channel_config = state_data.get("news_channel_config", {})
+            state_manager.news_article_history = state_data.get("news_article_history", {})
+            
             # Log metrics from loaded state
             discord_threads = len(state_manager.discord_threads)
-            logger.info(f"State loaded: {discord_threads} discord threads")
+            news_feeds_count = len(state_manager.news_feeds) # Added logging
+            logger.info(f"State loaded: {discord_threads} discord threads, {news_feeds_count} news feeds") # Updated logging
             return True
         except json.JSONDecodeError:
             logger.error(f"Failed to parse state file: invalid JSON")
