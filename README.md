@@ -116,7 +116,6 @@ There are two ways to install and run Gideon: using Docker (recommended for ease
         cp .env.example .env
         ```
     *   **Edit the `.env` file** with your actual API keys and tokens (`DISCORD_TOKEN`, `OPENROUTER_API_KEY`, etc.).
-    *   **Crucially, set the `DATA_DIRECTORY` variable in the `.env` file.** This **must** be an **absolute path** to a directory on your host machine where the bot has permission to read and write data (e.g., `/home/user/gideon_data` or `C:/Users/YourUser/gideon_data`). This directory will store all persistent bot state like conversation history and configurations. **It is strongly recommended to use a dedicated directory outside of the cloned repository folder for easier data management and backup.**
 
 3.  **Build the Docker Image:**
     *   Build the image using the included Dockerfile. This command builds the image and tags it as `gideon-bot:latest`.
@@ -134,7 +133,7 @@ There are two ways to install and run Gideon: using Docker (recommended for ease
           # This maps a host directory to the container's data directory
           - /change/to/your/data/dir:/app/data
         ```
-    *   **Important:** You **must** change the host path part (`/change/to/your/data/dir`) in `docker-compose.yml` to **exactly match the absolute path you set for `DATA_DIRECTORY` in your `.env` file**. Ensure consistency between these two settings for data persistence to work correctly.
+    *   **Important:** You **must** change the host path part (`/change/to/your/data/dir`) in `docker-compose.yml` to a valid location that Gideon will have read and write access to.
     *   *(Optional)* If you pushed your image to a registry in the previous step, update the `image:` line to point to your registry image (e.g., `image: your-dockerhub-username/gideon:latest` or `image: ghcr.io/your-github-username/gideon:latest`). Otherwise, leave it as `image: gideon-bot:latest` to use the locally built image.
 
 5.  **Run the Container:**
