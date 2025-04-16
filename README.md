@@ -84,19 +84,73 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 
 ## 🚀 Installation
 
-### Prerequisites
-- Python 3.8+
-- Discord bot token with Message Content Intent enabled
-- OpenRouter API key
-- AI Horde API key (optional but recommended for better queue priority)
-- Cloudflare Worker URL (optional, for additional image generation capabilities)
+There are two ways to install and run Gideon: using Docker (recommended for ease of deployment and management) or directly with Python.
 
-### Setup
+### Prerequisites
+
+**For both methods:**
+- Git installed
+- Discord bot token with Message Content Intent enabled ([Discord Developer Portal](https://discord.com/developers/applications))
+- OpenRouter API key ([OpenRouter.ai](https://openrouter.ai/))
+- AI Horde API key (optional, for `/imagine` command - [AI Horde](https://aihorde.net/register))
+- Cloudflare Worker URL & API Key (optional, for `/dream` command and Adventure scene visualization - requires self-setup, see [Cloudflare Worker Configuration](#cloudflare-worker-configuration-optional))
+
+**For Docker Installation:**
+- Docker installed 
+- Docker Compose installed (usually included with Docker Desktop)
+
+**For Python Installation:**
+- Python 3.8+
+
+### Docker Installation (Recommended)
+
+1.  **Clone the Repository:**
+    ```bash
+    git clone https://github.com/Emperor-Ovaltine/gideon
+    cd gideon
+    ```
+
+2.  **Configure Environment:**
+    *   Copy the example environment file:
+        ```bash
+        cp .env.example .env
+        ```
+    *   **Edit the `.env` file** with your actual API keys and tokens (`DISCORD_TOKEN`, `OPENROUTER_API_KEY`, etc.).
+    *   **Crucially, set the `DATA_DIRECTORY` variable in the `.env` file.** This **must** be an **absolute path** to a directory on your host machine where the bot has permission to read and write data (e.g., `/home/user/gideon_data` or `C:/Users/YourUser/gideon_data`). This directory will store all persistent bot state like conversation history and configurations. **It is strongly recommended to use a dedicated directory outside of the cloned repository folder for easier data management and backup.**
+
+3.  **Build the Docker Image:**
+    *   Build the image using the included Dockerfile. This command builds the image and tags it as `gideon-bot:latest`.
+        ```bash
+        docker build -t gideon-bot:latest .
+        ```
+    *   *(Optional)* If you plan to distribute the image or use a registry like Docker Hub or GHCR, you would tag and push the image here.
+
+4.  **Configure Docker Compose:**
+    *   Open the `docker-compose.yml` file.
+    *   **Verify the `volumes` section.** The default `docker-compose.yml` is set up to use a bind mount. It maps a directory from your host machine to the `/app/data` directory inside the container.
+        ```yaml
+        # Example docker-compose.yml volume section:
+        volumes:
+          # This maps a host directory to the container's data directory
+          - /change/to/your/data/dir:/app/data
+        ```
+    *   **Important:** You **must** change the host path part (`/change/to/your/data/dir`) in `docker-compose.yml` to **exactly match the absolute path you set for `DATA_DIRECTORY` in your `.env` file**. Ensure consistency between these two settings for data persistence to work correctly.
+    *   *(Optional)* If you pushed your image to a registry in the previous step, update the `image:` line to point to your registry image (e.g., `image: your-dockerhub-username/gideon:latest` or `image: ghcr.io/your-github-username/gideon:latest`). Otherwise, leave it as `image: gideon-bot:latest` to use the locally built image.
+
+5.  **Run the Container:**
+    *   Start the bot using Docker Compose in detached mode (runs in the background):
+        ```bash
+        docker-compose up -d
+        ```
+    *   To view logs: `docker-compose logs -f`
+    *   To stop the bot: `docker-compose down`
+
+### Python Installation
 
 ```bash
-# Clone and enter repository
-git clone https://github.com/Emperor-Ovaltine/gideon
-cd gideon
+# Clone and enter repository (if not already done)
+# git clone https://github.com/Emperor-Ovaltine/gideon
+# cd gideon
 
 # Set up environment and dependencies
 python3 -m venv venv
@@ -105,7 +159,8 @@ pip install -r requirements.txt
 
 # Configure bot
 cp .env.example .env
-# Edit .env with your Discord token, OpenRouter API key, and AI Horde API key
+# Edit .env with your Discord token, OpenRouter API key, AI Horde API key,
+# AND set the DATA_DIRECTORY to an absolute path where the bot can write data.
 
 # Launch
 python3 -m src

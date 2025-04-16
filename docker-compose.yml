@@ -1,0 +1,9 @@
+services:
+  gideon-bot:
+    image: gideon-bot:latest
+    container_name: gideon-bot
+    env_file:
+      - .env
+    volumes:
+      - /change/to/your/data/dir:/app/data
+    restart: always # Optional: Add restart policy
