@@ -187,12 +187,12 @@ class NewsFeedsCommands(commands.Cog):
             if not content:
                 content = article.get('summary', '')
             
-            # Prepare summarization prompt
-            prompt = f"Summarize this news article in 3-4 concise bullet points. Focus on key facts and information:\n\nTitle: {title}\n\nDate: {published}\n\nCategory: {feed_category}\n\nContent: {content}"
+            # Prepare summarization prompt - More direct instruction
+            prompt = f"Provide a summary of the following news article as 3-4 concise bullet points. Output *only* the bullet points, nothing else:\n\nTitle: {title}\n\nDate: {published}\n\nCategory: {feed_category}\n\nContent: {content}"
             
-            # Send to AI for summarization
+            # Send to AI for summarization - Updated system prompt
             response = await self.openrouter_client.send_message_with_history([
-                {"role": "system", "content": "You are a helpful AI that summarizes news articles clearly and factually."},
+                {"role": "system", "content": "You are an AI assistant that strictly summarizes news articles into bullet points. Provide *only* the bullet points as your response. Do not add any introductory text, concluding remarks, or conversational filler."},
                 {"role": "user", "content": prompt}
             ])
             
@@ -207,7 +207,7 @@ class NewsFeedsCommands(commands.Cog):
             
             return {
                 "title": title,
-                "summary": response,
+                "summary": response.strip(), # Added strip() to remove potential leading/trailing whitespace
                 "link": link,
                 "published": published
             }
