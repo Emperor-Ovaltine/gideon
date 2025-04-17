@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import logging
+import asyncio
 
 logger = logging.getLogger('state_manager')
 
@@ -19,6 +20,7 @@ class BotStateManager:
         return cls._instance
         
     def _initialize(self):
+        self._lock = asyncio.Lock()
         # Chat related state
         self.channel_history = {}
         self.channel_models = {}
@@ -49,15 +51,19 @@ class BotStateManager:
     def get_channel_history(self, channel_id: str) -> List[Dict[str, Any]]:
         return self.channel_history.get(channel_id, [])
     
-    def add_to_channel_history(self, channel_id: str, message: Dict[str, Any]):
-        if channel_id not in self.channel_history:
-            self.channel_history[channel_id] = []
+    async def add_to_channel_history(self, channel_id: str, message: Dict[str, Any]):
+        async with self._lock:
+            msg = message.copy()
+            msg["timestamp"] = datetime.now()  # CRITICAL: Add timestamp
             
-        self.channel_history[channel_id].append(message)
-        
-        # Enforce maximum history size
-        if len(self.channel_history[channel_id]) > self.max_channel_history:
-            self.channel_history[channel_id] = self.channel_history[channel_id][-self.max_channel_history:]
+            if channel_id not in self.channel_history:
+                self.channel_history[channel_id] = []
+                
+            self.channel_history[channel_id].append(msg)
+            
+            # Enforce maximum history size
+            if len(self.channel_history[channel_id]) > self.max_channel_history:
+                self.channel_history[channel_id] = self.channel_history[channel_id][-self.max_channel_history:]
     
     def clear_channel_history(self, channel_id: str) -> bool:
         """Clear history for a channel. Returns True if any history was cleared."""
@@ -71,16 +77,18 @@ class BotStateManager:
         """Get thread data by Discord thread ID"""
         return self.discord_threads.get(thread_id)
     
-    def add_discord_thread_message(self, thread_id: str, message: Dict[str, Any]):
-        """Add a message to a Discord thread's history"""
-        if thread_id not in self.discord_threads:
-            self.discord_threads[thread_id] = {
-                "name": "Unnamed Thread",
-                "channel_id": "unknown",
-                "created_at": datetime.now(),
-                "messages": []
-            }
-        self.discord_threads[thread_id]["messages"].append(message)
+    async def add_discord_thread_message(self, thread_id: str, message: Dict[str, Any]):
+        async with self._lock:
+            msg = message.copy()
+            msg["timestamp"] = datetime.now()  # CRITICAL: Add timestamp
+            if thread_id not in self.discord_threads:
+                self.discord_threads[thread_id] = {
+                    "name": "Unnamed Thread",
+                    "channel_id": "unknown",
+                    "created_at": datetime.now(),
+                    "messages": []
+                }
+            self.discord_threads[thread_id]["messages"].append(msg)
     
     def get_discord_thread_history(self, thread_id: str, hours_limit: int = None) -> List[Dict[str, Any]]:
         """Get message history for a Discord thread with optional time window"""
@@ -177,8 +185,17 @@ class BotStateManager:
         return self.global_model
     
     def set_global_model(self, model: str) -> None:
-        """Set the global model."""
+        """Set the global model with validation."""
+        if model not in self.allowed_models:
+            raise ValueError(f"Model '{model}' not in allowed models: {self.allowed_models}")
         self.global_model = model
+    
+    async def set_channel_model(self, channel_id: str, model: str) -> None:
+        """Set a channel-specific model with validation."""
+        async with self._lock:
+            if model not in self.allowed_models:
+                raise ValueError(f"Model '{model}' not in allowed models: {self.allowed_models}")
+            self.channel_models[str(channel_id)] = model
     
     def get_effective_model(self, channel_id: str) -> str:
         """Get the effective model for a channel, considering channel-specific overrides."""

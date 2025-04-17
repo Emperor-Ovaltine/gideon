@@ -37,7 +37,7 @@ class MentionCommands(commands.Cog):
         
         # Add all regular user messages to history
         if not message.content.startswith('/'):  # Ignore slash commands
-            self.state.add_to_channel_history(channel_id, {
+            await self.state.add_to_channel_history(channel_id, {
                 "role": "user",
                 "name": message.author.display_name,
                 "content": message.content,
@@ -117,7 +117,7 @@ class MentionCommands(commands.Cog):
                     await message.channel.send(response)
                 else:
                     # Add assistant's response to history
-                    self.state.add_to_channel_history(channel_id, {
+                    await self.state.add_to_channel_history(channel_id, {
                         "role": "assistant",
                         "content": response,
                         "timestamp": datetime.now()
