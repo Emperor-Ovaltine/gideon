@@ -1,11 +1,15 @@
 """Commands for managing and displaying news feed summaries."""
 import discord
 from discord.ext import commands, tasks
+import discord.ui # Import ui components
 import aiohttp
 import feedparser
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+import re # Import regex module
+from discord.ext import pages # Import pages
+
 from ..utils.state_manager import BotStateManager
 from ..utils.openrouter_client import OpenRouterClient
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL
@@ -13,6 +17,69 @@ from ..utils.persistence import StatePersistence # Import persistence utility
 
 # Set up logging
 logger = logging.getLogger('news_feeds')
+
+# --- Custom Paginator View ---
+class DigestPaginatorView(discord.ui.View):
+    def __init__(self, embeds, timeout=300): # 5 minute timeout for interaction
+        super().__init__(timeout=timeout)
+        if not embeds:
+            raise ValueError("Embeds list cannot be empty for PaginatorView")
+        self.embeds = embeds
+        self.current_page = 0
+        self.message = None # To store the message object for editing on timeout
+
+        # Initial button state
+        self._update_buttons()
+
+    def _update_buttons(self):
+        """Disables/enables buttons based on current page."""
+        if hasattr(self, 'prev_button'): # Check if buttons exist
+            self.prev_button.disabled = self.current_page == 0
+        if hasattr(self, 'next_button'):
+            self.next_button.disabled = self.current_page >= len(self.embeds) - 1
+
+    async def show_page(self, interaction: discord.Interaction):
+        """Edits the message to show the current page."""
+        self.current_page = max(0, min(self.current_page, len(self.embeds) - 1))
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.embeds[self.current_page], view=self)
+
+    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.blurple, custom_id="digest_prev_page")
+    async def prev_button(self, button: discord.ui.Button, interaction: discord.Interaction): # Swapped parameter order
+        if self.current_page > 0:
+            self.current_page -= 1
+            await self.show_page(interaction) # Pass the interaction object
+        else:
+            # Defer if already on the first page to acknowledge the interaction
+            await interaction.response.defer()
+
+    @discord.ui.button(label="Next ➡️", style=discord.ButtonStyle.blurple, custom_id="digest_next_page")
+    async def next_button(self, button: discord.ui.Button, interaction: discord.Interaction): # Swapped parameter order
+        if self.current_page < len(self.embeds) - 1:
+            self.current_page += 1
+            await self.show_page(interaction) # Pass the interaction object
+        else:
+            # Defer if already on the last page to acknowledge the interaction
+            await interaction.response.defer()
+
+    async def on_timeout(self):
+        """Disables buttons when the view times out."""
+        # Check if message exists before trying to edit
+        if self.message:
+            try:
+                # Disable all buttons
+                for item in self.children:
+                    item.disabled = True
+                # Edit the original message to remove buttons
+                await self.message.edit(view=None) # Remove the view entirely
+                logger.debug(f"Digest paginator timed out for message {self.message.id}. Buttons removed.")
+            except discord.NotFound:
+                logger.warning(f"Failed to edit message {self.message.id} on timeout (not found).")
+            except discord.Forbidden:
+                 logger.warning(f"Failed to edit message {self.message.id} on timeout (forbidden).")
+            except Exception as e:
+                logger.error(f"Error editing message {self.message.id} on timeout: {e}", exc_info=True)
+        self.stop()
 
 class NewsFeedsCommands(commands.Cog):
     """Commands for managing and displaying news feed summaries."""
@@ -887,19 +954,19 @@ class NewsFeedsCommands(commands.Cog):
         # Define the prompt for the LLM
         prompt = (
             f"Below is a list of recent news articles with their summaries. "
-            f"Please identify the top 3-5 most important or impactful articles from this list. "
+            f"Please identify the top 15-25 most important or impactful articles from this list. " # Changed from top 5
             f"For each selected article, provide a brief (1-2 sentence) explanation of why it's significant and include its title and link.\n\n"
-            f"Format your response as follows:\n"
+            f"Format your response *strictly* as follows, numbering each item sequentially:\n" # Added strict formatting and numbering instruction
             f"**1. [Article Title]**\n[Your brief explanation of significance].\n[Link to article]\n\n"
             f"**2. [Article Title]**\n[Your brief explanation of significance].\n[Link to article]\n\n"
-            f"...\n\n"
+            f"... (continue numbering up to 15-25)\n\n"
             f"Here are the articles:\n\n{formatted_articles}"
         )
 
         # Define a specific system prompt for digest generation
         digest_system_prompt = (
             "You are an AI news analyst. Your task is to identify the most important news stories "
-            "from a provided list and explain their significance concisely. Follow the requested output format strictly."
+            "from a provided list and explain their significance concisely. Follow the requested output format strictly, numbering each item sequentially." # Added numbering instruction
         )
 
         logger.info(f"Sending {len(articles_to_send)} articles to LLM for digest generation.")
@@ -921,46 +988,110 @@ class NewsFeedsCommands(commands.Cog):
             return "Error: Exception occurred while generating AI digest."
 
 
-    # <<< NEW: Function to send the AI Digest >>>
+    # <<< MODIFIED: Function to send the AI Digest >>>
     async def send_ai_digest(self, digest_content):
-        """Sends the AI-generated digest to the configured broadcast channel."""
+        """Parses the AI-generated digest and sends it as paginated embeds using discord.ui.View."""
         if not self.state.news_broadcast_channel_id:
             logger.warning("Attempted to send AI digest, but no broadcast channel is set.")
             return
 
         if not digest_content or digest_content.startswith("Error:") or digest_content == "No articles provided for digest.":
-             logger.warning(f"Skipping sending AI digest due to invalid content: {digest_content}")
-             # Optionally send a message indicating no digest could be generated
-             # try:
-             #    channel = self.bot.get_channel(int(self.state.news_broadcast_channel_id))
-             #    if channel: await channel.send(f"ℹ️ {digest_content}")
-             # except Exception as e: logger.error(f"Error sending digest status message: {e}")
-             return
+            logger.warning(f"Skipping sending AI digest due to invalid content: {digest_content}")
+            # Optionally send an error message to the channel if needed
+            # try:
+            #     broadcast_channel = self.bot.get_channel(int(self.state.news_broadcast_channel_id))
+            #     if broadcast_channel:
+            #         await broadcast_channel.send(f"⚠️ Failed to generate AI digest: {digest_content}")
+            # except Exception as e:
+            #     logger.error(f"Failed to send digest error message: {e}")
+            return
 
+        broadcast_channel = None # Define outside try block
         try:
             broadcast_channel = self.bot.get_channel(int(self.state.news_broadcast_channel_id))
             if not broadcast_channel:
                 logger.error(f"Broadcast channel ID {self.state.news_broadcast_channel_id} not found.")
-                # Maybe clear the invalid ID from state here?
-                # self.state.news_broadcast_channel_id = None
-                # persistence = StatePersistence()
-                # persistence.save_state(self.state)
                 return
 
-            embed = discord.Embed(
-                title="🌟 Top News Highlights",
-                # Use the LLM response directly as the description
-                description=self.truncate_for_embed(digest_content, 4000), # Embed description limit is 4096
-                color=discord.Color.gold(), # Use a different color for the digest
-                timestamp=datetime.now(timezone.utc)
-            )
-            embed.set_footer(text="AI-Curated Digest by Gideon")
+            # --- Pagination Implementation using discord.ui.View --- 
+            
+            # 1. Parse the digest_content (same as before)
+            stories = []
+            pattern = re.compile(r"\*\*\d+\.\s+(.*?)\*\*\n(.*?)\n(https?:\/\/\S+)", re.DOTALL)
+            matches = pattern.findall(digest_content)
 
-            await broadcast_channel.send(embed=embed)
-            logger.info(f"Sent AI news digest to channel {broadcast_channel.id}")
+            if not matches:
+                logger.warning("Could not parse any stories from the AI digest content. Sending raw content.")
+                # Fallback: Send the raw content if parsing fails (same as before)
+                embed = discord.Embed(
+                    title="🌟 Top News Highlights (Raw)",
+                    description=self.truncate_for_embed(digest_content, 4000),
+                    color=discord.Color.orange(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                embed.set_footer(text="AI-Curated Digest by Gideon (Parsing Failed)")
+                await broadcast_channel.send(embed=embed)
+                return
+
+            for match in matches:
+                title = match[0].strip()
+                explanation = match[1].strip()
+                link = match[2].strip()
+                stories.append({"title": title, "explanation": explanation, "link": link})
+            
+            logger.info(f"Parsed {len(stories)} stories from the AI digest.")
+
+            # 2. Create Embed Pages (same as before)
+            embed_pages = []
+            stories_per_page = 5 # Keep this reasonably small for embeds
+            num_pages = (len(stories) + stories_per_page - 1) // stories_per_page
+
+            if num_pages == 0:
+                logger.warning("No stories found after parsing, cannot create embed pages.")
+                return # Nothing to send
+
+            for i in range(num_pages):
+                embed = discord.Embed(
+                    title=f"🌟 Top News Highlights (Page {i+1}/{num_pages})",
+                    color=discord.Color.gold(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                
+                start_index = i * stories_per_page
+                end_index = start_index + stories_per_page
+                page_stories = stories[start_index:end_index]
+                
+                description = ""
+                for j, story in enumerate(page_stories):
+                    story_num = start_index + j + 1
+                    description += f"**{story_num}. {story['title']}**\n"
+                    description += f"{story['explanation']}\n"
+                    description += f"<{story['link']}>\n\n" # Use <link> for no embed preview
+                
+                embed.description = self.truncate_for_embed(description.strip(), 4000)
+                embed.set_footer(text=f"AI-Curated Digest by Gideon | Page {i+1}/{num_pages}")
+                embed_pages.append(embed)
+
+            # 3. Send the first page with the Paginator View
+            if not embed_pages:
+                 logger.warning("No embed pages created for the digest, skipping send.")
+                 return
+
+            view = DigestPaginatorView(embed_pages)
+            # Send the initial message and store it in the view for timeout handling
+            message = await broadcast_channel.send(embed=embed_pages[0], view=view)
+            view.message = message # Assign the sent message to the view instance
+
+            logger.info(f"Sent AI news digest with pagination ({len(embed_pages)} pages) to channel {broadcast_channel.id}, message {message.id}")
 
         except Exception as e:
-            logger.error(f"Error sending AI digest: {str(e)}", exc_info=True)
+            logger.error(f"Error sending paginated AI digest: {str(e)}", exc_info=True)
+            # Attempt to send a simple error message to the channel
+            try:
+                if broadcast_channel:
+                    await broadcast_channel.send("⚠️ An error occurred while trying to display the AI news digest.")
+            except Exception as send_error:
+                 logger.error(f"Failed to send error message to broadcast channel: {send_error}")
 
     @discord.slash_command(
         name="setbroadcastchannel",
