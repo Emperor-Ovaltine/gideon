@@ -152,19 +152,8 @@ The `BotStateManager` maintains these key data structures:
    }
    ```
 
-2. **Threads**
-   ```python
-   threads = {
-       "channel_id_1": {
-           "thread_id_1": {
-               "name": "Thread Name",
-               "history": [ ... message objects ... ],
-               "model": "specific-model-id",
-               "system_prompt": "Custom prompt for this thread"
-           }
-       }
-   }
-   ```
+2. **Threads** (Deprecated Custom Implementation - Gideon now uses Discord Threads)
+   *This structure is no longer actively used but might remain in older state files.*
 
 3. **Discord Threads**
    ```python
@@ -183,14 +172,19 @@ The `BotStateManager` maintains these key data structures:
 
 4. **Configuration**
    ```python
+   # General Config
    channel_models = {
        "channel_id_1": "model-id-for-channel",
        "channel_id_2": "different-model-id"
    }
-   
    channel_system_prompts = {
        "channel_id_1": "Custom prompt for this channel"
    }
+   global_model = "default-model-id"
+   global_system_prompt = "Default system prompt"
+   max_history_length = 100 # Example
+   history_prune_window_hours = 24 # Example
+
    # News Feed Configuration
    news_feeds = {
        "feed_id_1": {
@@ -212,6 +206,16 @@ The `BotStateManager` maintains these key data structures:
        }
    }
    news_update_frequency = 6 # Default hours
+
+   # Adventure Configuration
+   adventure_states = {
+       "channel_id_1": { # AdventureState object data
+           "setting": "Fantasy",
+           "history": [...], # Conversation history for the adventure
+           "scene_image_frequency": 5, # Generate image every 5 turns
+           # ... other adventure-specific state
+       }
+   }
    ```
 
 ### Pruning Mechanism
@@ -337,17 +341,20 @@ Implementation details:
 ### DungeonMasterCommands (`dungeon_master_commands.py`)
 
 Implements the tabletop RPG adventure system:
-- `/adventure start` - Start new RPG adventure
-- `/adventure roll` - Roll dice with narration
-- `/adventure status` - Check adventure status
-- `/adventure end` - End current adventure
-- `/adventure config_images` - Configure scene image frequency
+- `/adventure new` - Start new RPG adventure (Fantasy, Sci-Fi, Horror, Modern, Custom)
+- `/adventure action` - Describe the action you want to take in the adventure.
+- `/adventure roll` - Roll dice with narration (e.g., `1d20`, `2d6+3`).
+- `/adventure status` - Check adventure status (setting, turn count, etc.).
+- `/adventure end` - End current adventure and get a summary.
+- `/adventure config_images` (Admin) - Configure scene image frequency (requires Cloudflare Worker).
 
 Implementation details:
-- Maintains adventure state with character tracking
-- Implements dice rolling mechanism
-- Manages adventure story progression
-- Integrates with image generation for scene visualization
+- Maintains adventure state per channel using `BotStateManager`.
+- Uses the channel's configured AI model for narrative generation.
+- Player interaction primarily happens through regular messages in the channel after starting an adventure, or using `/adventure action`.
+- Implements dice rolling mechanism with parsing and narration.
+- Manages adventure story progression and history.
+- Integrates with Cloudflare image generation for optional scene visualization based on `config_images` setting.
 
 ### NewsFeedsCommands (`news_feeds_commands.py`)
 
@@ -380,11 +387,11 @@ Implementation details:
 ### OpenRouter Integration
 
 Provides access to multiple AI models through a unified API:
-- Supports various models (OpenAI, Claude, Gemini, etc.)
+- Supports various models (OpenAI, Claude, Gemini, Llama, Mistral, etc.)
 - Handles context window limitations
 - Manages rate limiting and retry logic
 - Processes vision inputs for compatible models
-- Note that the web search feature takes advantage of Openrouter's model-agnostic searching abilites and does incur extra cost, see https://openrouter.ai/docs/features/web-search for details
+- Supports web search capabilities for certain models (Note: This feature may incur additional costs on OpenRouter - see [OpenRouter Web Search Docs](https://openrouter.ai/docs/features/web-search) for details).
 
 Implementation details:
 - Formats messages according to model requirements
@@ -431,33 +438,38 @@ To configure Cloudflare Worker for image generation:
 The tabletop RPG system is a complex feature combining:
 
 1. **State Management**
-   - Adventure progress tracking
-   - Character state persistence
-   - Scene and narrative continuity
+   - Adventure progress tracking per channel (`adventure_states` in `BotStateManager`).
+   - Character actions and narrative stored in adventure history.
+   - Scene and narrative continuity maintained by the AI model.
 
 2. **Narrative Generation**
-   - Dynamic storytelling based on player actions
-   - Setting-appropriate responses (fantasy, sci-fi, etc.)
-   - Context-aware narrative progression
+   - Dynamic storytelling based on player actions (sent as messages or via `/adventure action`).
+   - Setting-appropriate responses driven by the selected adventure setting and system prompt.
+   - Context-aware narrative progression using conversation history.
 
 3. **Dice System**
-   - Standard RPG notation (1d20, 2d6+3, etc.)
-   - Outcome narration based on roll results
-   - Statistical distribution handling
+   - Standard RPG notation parsing (e.g., `1d20`, `2d6+3`).
+   - Outcome narration based on roll results integrated into the AI response.
 
-4. **Scene Visualization**
-   - Integration with image generation
-   - Dynamic prompt formation from narrative
-   - Configurable generation frequency
+4. **Scene Visualization** (Optional)
+   - Integration with Cloudflare image generation.
+   - Dynamic prompt formation based on the narrative context.
+   - Configurable generation frequency via `/adventure config_images`.
 
 5. **Game Mechanics**
-   - Implicit character stats tracking
-   - Action outcome determination
-   - Game balance considerations
+   - Implicit character state and world state managed by the AI.
+   - Action outcome determination handled by the AI based on narrative and dice rolls.
 
 ### Adventure Commands
 
-Use `/adventure new` to start a new adventure.
+- `/adventure new`: Start a new adventure in the current channel.
+- `/adventure action`: Explicitly describe an action for the AI to process.
+- `/adventure roll`: Perform a dice roll relevant to the adventure.
+- `/adventure status`: Check the current state of the adventure.
+- `/adventure end`: Conclude the adventure.
+- `/adventure config_images`: Set how often scene images are generated.
+
+*Note: Primary interaction after starting is typically done by sending messages directly in the channel.*
 
 ## Error Handling and Logging
 
