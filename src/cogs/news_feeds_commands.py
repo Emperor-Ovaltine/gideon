@@ -907,9 +907,14 @@ class NewsFeedsCommands(commands.Cog):
             except:
                 continue
         
+        # Prepare channel subscriptions text and truncate if necessary
+        channel_subscriptions_text = "\n".join(channel_info) or "No channel subscriptions"
+        if len(channel_subscriptions_text) > 1024:
+            channel_subscriptions_text = channel_subscriptions_text[:1021] + "..."
+
         embed.add_field(
             name="Channel Subscriptions",
-            value="\n".join(channel_info) or "No channel subscriptions",
+            value=channel_subscriptions_text,
             inline=False
         )
         
