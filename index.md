@@ -338,6 +338,11 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
       <td>Show the status of news feeds and subscriptions</td>
       <td>All Users</td>
     </tr>
+    <tr>
+      <td><code>/newsdigest</code></td>
+      <td>Display the most recently generated AI news digest</td>
+      <td>All Users</td>
+    </tr>
   </tbody>
 </table>
 

@@ -259,6 +259,7 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 | `/getnews` | Fetch and display the latest news in the current channel | All Users |
 | `/setfeedfrequency` | Set how often the bot checks for news (in hours) | Admin |
 | `/feedstatus` | Show the status of news feeds and subscriptions | All Users |
+| `/newsdigest` | Display the most recently generated AI news digest | All Users |
 
 ### Thread Commands
 Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
