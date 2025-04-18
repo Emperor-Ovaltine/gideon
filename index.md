@@ -43,9 +43,15 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 
 - **Web Search** - Search the web for current information through conversational AI responses
 
+<p align="center">
 <img src="assets/images/web-search1.png" alt="web-search-demo" width="800"/>
+</p>
+<p align="center">
 <img src="assets/images/web-search2.png" alt="web-search-demo" width="800"/>
+</p>
+<p align="center">
 <img src="assets/images/web-search3.png" alt="web-search-demo" width="800"/>
+</p>
 
 - **Image Analysis** - Upload and analyze images with vision-capable AI models
 
@@ -246,67 +252,249 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 ## 🤖 Commands
 
 ### General Commands
-| Command | Description |
-|:-------:|:------------|
-| `/chat` | Start a conversation with the AI (supports image uploads for vision models) |
-| `/search` | Search the web for current information using the AI |
-| `/reset` | Clear the conversation history for the current channel |
-| `/summarize` | Summarize the current conversation history |
-| `/memory` | Show conversation statistics (message count, history window) |
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/chat</code></td>
+      <td>Start a conversation with the AI (supports image uploads for vision models)</td>
+    </tr>
+    <tr>
+      <td><code>/search</code></td>
+      <td>Search the web for current information using the AI</td>
+    </tr>
+    <tr>
+      <td><code>/reset</code></td>
+      <td>Clear the conversation history for the current channel</td>
+    </tr>
+    <tr>
+      <td><code>/summarize</code></td>
+      <td>Summarize the current conversation history</td>
+    </tr>
+    <tr>
+      <td><code>/memory</code></td>
+      <td>Show conversation statistics (message count, history window)</td>
+    </tr>
+  </tbody>
+</table>
 
 ### News Feed Commands
-| Command | Description | Permissions |
-|:-------:|:------------|:------------|
-| `/addfeed` | Add a new RSS feed to monitor | Admin |
-| `/removefeed` | Remove an RSS feed | Admin |
-| `/listfeeds` | List all configured RSS feeds | All Users |
-| `/subscribechannel` | Subscribe the current channel to news categories | Admin |
-| `/unsubscribechannel` | Unsubscribe the current channel from news updates | Admin |
-| `/feedupdate` | Manually trigger an update for all feeds | Admin |
-| `/getnews` | Fetch and display the latest news in the current channel | All Users |
-| `/setfeedfrequency` | Set how often the bot checks for news (in hours) | Admin |
-| `/feedstatus` | Show the status of news feeds and subscriptions | All Users |
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+      <th>Permissions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/addfeed</code></td>
+      <td>Add a new RSS feed to monitor</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/removefeed</code></td>
+      <td>Remove an RSS feed</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/listfeeds</code></td>
+      <td>List all configured RSS feeds</td>
+      <td>All Users</td>
+    </tr>
+    <tr>
+      <td><code>/subscribechannel</code></td>
+      <td>Subscribe the current channel to news categories</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/unsubscribechannel</code></td>
+      <td>Unsubscribe the current channel from news updates</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/feedupdate</code></td>
+      <td>Manually trigger an update for all feeds</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/getnews</code></td>
+      <td>Fetch and display the latest news in the current channel</td>
+      <td>All Users</td>
+    </tr>
+    <tr>
+      <td><code>/setfeedfrequency</code></td>
+      <td>Set how often the bot checks for news (in hours)</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/feedstatus</code></td>
+      <td>Show the status of news feeds and subscriptions</td>
+      <td>All Users</td>
+    </tr>
+  </tbody>
+</table>
 
 ### Thread Commands
 Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
-| Command | Description |
-|:-------:|:------------|
-| `/thread new` | Create a new AI conversation thread |
-| `/thread message` | Send a message to a specific thread |
-| `/thread list` | View all active AI threads in the channel |
-| `/thread delete` | Remove an AI thread and its history |
-| `/thread rename` | Change the name of an AI thread |
-| `/thread setmodel` | Set the AI model specifically for a thread |
-| `/thread setsystem` | Set the system prompt specifically for a thread |
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/thread new</code></td>
+      <td>Create a new AI conversation thread</td>
+    </tr>
+    <tr>
+      <td><code>/thread message</code></td>
+      <td>Send a message to a specific thread</td>
+    </tr>
+    <tr>
+      <td><code>/thread list</code></td>
+      <td>View all active AI threads in the channel</td>
+    </tr>
+    <tr>
+      <td><code>/thread delete</code></td>
+      <td>Remove an AI thread and its history</td>
+    </tr>
+    <tr>
+      <td><code>/thread rename</code></td>
+      <td>Change the name of an AI thread</td>
+    </tr>
+    <tr>
+      <td><code>/thread setmodel</code></td>
+      <td>Set the AI model specifically for a thread</td>
+    </tr>
+    <tr>
+      <td><code>/thread setsystem</code></td>
+      <td>Set the system prompt specifically for a thread</td>
+    </tr>
+  </tbody>
+</table>
 
 ### Configuration Commands
-| Command | Description | Permissions |
-|:-------:|:------------|:------------|
-| `/setmodel` | Change the default AI model for the server | Admin |
-| `/model` | View or change the current model for the channel/thread | All Users |
-| `/setsystem` | Customize the default AI personality (system prompt) | Admin |
-| `/setchannelmodel` | Set the AI model for the current channel | Admin |
-| `/setchannelsystem` | Set the system prompt for the current channel | Admin |
-| `/setmemory` | Set the message history limit (max messages) | Admin |
-| `/setwindow` | Set the time window for memory (in hours) | Admin |
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+      <th>Permissions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/setmodel</code></td>
+      <td>Change the default AI model for the server</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/model</code></td>
+      <td>View or change the current model for the channel/thread</td>
+      <td>All Users</td>
+    </tr>
+    <tr>
+      <td><code>/setsystem</code></td>
+      <td>Customize the default AI personality (system prompt)</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/setchannelmodel</code></td>
+      <td>Set the AI model for the current channel</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/setchannelsystem</code></td>
+      <td>Set the system prompt for the current channel</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/setmemory</code></td>
+      <td>Set the message history limit (max messages)</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/setwindow</code></td>
+      <td>Set the time window for memory (in hours)</td>
+      <td>Admin</td>
+    </tr>
+  </tbody>
+</table>
 
 ### Image Commands
-| Command | Description |
-|:-------:|:------------|
-| `/imagine` | Generate images from text using AI Horde |
-| `/hordemodels` | List available AI Horde image models |
-| `/dream` | Generate images using your configured Cloudflare Worker |
-| `/cftest` | Test the connection to the Cloudflare Worker | Admin |
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/imagine</code></td>
+      <td>Generate images from text using AI Horde</td>
+    </tr>
+    <tr>
+      <td><code>/hordemodels</code></td>
+      <td>List available AI Horde image models</td>
+    </tr>
+    <tr>
+      <td><code>/dream</code></td>
+      <td>Generate images using your configured Cloudflare Worker</td>
+    </tr>
+    <tr>
+      <td><code>/cftest</code></td>
+      <td>Test the connection to the Cloudflare Worker</td>
+      <td>Admin</td>
+    </tr>
+  </tbody>
+</table>
 
 ### Adventure Commands
-| Command | Description |
-|:-------:|:------------|
-| `/adventure new` | Start a new tabletop RPG adventure (Fantasy, Sci-Fi, Horror, Modern, or Custom) |
-| `/adventure action` | Describe the action you want to take in the adventure |
-| `/adventure roll` | Roll dice (e.g., 1d20, 2d6, 3d8+2) with narrated results |
-| `/adventure status` | Check the status of the current adventure |
-| `/adventure end` | End the current adventure with summary |
-| `/adventure config_images` | Configure frequency of scene image generation (requires Cloudflare Worker) | Admin |
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/adventure new</code></td>
+      <td>Start a new tabletop RPG adventure (Fantasy, Sci-Fi, Horror, Modern, or Custom)</td>
+    </tr>
+    <tr>
+      <td><code>/adventure action</code></td>
+      <td>Describe the action you want to take in the adventure</td>
+    </tr>
+    <tr>
+      <td><code>/adventure roll</code></td>
+      <td>Roll dice (e.g., 1d20, 2d6, 3d8+2) with narrated results</td>
+    </tr>
+    <tr>
+      <td><code>/adventure status</code></td>
+      <td>Check the status of the current adventure</td>
+    </tr>
+    <tr>
+      <td><code>/adventure end</code></td>
+      <td>End the current adventure with summary</td>
+    </tr>
+    <tr>
+      <td><code>/adventure config_images</code></td>
+      <td>Configure frequency of scene image generation (requires Cloudflare Worker)</td>
+      <td>Admin</td>
+    </tr>
+  </tbody>
+</table>
 
 ## 📚 Supported Models
 
