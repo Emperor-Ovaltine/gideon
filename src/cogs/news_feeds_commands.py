@@ -909,8 +909,9 @@ class NewsFeedsCommands(commands.Cog):
         
         # Prepare channel subscriptions text and truncate if necessary
         channel_subscriptions_text = "\n".join(channel_info) or "No channel subscriptions"
-        if len(channel_subscriptions_text) > 1024:
-            channel_subscriptions_text = channel_subscriptions_text[:1021] + "..."
+        # Truncate if the text is close to Discord's 1024 limit to be safe
+        if len(channel_subscriptions_text) >= 1000:
+            channel_subscriptions_text = channel_subscriptions_text[:997] + "..."
 
         embed.add_field(
             name="Channel Subscriptions",
