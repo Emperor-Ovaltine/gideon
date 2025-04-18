@@ -33,12 +33,18 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
     async def set_model_slash(
         self, 
         ctx, 
-        model_name: discord.Option(str, "Select the AI model to use", autocomplete=model_autocomplete)
+        model_name: Option(str, "Select the AI model to use", autocomplete=model_autocomplete)
     ):
-        self.openrouter_client.model = model_name
-        self.state.set_global_model(model_name)
-        sync_models(self.bot)
-        await ctx.respond(f"Model set to {model_name}")
+        await ctx.defer() # Defer response as validation is now async
+        try:
+            # self.openrouter_client.model = model_name # This is handled by sync_models
+            await self.state.set_global_model(model_name)
+            sync_models(self.bot)
+            await ctx.respond(f"✅ Global model set to `{model_name}`")
+        except ValueError as e:
+            await ctx.respond(f"⚠️ Error: {e}")
+        except Exception as e:
+            await ctx.respond(f"⚠️ An unexpected error occurred: {e}")
     
     @discord.slash_command(
         name="model",
@@ -47,21 +53,35 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
     async def show_model_slash(
         self, 
         ctx, 
-        new_model: discord.Option(str, "Select a new model to use (optional)", autocomplete=model_autocomplete, required=False)
+        new_model: Option(str, "Select a new model to use (optional)", autocomplete=model_autocomplete, required=False)
     ):
         await ctx.defer()
         
         if new_model:
             if ctx.author.guild_permissions.administrator:
-                self.openrouter_client.model = new_model
-                self.state.set_global_model(new_model)
-                sync_models(self.bot)
-                await ctx.respond(f"✅ Model changed to: `{new_model}`")
+                try:
+                    # self.openrouter_client.model = new_model # Handled by sync_models
+                    await self.state.set_global_model(new_model)
+                    sync_models(self.bot)
+                    await ctx.respond(f"✅ Global model changed to: `{new_model}`")
+                except ValueError as e:
+                    await ctx.respond(f"⚠️ Error: {e}")
+                except Exception as e:
+                    await ctx.respond(f"⚠️ An unexpected error occurred: {e}")
             else:
                 await ctx.respond("⚠️ Only administrators can change the model. Use `/setmodel` if you have admin permissions.")
         else:
             current_model = self.state.get_global_model() or DEFAULT_MODEL
-            self.state.set_global_model(current_model)
+            # Ensure the current global model is valid on startup/load
+            try:
+                await self.state.set_global_model(current_model)
+            except ValueError:
+                # If the saved/default model is somehow invalid, reset to the absolute default
+                current_model = DEFAULT_MODEL
+                await self.state.set_global_model(current_model) # This should always work if DEFAULT_MODEL is valid initially
+                sync_models(self.bot)
+                await ctx.followup.send(f"⚠️ Warning: Previous global model was invalid. Resetting to default: `{current_model}`")
+
             models = await self.bot.model_manager.get_models()
             models_list = "\n".join([f"• `{model}`" for model in models[:5]])
             if len(models) > 5:
@@ -109,11 +129,17 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
     async def set_channel_model_slash(
         self, 
         ctx, 
-        model_name: discord.Option(str, "Select the AI model to use for this channel", autocomplete=model_autocomplete)
+        model_name: Option(str, "Select the AI model to use for this channel", autocomplete=model_autocomplete)
     ):
+        await ctx.defer() # Defer response as validation is now async
         channel_id = str(ctx.channel.id)
-        self.state.channel_models[channel_id] = model_name
-        await ctx.respond(f"Model for this channel set to `{model_name}`")
+        try:
+            await self.state.set_channel_model(channel_id, model_name)
+            await ctx.respond(f"✅ Model for this channel set to `{model_name}`")
+        except ValueError as e:
+            await ctx.respond(f"⚠️ Error: {e}")
+        except Exception as e:
+            await ctx.respond(f"⚠️ An unexpected error occurred: {e}")
 
     @discord.slash_command(
         name="channelmodel",
@@ -195,11 +221,17 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
     @commands.slash_command(name="select_model", description="Select a model")
     async def select_model(self, ctx, model: Option(str, "Choose a model", autocomplete=model_autocomplete)):
         """Select a model from available options."""
+        await ctx.defer() # Defer response as validation is now async
         if ctx.author.guild_permissions.administrator:
-            self.openrouter_client.model = model
-            self.state.set_global_model(model)
-            sync_models(self.bot)
-            await ctx.respond(f"✅ Model changed to: `{model}`")
+            try:
+                # self.openrouter_client.model = model # Handled by sync_models
+                await self.state.set_global_model(model)
+                sync_models(self.bot)
+                await ctx.respond(f"✅ Global model changed to: `{model}`")
+            except ValueError as e:
+                await ctx.respond(f"⚠️ Error: {e}")
+            except Exception as e:
+                await ctx.respond(f"⚠️ An unexpected error occurred: {e}")
         else:
             await ctx.respond("⚠️ Only administrators can change the model.")
     

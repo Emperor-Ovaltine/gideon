@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from ..utils.state_manager import BotStateManager
 from ..utils.openrouter_client import OpenRouterClient
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL
+from ..utils.persistence import StatePersistence # Import persistence utility
 
 # Set up logging
 logger = logging.getLogger('news_feeds')
@@ -46,6 +47,14 @@ class NewsFeedsCommands(commands.Cog):
             self.state.news_update_frequency = 6  # Default: 6 hours
         else:
             logger.info(f"Loaded existing news_update_frequency: {self.state.news_update_frequency} hours")
+
+        # Initialize news broadcast channel setting
+        if not hasattr(self.state, 'news_broadcast_channel_id'):
+            logger.info("Initializing news_broadcast_channel_id in state manager")
+            self.state.news_broadcast_channel_id = None
+        else:
+            broadcast_id = self.state.news_broadcast_channel_id
+            logger.info(f"Loaded existing news_broadcast_channel_id: {broadcast_id if broadcast_id else 'Not set'}")
             
         # Start the background task when the cog is loaded
         self.check_news_feeds.cancel()  # Cancel any existing task
@@ -65,7 +74,7 @@ class NewsFeedsCommands(commands.Cog):
     async def check_news_feeds(self):
         """Background task to check feeds based on configured frequency."""
         logger.info(f"Starting scheduled news feed check (every {self.state.news_update_frequency} hours)")
-        await self.process_all_feeds()
+        await self.process_all_feeds() # Default force_refresh is False
     
     @check_news_feeds.before_loop
     async def before_check_news_feeds(self):
@@ -73,23 +82,60 @@ class NewsFeedsCommands(commands.Cog):
         await self.bot.wait_until_ready()
         logger.info("News feed check task initialized")
     
-    async def process_all_feeds(self):
-        """Process all feeds and send updates to configured channels."""
+    async def process_all_feeds(self, force_refresh=False): # Add force_refresh parameter
+        """Process all feeds, send individual updates, and optionally an AI digest."""
         if not self.state.news_feeds:
             logger.info("No news feeds configured, skipping check")
             return
-            
-        for feed_id, feed_info in self.state.news_feeds.items():
+
+        all_new_summaries_data = [] # Collect summaries {title, link, summary, feed_name, category}
+        feeds_processed_count = 0
+        articles_found_count = 0
+
+        for feed_id, feed_info in list(self.state.news_feeds.items()): # Use list() for safe iteration
             try:
-                new_articles = await self.fetch_new_articles(feed_id)
-                if not new_articles:
-                    continue
-                    
-                # Send updates to all configured channels
-                await self.send_feed_updates(feed_id, feed_info['category'], new_articles)
-                
+                # Fetch new articles, passing force_refresh
+                new_articles = await self.fetch_new_articles(feed_id, force_refresh=force_refresh)
+                feeds_processed_count += 1
+
+                if new_articles:
+                    articles_found_count += len(new_articles)
+                    logger.info(f"Processing {len(new_articles)} new articles for feed {feed_id} ({feed_info.get('name')})")
+
+                    # Send individual updates to subscribed channels AND get back the summaries
+                    feed_name = feed_info.get('name', 'Unknown Feed')
+                    category = feed_info.get('category', 'General')
+                    generated_summaries = await self.send_feed_updates(feed_id, category, new_articles)
+
+                    # Add feed info to the summaries and collect them for the digest
+                    for summary_dict in generated_summaries:
+                        summary_dict['feed_name'] = feed_name
+                        summary_dict['category'] = category
+                        all_new_summaries_data.append(summary_dict)
+                else:
+                     logger.debug(f"No new articles found for feed {feed_id}")
+
             except Exception as e:
-                logger.error(f"Error processing feed {feed_id}: {str(e)}", exc_info=True)
+                logger.error(f"Error processing feed {feed_id} ({feed_info.get('name')}): {str(e)}", exc_info=True)
+
+        logger.info(f"Feed processing cycle complete. Checked {feeds_processed_count} feeds, found {articles_found_count} new articles in total.")
+
+        # After checking all feeds, if broadcast channel is set AND we have summaries, generate and send AI digest
+        if self.state.news_broadcast_channel_id and all_new_summaries_data:
+            logger.info(f"Generating AI digest for {len(all_new_summaries_data)} summarized articles.")
+            # Generate the digest content using the LLM
+            digest_content = await self.generate_ai_digest(all_new_summaries_data)
+            # Send the generated digest
+            await self.send_ai_digest(digest_content)
+        elif self.state.news_broadcast_channel_id:
+             logger.info("Broadcast channel is set, but no new summaries were generated to create a digest.")
+        else:
+            logger.info("Broadcast channel not set, skipping AI digest generation.")
+
+        # Save state after processing cycle
+        persistence = StatePersistence()
+        persistence.save_state(self.state)
+        logger.debug("State saved after feed processing cycle.")
     
     async def fetch_new_articles(self, feed_id, force_refresh=False):
         """Fetch and return new articles from a feed.
@@ -222,9 +268,9 @@ class NewsFeedsCommands(commands.Cog):
             }
     
     async def send_feed_updates(self, feed_id, category, articles):
-        """Send feed updates to all configured channels."""
+        """Send feed updates (individual summaries) to all configured channels and return summaries.""" # Modified docstring
         if not articles:
-            return
+            return [] # Return empty list if no articles
             
         # Find channels that should receive this category
         channels_to_notify = []
@@ -243,25 +289,30 @@ class NewsFeedsCommands(commands.Cog):
         if not channels_to_notify:
             # Adjusted log message for clarity
             logger.info(f"No channels configured for categories [{', '.join(feed_categories)}], skipping feed {feed_id}")
-            return
+            return [] # Return empty list
             
         # Summarize articles
-        summaries = []
+        summaries_data = [] # Store summary dicts {title, summary, link, published}
         
-        # Limit to max 5 articles to avoid rate limiting or long processing
+        # Limit to max 5 articles per feed for individual posts
         # Pass the potentially multi-category string for context in summarization
         for article in articles[:5]:
-            summary = await self.summarize_article(article, category) 
-            if summary:
-                summaries.append(summary)
+            summary_dict = await self.summarize_article(article, category) 
+            if summary_dict and not summary_dict['summary'].startswith("Error") and not summary_dict['summary'].startswith("Unable"): # Check for valid summary
+                summaries_data.append(summary_dict)
                 # Add slight delay to avoid hitting AI rate limits too hard
                 await asyncio.sleep(1)
         
-        # Send to each channel
+        if not summaries_data:
+            logger.info(f"No successful summaries generated for feed {feed_id}")
+            return [] # Return empty list if no summaries
+
+        # Send to each subscribed channel
         for channel_id in channels_to_notify:
             try:
                 channel = self.bot.get_channel(int(channel_id))
                 if not channel:
+                    logger.warning(f"Channel {channel_id} not found for feed {feed_id} update.")
                     continue
                     
                 # Create embed for feed
@@ -272,12 +323,12 @@ class NewsFeedsCommands(commands.Cog):
                     title=f"📰 {feed_name} News Update",
                     description=f"Latest articles from {category} category",
                     color=discord.Color.blue(),
-                    timestamp=datetime.now()
+                    timestamp=datetime.now(timezone.utc) # Use timezone aware
                 )
                 
                 # Add each summary to the embed
-                for i, summary in enumerate(summaries):
-                    # Skip if we already have too many fields (max 25)
+                for i, summary in enumerate(summaries_data):
+                    # Skip if we already have too many fields (max 25) or summaries (max 5)
                     if i >= 5:
                         break
                         
@@ -294,9 +345,12 @@ class NewsFeedsCommands(commands.Cog):
                 
                 # Send to channel
                 await channel.send(embed=embed)
+                logger.debug(f"Sent individual feed update for {feed_id} to channel {channel_id}")
                 
             except Exception as e:
-                logger.error(f"Error sending to channel {channel_id}: {str(e)}", exc_info=True)
+                logger.error(f"Error sending individual update to channel {channel_id}: {str(e)}", exc_info=True)
+        
+        return summaries_data # Return the generated summaries
     
     async def send_news_to_channel(self, channel, feed_id, category, articles):
         """Send news updates to a specific channel."""
@@ -401,7 +455,6 @@ class NewsFeedsCommands(commands.Cog):
             }
             
             # Explicitly save state after adding a new feed
-            from ..utils.persistence import StatePersistence
             persistence = StatePersistence()
             saved = persistence.save_state(self.state)
             
@@ -458,7 +511,6 @@ class NewsFeedsCommands(commands.Cog):
                 del self.state.news_article_history[feed_id]
             
             # Explicitly save state after removing a feed
-            from ..utils.persistence import StatePersistence
             persistence = StatePersistence()
             saved = persistence.save_state(self.state)
                 
@@ -542,7 +594,6 @@ class NewsFeedsCommands(commands.Cog):
             self.state.news_channel_config[channel_id]['categories'] = category_list
             
         # Explicitly save state after updating channel configuration
-        from ..utils.persistence import StatePersistence
         persistence = StatePersistence()
         saved = persistence.save_state(self.state)
             
@@ -574,7 +625,7 @@ class NewsFeedsCommands(commands.Cog):
     
     @discord.slash_command(
         name="feedupdate",
-        description="Manually update and post news from all feeds"
+        description="Manually update feeds, post summaries, and generate AI digest if configured." # Modified description
     )
     @commands.has_permissions(administrator=True)
     async def update_feeds_slash(self, ctx, 
@@ -582,52 +633,33 @@ class NewsFeedsCommands(commands.Cog):
                                                          "Force refresh articles even if already seen", 
                                                          required=False, 
                                                          default=False)):
-        """Manually trigger an update of all feeds.
-        
-        Args:
-            force_refresh: If True, fetch recent articles regardless of history
-        """
+        """Manually trigger update, summaries, and AI digest generation.""" # Modified docstring
         await ctx.defer()
         
         # Log the current state for debugging
+        logger.info(f"Manual feed update triggered by {ctx.author.name}. Force refresh: {force_refresh}")
         logger.info(f"Current news_feeds count: {len(self.state.news_feeds)}")
-        for feed_id, feed in self.state.news_feeds.items():
-            logger.info(f"Feed: {feed.get('name', 'Unknown')} ({feed_id}) - URL: {feed.get('url', 'Unknown')}")
         
         # Start a background task to process feeds
-        await ctx.respond(f"🔄 Starting news feed update{'  (Force refresh mode)' if force_refresh else ''}...")
+        await ctx.respond(f"🔄 Starting manual news feed update{' (Force refresh mode)' if force_refresh else ''}...")
         
         if not self.state.news_feeds:
             await ctx.followup.send("⚠️ No feeds configured. Use `/addfeed` to add feeds first.")
             return
             
         try:
-            # Process feeds with force_refresh option
-            updates_processed = 0
-            for feed_id, feed_info in self.state.news_feeds.items():
-                logger.info(f"Processing feed: {feed_info.get('name')} ({feed_id})")
-                
-                # Pass the force_refresh parameter to fetch_new_articles
-                new_articles = await self.fetch_new_articles(feed_id, force_refresh=force_refresh)
-                
-                if new_articles:
-                    updates_processed += 1
-                    # Send updates to all configured channels
-                    await self.send_feed_updates(feed_id, feed_info['category'], new_articles)
-            
-            # Make sure state changes get saved
-            from ..utils.persistence import StatePersistence
-            persistence = StatePersistence()
-            saved = persistence.save_state(self.state)
-            
-            if updates_processed > 0:
-                await ctx.followup.send(f"✅ News feed update completed. Processed updates for {updates_processed} feeds. State {'saved' if saved else 'NOT saved'}.")
-            else:
-                await ctx.followup.send(f"ℹ️ No new articles found for any feeds. Try again with 'force_refresh' option if needed. State {'saved' if saved else 'NOT saved'}.")
+            # Call the main processing function which now handles both individual posts and the digest
+            await self.process_all_feeds(force_refresh=force_refresh) 
+
+            # State saving is now handled within process_all_feeds
+            # persistence = StatePersistence()
+            # saved = persistence.save_state(self.state) # Save state after processing
+
+            await ctx.followup.send(f"✅ Manual news feed update cycle completed. State saved.") # Simplified message as saving happens in process_all_feeds
                 
         except Exception as e:
             logger.error(f"Error in manual feed update: {str(e)}", exc_info=True)
-            await ctx.followup.send(f"⚠️ Error during update: {str(e)}")
+            await ctx.followup.send(f"⚠️ Error during manual update: {str(e)}")
     
     @discord.slash_command(
         name="getnews",
@@ -681,7 +713,6 @@ class NewsFeedsCommands(commands.Cog):
                     await ctx.followup.send("✅ News updates fetched and displayed.")
                 
             # Ensure state is saved after processing
-            from ..utils.persistence import StatePersistence
             persistence = StatePersistence()
             persistence.save_state(self.state)
                 
@@ -723,7 +754,6 @@ class NewsFeedsCommands(commands.Cog):
             task_updated = False
         
         # Save state
-        from ..utils.persistence import StatePersistence
         persistence = StatePersistence()
         saved = persistence.save_state(self.state)
         
@@ -825,6 +855,154 @@ class NewsFeedsCommands(commands.Cog):
         )
         
         await ctx.respond(embed=embed)
+
+    # <<< NEW: Function to generate AI Digest >>>
+    async def generate_ai_digest(self, all_articles_data):
+        """
+        Sends collected article data to an LLM to generate a digest of top stories.
+
+        Args:
+            all_articles_data: A list of dictionaries, where each dict contains
+                               'title', 'link', 'summary', 'feed_name', 'category'.
+        """
+        if not all_articles_data:
+            return "No articles provided for digest."
+
+        # Limit the number of articles sent to the LLM to avoid overly long prompts/high costs
+        max_articles_for_llm = 25 # Adjust as needed
+        articles_to_send = all_articles_data[:max_articles_for_llm]
+
+        # Format the articles for the prompt
+        formatted_articles = ""
+        for idx, article in enumerate(articles_to_send):
+            formatted_articles += (
+                f"Article {idx+1}:\n"
+                f"  Title: {article['title']}\n"
+                f"  Source: {article['feed_name']} ({article['category']})\n"
+                f"  Link: {article['link']}\n"
+                # Include the pre-generated summary if available and not an error
+                f"  Summary: {article.get('summary', 'Not available')}\n\n"
+            )
+
+        # Define the prompt for the LLM
+        prompt = (
+            f"Below is a list of recent news articles with their summaries. "
+            f"Please identify the top 3-5 most important or impactful articles from this list. "
+            f"For each selected article, provide a brief (1-2 sentence) explanation of why it's significant and include its title and link.\n\n"
+            f"Format your response as follows:\n"
+            f"**1. [Article Title]**\n[Your brief explanation of significance].\n[Link to article]\n\n"
+            f"**2. [Article Title]**\n[Your brief explanation of significance].\n[Link to article]\n\n"
+            f"...\n\n"
+            f"Here are the articles:\n\n{formatted_articles}"
+        )
+
+        # Define a specific system prompt for digest generation
+        digest_system_prompt = (
+            "You are an AI news analyst. Your task is to identify the most important news stories "
+            "from a provided list and explain their significance concisely. Follow the requested output format strictly."
+        )
+
+        logger.info(f"Sending {len(articles_to_send)} articles to LLM for digest generation.")
+        try:
+            response = await self.openrouter_client.send_message_with_history([
+                {"role": "system", "content": digest_system_prompt},
+                {"role": "user", "content": prompt}
+            ])
+
+            if response.startswith("⚠️"):
+                logger.error(f"LLM returned an error for digest generation: {response}")
+                return "Error: Unable to generate AI news digest."
+            else:
+                logger.info("Successfully generated AI news digest.")
+                return response.strip() # Return the LLM's formatted digest
+
+        except Exception as e:
+            logger.error(f"Exception during AI digest generation: {str(e)}", exc_info=True)
+            return "Error: Exception occurred while generating AI digest."
+
+
+    # <<< NEW: Function to send the AI Digest >>>
+    async def send_ai_digest(self, digest_content):
+        """Sends the AI-generated digest to the configured broadcast channel."""
+        if not self.state.news_broadcast_channel_id:
+            logger.warning("Attempted to send AI digest, but no broadcast channel is set.")
+            return
+
+        if not digest_content or digest_content.startswith("Error:") or digest_content == "No articles provided for digest.":
+             logger.warning(f"Skipping sending AI digest due to invalid content: {digest_content}")
+             # Optionally send a message indicating no digest could be generated
+             # try:
+             #    channel = self.bot.get_channel(int(self.state.news_broadcast_channel_id))
+             #    if channel: await channel.send(f"ℹ️ {digest_content}")
+             # except Exception as e: logger.error(f"Error sending digest status message: {e}")
+             return
+
+        try:
+            broadcast_channel = self.bot.get_channel(int(self.state.news_broadcast_channel_id))
+            if not broadcast_channel:
+                logger.error(f"Broadcast channel ID {self.state.news_broadcast_channel_id} not found.")
+                # Maybe clear the invalid ID from state here?
+                # self.state.news_broadcast_channel_id = None
+                # persistence = StatePersistence()
+                # persistence.save_state(self.state)
+                return
+
+            embed = discord.Embed(
+                title="🌟 Top News Highlights",
+                # Use the LLM response directly as the description
+                description=self.truncate_for_embed(digest_content, 4000), # Embed description limit is 4096
+                color=discord.Color.gold(), # Use a different color for the digest
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.set_footer(text="AI-Curated Digest by Gideon")
+
+            await broadcast_channel.send(embed=embed)
+            logger.info(f"Sent AI news digest to channel {broadcast_channel.id}")
+
+        except Exception as e:
+            logger.error(f"Error sending AI digest: {str(e)}", exc_info=True)
+
+    @discord.slash_command(
+        name="setbroadcastchannel",
+        description="Set the channel where the AI news digest should be posted."
+    )
+    @commands.has_permissions(administrator=True)
+    async def set_broadcast_channel_slash(self, ctx,
+                                        channel: discord.Option(discord.TextChannel, "The channel for AI news digests")):
+        """Sets the channel for the AI-generated news digest."""
+        await ctx.defer()
+        self.state.news_broadcast_channel_id = str(channel.id)
+        logger.info(f"Attempting to save news_broadcast_channel_id: {self.state.news_broadcast_channel_id}") # Add logging
+        # Save state
+        persistence = StatePersistence()
+        saved = persistence.save_state(self.state)
+        await ctx.respond(
+            f"✅ The AI news digest will now be sent to {channel.mention}." +
+            (" State saved." if saved else "\n⚠️ Warning: State could not be saved.")
+        )
+        logger.info(f"AI news digest broadcast channel set to {channel.id} by {ctx.author.name}")
+
+    @discord.slash_command(
+        name="unsetbroadcastchannel",
+        description="Stop sending the AI news digest."
+    )
+    @commands.has_permissions(administrator=True)
+    async def unset_broadcast_channel_slash(self, ctx):
+        """Disables the AI-generated news digest."""
+        await ctx.defer()
+        if self.state.news_broadcast_channel_id is None:
+            await ctx.respond("ℹ️ No broadcast channel is currently set for the AI digest.")
+            return
+        self.state.news_broadcast_channel_id = None
+        logger.info(f"Attempting to save news_broadcast_channel_id: {self.state.news_broadcast_channel_id}") # Add logging
+        # Save state
+        persistence = StatePersistence()
+        saved = persistence.save_state(self.state)
+        await ctx.respond(
+            "✅ AI news digest broadcast channel unset. Individual feed updates will continue as configured." +
+            (" State saved." if saved else "\n⚠️ Warning: State could not be saved.")
+        )
+        logger.info(f"AI news digest broadcast channel unset by {ctx.author.name}")
 
 def setup(bot):
     """Add the NewsFeedsCommands cog to the bot."""

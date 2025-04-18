@@ -34,16 +34,24 @@ class BotStateManager:
         self.max_threads_per_channel = 10
         self.time_window_hours = 48
         
-        # Import allowed models from config
-        from ..config import ALLOWED_MODELS, DEFAULT_MODEL
-        self.allowed_models = ALLOWED_MODELS
-        self.global_model = DEFAULT_MODEL  # NEW: Store the global model
+        # Import default model from config
+        from ..config import DEFAULT_MODEL # REMOVED ALLOWED_MODELS import
+        # self.allowed_models = ALLOWED_MODELS # REMOVED static list
+        self.global_model = DEFAULT_MODEL
+        self.model_manager = None # ADDED: Placeholder for ModelManager instance
         
         # News feed related state - explicitly initialize these attributes
         self.news_feeds = {}
         self.news_channel_config = {}
         self.news_article_history = {}
+        self.news_update_frequency = 6 # Default value
+        self.news_broadcast_channel_id = None # Default value
     
+    # NEW: Method to set the ModelManager instance
+    def set_model_manager(self, model_manager):
+        self.model_manager = model_manager
+        logger.info(f"ModelManager instance set for BotStateManager: {id(model_manager)}")
+
     # Getters and setters for all state properties
     # This allows controlled access to the state from different cogs
     
@@ -184,17 +192,31 @@ class BotStateManager:
         """Get the current global model."""
         return self.global_model
     
-    def set_global_model(self, model: str) -> None:
-        """Set the global model with validation."""
-        if model not in self.allowed_models:
-            raise ValueError(f"Model '{model}' not in allowed models: {self.allowed_models}")
+    # UPDATED: Make async and use ModelManager for validation
+    async def set_global_model(self, model: str) -> None:
+        """Set the global model with validation against available models."""
+        if not self.model_manager:
+            raise RuntimeError("ModelManager not set in BotStateManager")
+        
+        is_valid = await self.model_manager.is_valid_model(model)
+        if not is_valid:
+            # Fetch the list again to provide a more current list in the error message
+            allowed_models = await self.model_manager.get_models(force_refresh=True) 
+            raise ValueError(f"Model '{model}' not found in available models from OpenRouter. Allowed: {allowed_models[:10]}...") # Show only first 10 for brevity
         self.global_model = model
     
+    # UPDATED: Make async and use ModelManager for validation
     async def set_channel_model(self, channel_id: str, model: str) -> None:
-        """Set a channel-specific model with validation."""
+        """Set a channel-specific model with validation against available models."""
         async with self._lock:
-            if model not in self.allowed_models:
-                raise ValueError(f"Model '{model}' not in allowed models: {self.allowed_models}")
+            if not self.model_manager:
+                raise RuntimeError("ModelManager not set in BotStateManager")
+
+            is_valid = await self.model_manager.is_valid_model(model)
+            if not is_valid:
+                 # Fetch the list again to provide a more current list in the error message
+                allowed_models = await self.model_manager.get_models(force_refresh=True)
+                raise ValueError(f"Model '{model}' not found in available models from OpenRouter. Allowed: {allowed_models[:10]}...") # Show only first 10 for brevity
             self.channel_models[str(channel_id)] = model
     
     def get_effective_model(self, channel_id: str) -> str:

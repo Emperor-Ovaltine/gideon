@@ -79,6 +79,9 @@ async def on_ready():
     
     # Load saved state if available
     state = BotStateManager()
+    # INJECT ModelManager into StateManager
+    state.set_model_manager(bot.model_manager)
+    
     state_loaded = persistence.load_state(state)
     if state_loaded:
         channels = len(state.channel_history)

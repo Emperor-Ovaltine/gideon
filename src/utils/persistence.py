@@ -164,7 +164,9 @@ class StatePersistence:
                 # News Feed Data (Added)
                 "news_feeds": getattr(state_manager, 'news_feeds', {}),
                 "news_channel_config": getattr(state_manager, 'news_channel_config', {}),
-                "news_article_history": getattr(state_manager, 'news_article_history', {})
+                "news_article_history": getattr(state_manager, 'news_article_history', {}),
+                "news_update_frequency": getattr(state_manager, 'news_update_frequency', 6), # Save frequency
+                "news_broadcast_channel_id": getattr(state_manager, 'news_broadcast_channel_id', None) # Save broadcast channel ID
             }
             
             # Write to file with pretty formatting
@@ -216,6 +218,8 @@ class StatePersistence:
             state_manager.news_feeds = state_data.get("news_feeds", {})
             state_manager.news_channel_config = state_data.get("news_channel_config", {})
             state_manager.news_article_history = state_data.get("news_article_history", {})
+            state_manager.news_update_frequency = state_data.get("news_update_frequency", 6) # Load frequency
+            state_manager.news_broadcast_channel_id = state_data.get("news_broadcast_channel_id", None) # Load broadcast channel ID
             
             # Log metrics from loaded state
             discord_threads = len(state_manager.discord_threads)

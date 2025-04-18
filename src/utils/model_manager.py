@@ -18,15 +18,16 @@ class ModelManager:
         self.cache_duration = timedelta(hours=12)  # Cache valid for 12 hours
     
     async def get_models(self, force_refresh: bool = False) -> List[str]:
-        """Get available models, using cache when possible."""
+        """Get available model IDs, using cache when possible."""
         # Check if we need to refresh the cache
         if force_refresh or self.models_data is None or self._is_cache_stale():
             await self._refresh_models()
         
         if not self.models_data or not self.models_data.get("success", False):
+            logger.warning("Failed to get models or no models data available.")
             return []
             
-        return [model["id"] for model in self.models_data.get("models", [])]
+        return [model["id"] for model in self.models_data.get("models", []) if "id" in model]
     
     def _is_cache_stale(self) -> bool:
         """Check if the cached model data is stale."""
@@ -88,16 +89,24 @@ class ModelManager:
         except Exception as e:
             logger.error(f"Error saving models cache: {str(e)}")
     
-    def get_allowed_models(self) -> List[str]:
-        """Get list of allowed model IDs."""
-        if not self.models_data or not self.models_data.get("success"):
-            return []
+    # REMOVED this method as get_models serves the purpose now
+    # def get_allowed_models(self) -> List[str]:
+    #     """Get list of allowed model IDs."""
+    #     if not self.models_data or not self.models_data.get("success"):
+    #         return []
             
-        return [model["id"] for model in self.models_data.get("models", [])]
+    #     return [model["id"] for model in self.models_data.get("models", [])]
     
-    def is_valid_model(self, model_id: str) -> bool:
-        """Check if a model ID is valid."""
-        return model_id in self.get_allowed_models()
+    # UPDATED: Make async and ensure data is potentially refreshed
+    async def is_valid_model(self, model_id: str) -> bool:
+        """Check if a model ID is valid by checking against the fetched list."""
+        # Ensure the model list is reasonably fresh before checking
+        # get_models handles the refresh logic if needed (based on cache expiry)
+        available_models = await self.get_models() 
+        is_valid = model_id in available_models
+        if not is_valid:
+             logger.warning(f"Model '{model_id}' not found in available models.")
+        return is_valid
     
     def update_vision_models(self) -> None:
         """Update the vision models list in the OpenRouter client."""
