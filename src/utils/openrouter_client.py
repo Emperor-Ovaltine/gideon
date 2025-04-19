@@ -47,7 +47,8 @@ class OpenRouterClient:
         images: List[Dict[str, Any]] = None,
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
-        web_search: bool = False
+        web_search: bool = False,
+        response_format: Optional[Dict[str, Any]] = None # Add response_format parameter
     ) -> str:
         """Send a message with conversation history to the AI model."""
         # Use provided system prompt or fall back to default
@@ -113,7 +114,12 @@ class OpenRouterClient:
         # Add web search parameter if enabled using the 'plugins' field
         if web_search:
             payload["plugins"] = [{"id": "web"}]
-        
+
+        # Add response_format to the payload if provided
+        if response_format:
+            payload["response_format"] = response_format
+            logger.info(f"Using response_format: {response_format.get('type')}") # Log the type being used
+
         # Send the request
         try:
             async with aiohttp.ClientSession() as session:

@@ -13,7 +13,8 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
     
     def __init__(self, bot):
         self.bot = bot
-        self.state = BotStateManager()
+        # Use the shared state manager from the bot instance
+        self.state = bot.state_manager
         self.openrouter_client = OpenRouterClient(OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL)
     
     async def model_autocomplete(self, ctx):

@@ -13,7 +13,6 @@ import traceback
 from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY
 from .utils.model_sync import sync_models
 from .utils.state_manager import BotStateManager
-from .utils.persistence import StatePersistence
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -38,26 +37,6 @@ bot = commands.Bot(
 from .utils.openrouter_client import OpenRouterClient
 from .utils.model_manager import ModelManager
 
-# Create the persistence handler
-persistence = StatePersistence()
-
-def handle_exit(signum, frame):
-    """Handle exit gracefully by saving state before shutdown."""
-    print("Shutdown signal received. Saving state before exit...")
-    try:
-        state = BotStateManager()
-        if persistence.save_state(state):
-            print("State saved successfully!")
-        else:
-            print("Failed to save state!")
-    except Exception as e:
-        print(f"Error during shutdown save: {str(e)}")
-    
-    sys.exit(0)
-
-# Register the signal handlers
-signal.signal(signal.SIGINT, handle_exit)  # Ctrl+C
-signal.signal(signal.SIGTERM, handle_exit)  # Termination signal
 
 # Initialize OpenRouter client
 openrouter_client = OpenRouterClient(
@@ -76,21 +55,26 @@ bot.model_manager = model_manager
 async def on_ready():
     print(f'Logged in as {bot.user.name} - {bot.user.id}')
     print('------')
-    
-    # Load saved state if available
-    state = BotStateManager()
-    # INJECT ModelManager into StateManager
-    state.set_model_manager(bot.model_manager)
-    
-    state_loaded = persistence.load_state(state)
-    if state_loaded:
-        channels = len(state.channel_history)
-        threads = len(state.discord_threads)  # Updated to use discord_threads
-        messages = sum(len(msgs) for msgs in state.channel_history.values())
-        print(f"Successfully loaded saved state: {channels} channels, {threads} threads, {messages}")
-    else:
-        print("No saved state found or error loading state, starting fresh")
-    
+
+    # Initialize State Manager (connects to DB, loads config)
+    print("Initializing state manager and database...")
+    try:
+        state = BotStateManager()
+        # Initialize state FIRST (this connects to DB and loads config)
+        await state.initialize_state()
+        # NOW inject the ModelManager
+        state.set_model_manager(bot.model_manager)
+        bot.state_manager = state # Attach the initialized state manager to the bot
+        print("State manager initialized successfully.")
+        # Log initial state from DB if needed (e.g., global model)
+        print(f"Loaded global model from DB: {bot.state_manager.get_global_model()}")
+    except Exception as e:
+        print(f"FATAL: Failed to initialize state manager or database: {e}", file=sys.stderr)
+        traceback.print_exc()
+        # Optionally, exit if DB connection fails critically
+        # await bot.close()
+        # return # Stop further execution in on_ready
+
     # Get set of existing command names
     try:
         print("Checking existing commands...")
@@ -175,67 +159,16 @@ async def on_ready():
         print(f"ConfigCommands cog not found. Available cogs: {list(bot.cogs.keys())}")
         print(f'Using default model: {DEFAULT_MODEL}')
     
-    # Start the auto-save task after everything else is set up
-    bot.loop.create_task(auto_save_state())
-    print("Auto-save task started")
-    
+
     # Load models (will use cached data if available)
     await bot.model_manager.get_models()
     logger.info(f"Logged in as {bot.user.name}")
     
     print('Ready to serve!')
 
-async def auto_save_state():
-    await bot.wait_until_ready()
-    save_interval = 300  # 5 minutes
-    prune_counter = 0
-    
-    print(f"Auto-save task started with interval {save_interval} seconds")
-    
-    while not bot.is_closed():
-        try:
-            state = BotStateManager()
-            
-            # Updated logging to include discord_threads
-            channels = len(state.channel_history)
-            threads = len(state.discord_threads)  # Updated to use discord_threads
-            messages = sum(len(history) for history in state.channel_history.values())
-            print(f"State before saving - Channels: {channels}, Threads: {threads}, Messages: {messages}, State ID: {id(state)}")
-            
-            # Prune old data every 4 save cycles (20 minutes)
-            if prune_counter >= 3:
-                print("Pruning old conversation data...")
-                try:
-                    prune_stats = state.prune_old_data()
-                    print(f"Pruned: {prune_stats['channels_pruned']} channels, "
-                          f"{prune_stats['threads_pruned']} threads, "
-                          f"{prune_stats['messages_pruned']} messages")
-                except Exception as prune_error:
-                    print(f"Error during data pruning: {str(prune_error)}")
-                    traceback.print_exc()
-                prune_counter = 0
-            else:
-                prune_counter += 1
-            
-            # Save state
-            if persistence.save_state(state):
-                print(f"State auto-saved at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                
-                # Log statistics about saved data
-                channels = len(state.channel_history)
-                threads = len(state.discord_threads)  # Updated to use discord_threads
-                messages = sum(len(history) for history in state.channel_history.values())
-                print(f"Saved data: {channels} channels, {threads} threads, {messages}")
-                
-                # Check if the file was actually written with data
-                if os.path.exists(persistence.state_file):
-                    file_size = os.path.getsize(persistence.state_file) / 1024
-                    print(f"State file size after save: {file_size:.2f} KB")
-        except Exception as e:
-            print(f"Error during auto-save: {str(e)}")
-            traceback.print_exc()
-            
-        await asyncio.sleep(save_interval)
+
+
+# --- Bot Commands ---
 
 @bot.slash_command(name="sync", description="Manually sync slash commands (owner only)")
 @commands.is_owner()
@@ -297,111 +230,82 @@ async def debug_commands(ctx):
     # Send debug info
     await ctx.respond("\n".join(debug_info))
 
-@bot.slash_command(
-    name="savestate", 
-    description="Manually save the bot's current state (admin only)"
-)
-@commands.has_permissions(administrator=True)
-async def save_state_command(ctx):
-    await ctx.defer()
-    
-    try:
-        state = BotStateManager()
-        if persistence.save_state(state):
-            # Count some stats for the response
-            channels = len(state.channel_history)
-            threads = len(state.discord_threads)  # Updated to use discord_threads
-            messages = sum(len(history) for history in state.channel_history.values())
-            
-            # Get file size information
-            file_size = "Unknown"
-            if os.path.exists(persistence.state_file):
-                file_size = f"{os.path.getsize(persistence.state_file) / 1024:.1f} KB"
-            
-            embed = discord.Embed(
-                title="✅ State Saved Successfully",
-                description="All conversation history and settings have been saved to disk.",
-                color=discord.Color.green()
-            )
-            
-            embed.add_field(
-                name="Storage Statistics", 
-                value=f"• Channels: {channels}\n• Threads: {threads}\n• Messages: {messages}\n• File size: {file_size}",
-                inline=False
-            )
-            
-            await ctx.respond(embed=embed)
-        else:
-            await ctx.respond("⚠️ Failed to save state. Check server logs for details.")
-    except Exception as e:
-        await ctx.respond(f"⚠️ Error: {str(e)}")
-        traceback.print_exc()
 
 @bot.slash_command(
-    name="stateinfo", 
+    name="stateinfo",
     description="Show information about the bot's saved state"
 )
+@commands.has_permissions(administrator=True)
 async def state_info_command(ctx):
     await ctx.defer()
     
-    state = BotStateManager()
+    state = BotStateManager() # Get instance
     embed = discord.Embed(
         title="Bot State Information",
-        description="Current memory usage and settings",
+        description="Current database statistics and settings",
         color=discord.Color.blue()
     )
-    
-    # Updated statistics to include discord_threads
-    channels = len(state.channel_history)
-    threads = len(state.discord_threads)
-    messages = sum(len(history) for history in state.channel_history.values())
-    thread_messages = sum(len(thread.get("messages", [])) for thread in state.discord_threads.values())
-    
-    # Get news feed statistics
-    feeds_count = getattr(state, 'news_feeds', {})
-    news_channels = getattr(state, 'news_channel_config', {})
-    articles_history = getattr(state, 'news_article_history', {})
-    
-    news_article_count = sum(len(history) for history in articles_history.values())
-    
-    embed.add_field(
-        name="Memory Statistics",
-        value=f"• Active channels: {channels}\n• Active threads: {threads}\n• Stored messages: {messages + thread_messages}",
-        inline=False
-    )
-    
-    # Add news feed statistics
-    embed.add_field(
-        name="News Feed Statistics",
-        value=f"• RSS Feeds: {len(feeds_count)}\n• News channel subscriptions: {len(news_channels)}\n• Tracked articles: {news_article_count}",
-        inline=False
-    )
-    
-    # Add configuration
+
+    # Get statistics from the database via state manager methods
+    try:
+        total_messages = state.get_message_count()
+        total_threads = state.get_thread_count()
+        total_feeds = state.get_news_feeds_count()
+        total_subscriptions = state.get_news_channel_config_count()
+        # Note: Getting active channel count isn't straightforward without querying messages/config
+        # We can report total messages and threads instead.
+
+        embed.add_field(
+            name="Database Statistics",
+            value=(f"• Stored Messages: {total_messages if total_messages >= 0 else 'Error'}\n"
+                   f"• Stored Threads: {total_threads if total_threads >= 0 else 'Error'}"),
+            inline=False
+        )
+
+        embed.add_field(
+            name="News Feed Statistics",
+            value=(f"• Configured Feeds: {total_feeds if total_feeds >= 0 else 'Error'}\n"
+                   f"• Channel Subscriptions: {total_subscriptions if total_subscriptions >= 0 else 'Error'}"),
+            # Add tracked articles count if needed (requires another DB query)
+            inline=False
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching stats for /stateinfo: {e}", exc_info=True)
+        embed.add_field(name="Statistics Error", value="Could not retrieve database statistics.", inline=False)
+
+
+    # Add configuration (fetched from state manager's cached values)
     embed.add_field(
         name="Current Settings",
-        value=f"• Global model: `{state.global_model}`\n• Message history limit: {state.max_channel_history}\n• Time window: {state.time_window_hours} hours",
+        value=(f"• Global model: `{state.get_global_model()}`\n"
+               f"• Message history limit: {state.get_max_channel_history()}\n"
+               f"• Pruning time window: {state.get_time_window_hours()} hours\n"
+               f"• News Update Frequency: {state.get_news_update_frequency()} hours\n"
+               f"• News Broadcast Channel: {state.get_news_broadcast_channel_id() or 'Not Set'}"),
         inline=False
     )
-    
-    # Check if file exists and add file info
-    if os.path.exists(persistence.state_file):
-        file_size = os.path.getsize(persistence.state_file) / 1024  # Size in KB
-        mod_time = datetime.fromtimestamp(os.path.getmtime(persistence.state_file))
-        time_str = mod_time.strftime('%Y-%m-%d %H:%M:%S')
-        
-        embed.add_field(
-            name="Storage Information",
-            value=f"• Last saved: {time_str}\n• File size: {file_size:.1f} KB",
-            inline=False
-        )
-    else:
-        embed.add_field(
-            name="Storage Information",
-            value="No saved state file exists yet.",
-            inline=False
-        )
-    
+
+    # Add database file info
+    db_path = state.db_manager.db_path
+    db_size_kb = "N/A"
+    db_mod_time = "N/A"
+    if os.path.exists(db_path):
+        try:
+            db_size_kb = f"{os.path.getsize(db_path) / 1024:.1f} KB"
+            mod_time = datetime.fromtimestamp(os.path.getmtime(db_path))
+            db_mod_time = mod_time.strftime('%Y-%m-%d %H:%M:%S')
+        except Exception as e:
+            logger.warning(f"Could not get DB file info: {e}")
+
+    embed.add_field(
+        name="Storage Information",
+        value=(f"• Database File: `{db_path}`\n"
+               f"• File Size: {db_size_kb}\n"
+               f"• Last Modified: {db_mod_time}"),
+        inline=False
+    )
+
     await ctx.respond(embed=embed)
 
 @bot.slash_command(name="test_dnd_cog", description="Test if the DND cog is loaded properly")
@@ -429,5 +333,31 @@ async def test_dnd_cog(ctx):
     else:
         await ctx.respond("❌ DungeonMasterCommands cog is NOT loaded.")
 
+# --- Bot Events ---
+
+@bot.event
+async def on_close():
+    """Clean up resources when the bot is shutting down."""
+    print("Bot closing down...")
+    try:
+        state = BotStateManager()
+        state.close_db() # Close the database connection
+        print("Database connection closed.")
+    except Exception as e:
+        print(f"Error closing database connection: {e}")
+    print("Shutdown complete.")
+
+
 if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    # Setup logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(name)s: %(message)s')
+    # Optionally set higher level for noisy libraries
+    logging.getLogger('discord').setLevel(logging.WARNING)
+    logging.getLogger('websockets').setLevel(logging.WARNING)
+
+    # Run the bot
+    try:
+        bot.run(DISCORD_TOKEN)
+    except Exception as e:
+        print(f"FATAL: Error running bot: {e}", file=sys.stderr)
+        traceback.print_exc()

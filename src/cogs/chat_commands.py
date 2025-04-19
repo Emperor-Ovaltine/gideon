@@ -6,7 +6,8 @@ import re  # Add this import here
 import logging
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
-from ..utils.conversation import get_channel_context
+# Changed to absolute import: from ..utils.conversation import get_channel_context
+# Removed import for conversation, now handled by state_manager
 from ..utils.openrouter_client import OpenRouterClient
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 from datetime import datetime
@@ -186,11 +187,11 @@ class ChatCommands(commands.Cog):
         
         # Get channel ID to track conversation per channel
         channel_id = str(ctx.channel.id)
-        
-        # Initialize this channel's history if it doesn't exist
-        if channel_id not in self.state.channel_history:
-            self.state.channel_history[channel_id] = []
-        
+
+        # Removed: History initialization check (handled by DB now)
+        # if channel_id not in self.state.channel_history:
+        #     self.state.channel_history[channel_id] = []
+
         # Determine which model to use for this channel
         current_model = self.openrouter_client.model  # Store original model
         model_to_use = self.get_model_for_channel(channel_id)  # Get effective model for this channel
@@ -234,8 +235,8 @@ class ChatCommands(commands.Cog):
         channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
         
         try:
-            # Get recent channel context
-            conversation_context = await get_channel_context(channel_id)
+            # Get recent channel context from state manager
+            conversation_context = self.state.get_channel_history(channel_id)
             
             # Add this new message
             await self.state.add_to_channel_history(channel_id, {
@@ -321,9 +322,11 @@ class ChatCommands(commands.Cog):
     )
     async def reset_slash(self, ctx):
         channel_id = str(ctx.channel.id)
+        # clear_channel_history now handles the DB deletion
         if self.state.clear_channel_history(channel_id):
             await ctx.respond("The conversation history for this channel has been reset.")
         else:
+            # clear_channel_history returns False if no messages were deleted
             await ctx.respond("No conversation history found for this channel.")
 
     @discord.slash_command(
@@ -353,7 +356,7 @@ class ChatCommands(commands.Cog):
             
         await ctx.respond("Generating conversation summary...")
         
-        conversation_context = await get_channel_context(channel_id)
+        conversation_context = self.state.get_channel_history(channel_id)
         summary_request = [
             {"role": "system", "content": "Summarize the following conversation in 3-5 bullet points:"},
             {"role": "user", "content": "\n".join([msg["content"] for msg in conversation_context])}

@@ -2,7 +2,8 @@
 import discord
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
-from ..utils.conversation import get_channel_context
+# Changed to absolute import: from ..utils.conversation import get_channel_context
+# Removed import for conversation, now handled by state_manager
 from ..utils.openrouter_client import OpenRouterClient
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL
 from datetime import datetime
@@ -32,9 +33,10 @@ class MentionCommands(commands.Cog):
         
         # Store all regular messages to build context
         channel_id = str(message.channel.id)
-        if channel_id not in self.state.channel_history:
-            self.state.channel_history[channel_id] = []
-        
+        # Removed: Old history initialization check (handled by DB now)
+        # if channel_id not in self.state.channel_history:
+        #     self.state.channel_history[channel_id] = []
+
         # Add all regular user messages to history
         if not message.content.startswith('/'):  # Ignore slash commands
             await self.state.add_to_channel_history(channel_id, {
@@ -93,8 +95,8 @@ class MentionCommands(commands.Cog):
                 # Get channel-specific system prompt if it exists
                 channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
                 
-                # Get recent channel context
-                conversation_context = await get_channel_context(channel_id)
+                # Get recent channel context from state manager
+                conversation_context = self.state.get_channel_history(channel_id)
                 
                 # Format the final query with the current user's message
                 conversation_context.append({
