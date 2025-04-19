@@ -199,8 +199,8 @@ cp .env.example .env
 # Edit .env with your Discord token, OpenRouter API key, AI Horde API key,
 # AND set the DATA_DIRECTORY to an absolute path where the bot can write data.
 # Example: DATA_DIRECTORY=/home/user/gideon_data
-# If DATA_DIRECTORY is not set, data will be stored in a 'data' subdirectory
-# within the project, which might not be ideal for persistence.
+# If DATA_DIRECTORY is not set, data (including the SQLite database file, typically 'gideon.db')
+# will be stored in a 'data' subdirectory within the project.
 
 # Launch
 python3 -m src
@@ -260,6 +260,14 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 | `/setfeedfrequency` | Set how often the bot checks for news (in hours) | Admin |
 | `/feedstatus` | Show the status of news feeds and subscriptions | All Users |
 | `/newsdigest` | Display the most recently generated AI news digest | All Users |
+
+### User Feed Commands
+| Command | Description | Permissions |
+|:-------:|:------------|:------------|
+| `/myfeeds list` | Show your saved personal RSS feeds | All Users |
+| `/myfeeds add` | Add an RSS feed URL to your personal list | All Users |
+| `/myfeeds remove` | Remove an RSS feed URL from your personal list | All Users |
+| `/mynews` | Get a personalized news digest from your saved feeds | All Users |
 
 ### Thread Commands
 Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
@@ -344,8 +352,8 @@ gideon/
 │       ├── openrouter_client.py  # API client for text models
 │       ├── ai_horde_client.py    # API client for AI Horde images
 │       ├── cloudflare_client.py  # API client for Cloudflare images
-│       ├── state_manager.py      # In-memory state management
-│       ├── persistence.py        # Saving/loading state to disk
+│       ├── state_manager.py      # In-memory state management (uses database)
+│       ├── database.py           # SQLite database interactions
 │       ├── model_manager.py      # Handling model info
 │       ├── permissions.py        # Permission checks
 │       └── ...
@@ -385,7 +393,7 @@ Each adventure is channel-specific and uses the channel's configured AI model un
 - **Connection Issues**: Run `/diagnostic` to check network connectivity to Discord and APIs.
 - **Missing Commands**: Ensure the bot has `applications.commands` scope and necessary permissions (Send Messages, Read History, Embed Links, Manage Threads). Try re-inviting if needed. Use `/sync` (owner only) as a last resort.
 - **Model Problems**: Some models require OpenRouter credits - check your account balance. Ensure the model ID used is correct.
-- **State Issues**: Check logs for errors during saving/loading. Use `/savestate` (owner only) to manually trigger a save. Ensure the `DATA_DIRECTORY` (Python) or Docker volume mount is writable.
+- **State Issues**: Check logs for errors related to database operations. Ensure the `DATA_DIRECTORY` (Python) or Docker volume mount is writable and contains the `gideon.db` file (or the configured database file). The bot automatically saves state to the database periodically and on shutdown.
 - **Image Generation Issues**: If `/imagine` fails, try smaller dimensions (e.g., 512x512), fewer steps, or a different model via `/hordemodels`. Check AI Horde status.
 - **Cloudflare Worker Issues**: Use `/cftest` (Admin) to diagnose connectivity. Verify your `CLOUDFLARE_WORKER_URL` and `CLOUDFLARE_API_KEY` in `.env` are correct and your worker is running.
 - **Adventure Issues**: If an adventure gets stuck or unresponsive, try ending it with `/adventure end` and starting a new one. Check logs for errors.

@@ -212,8 +212,8 @@ cp .env.example .env
 # Edit .env with your Discord token, OpenRouter API key, AI Horde API key,
 # AND set the DATA_DIRECTORY to an absolute path where the bot can write data.
 # Example: DATA_DIRECTORY=/home/user/gideon_data
-# If DATA_DIRECTORY is not set, data will be stored in a 'data' subdirectory
-# within the project, which might not be ideal for persistence.
+# If DATA_DIRECTORY is not set, data (including the SQLite database file, typically 'gideon.db')
+# will be stored in a 'data' subdirectory within the project.
 
 # Launch
 python3 -m src
@@ -342,9 +342,42 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
       <td><code>/newsdigest</code></td>
       <td>Display the most recently generated AI news digest</td>
       <td>All Users</td>
-    </tr>
-  </tbody>
-</table>
+          </tr>
+        </tbody>
+      </table>
+      
+      ### User Feed Commands
+      <table>
+        <thead>
+          <tr>
+            <th>Command</th>
+            <th>Description</th>
+            <th>Permissions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>/myfeeds list</code></td>
+            <td>Show your saved personal RSS feeds</td>
+            <td>All Users</td>
+          </tr>
+          <tr>
+            <td><code>/myfeeds add</code></td>
+            <td>Add an RSS feed URL to your personal list</td>
+            <td>All Users</td>
+          </tr>
+          <tr>
+            <td><code>/myfeeds remove</code></td>
+            <td>Remove an RSS feed URL from your personal list</td>
+            <td>All Users</td>
+          </tr>
+          <tr>
+            <td><code>/mynews</code></td>
+            <td>Get a personalized news digest from your saved feeds</td>
+            <td>All Users</td>
+          </tr>
+        </tbody>
+      </table>
 
 ### Thread Commands
 Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
@@ -547,7 +580,7 @@ Each adventure is channel-specific and uses the channel's configured AI model un
 - **Connection Issues**: Run `/diagnostic` to check network connectivity to Discord and APIs.
 - **Missing Commands**: Ensure the bot has `applications.commands` scope and necessary permissions (Send Messages, Read History, Embed Links, Manage Threads). Try re-inviting if needed. Use `/sync` (owner only) as a last resort.
 - **Model Problems**: Some models require OpenRouter credits - check your account balance. Ensure the model ID used is correct.
-- **State Issues**: Check logs for errors during saving/loading. Use `/savestate` (owner only) to manually trigger a save. Ensure the `DATA_DIRECTORY` (Python) or Docker volume mount is writable.
+- **State Issues**: Check logs for errors related to database operations. Ensure the `DATA_DIRECTORY` (Python) or Docker volume mount is writable and contains the `gideon.db` file (or the configured database file). The bot automatically saves state to the database periodically and on shutdown.
 - **Image Generation Issues**: If `/imagine` fails, try smaller dimensions (e.g., 512x512), fewer steps, or a different model via `/hordemodels`. Check AI Horde status.
 - **Cloudflare Worker Issues**: Use `/cftest` (Admin) to diagnose connectivity. Verify your `CLOUDFLARE_WORKER_URL` and `CLOUDFLARE_API_KEY` in `.env` are correct and your worker is running.
 - **Adventure Issues**: If an adventure gets stuck or unresponsive, try ending it with `/adventure end` and starting a new one. Check logs for errors.

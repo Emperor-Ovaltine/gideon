@@ -46,8 +46,8 @@ gideon/
 │       ├── openrouter_client.py  # OpenRouter API wrapper
 │       ├── ai_horde_client.py    # AI Horde API wrapper
 │       ├── cloudflare_client.py  # Cloudflare Worker API wrapper
-│       ├── state_manager.py      # Conversation state management
-│       ├── persistence.py        # State persistence
+│       ├── state_manager.py      # Conversation state management (uses database)
+│       ├── database.py           # SQLite database interactions
 │       ├── model_manager.py      # AI model management
 │       ├── permissions.py        # Discord permissions utilities
 │       └── model_sync.py         # Model synchronization
@@ -63,7 +63,7 @@ The bot is structured around these key interactions:
 2. Cogs encapsulate related commands and functionality
 3. The BotStateManager maintains conversation state and settings
 4. API clients handle communication with external AI services
-5. State persistence ensures data survives between restarts
+5. The database ensures data survives between restarts
 
 ## Core Components
 
@@ -82,17 +82,20 @@ Key responsibilities:
 
 ### `BotStateManager` (`state_manager.py`)
 
-A singleton class that stores and manages:
-- Conversation histories by channel
-- Thread metadata and conversations
-- User configuration settings
-- Channel-specific model settings
-- System prompts for different contexts
-- Discord threads
+A singleton class that stores and manages the bot's runtime state in memory. It interacts with the `Database` component for persistence. Responsibilities include managing:
+- Conversation histories by channel/thread
+- Thread metadata
+- User configuration settings (models, prompts, etc.)
+- News feed configurations and history
+- Adventure game states
 
-### `StatePersistence` (`persistence.py`)
+### `Database` (`database.py`)
 
-Handles saving and loading state data to/from disk, ensuring conversation continuity across bot restarts.
+Handles all interactions with the SQLite database (`gideon.db` by default). Responsibilities include:
+- Initializing the database schema.
+- Saving and loading bot state (configurations, histories, etc.).
+- Providing methods for CRUD operations on various data types (feeds, threads, adventures).
+- Ensuring data integrity and persistence across restarts.
 
 ### `OpenRouterClient` (`openrouter_client.py`)
 
@@ -116,30 +119,33 @@ Retrieves, caches, and provides information about available AI models through th
    - Register on_ready handler
 
 2. **on_ready Execution**
-   - Load persistent state from disk
+   - Initialize and connect to the SQLite database
+   - Load persistent state from the database into BotStateManager
    - Clear existing commands on Discord API
    - Load all cogs
    - Sync commands to Discord
    - Synchronize model settings across cogs
-   - Start auto-save task
+   - Start background tasks (e.g., auto-save, news checks)
    - Load available models from API
 
 3. **Auto-save Task**
    - Runs on a 5-minute interval
    - Pruning old data every 4 save cycles
    - Logs detailed state information
-   - Persists state to disk with error handling
+   - Persists state to the database with error handling
 
 4. **Shutdown Handling**
    - Captures SIGINT and SIGTERM signals
-   - Saves state before exit
-   - Performs graceful database closure if applicable
+   - Saves state to the database before exit
+   - Performs graceful database closure
 
 ## State Management
 
-### Data Structure
+The `BotStateManager` manages the bot's operational state *in memory*. This state is loaded from and saved to the SQLite database by the `Database` component to ensure persistence.
 
-The `BotStateManager` maintains these key data structures:
+### In-Memory Data Structures
+
+The `BotStateManager` holds data structures similar to these (simplified examples):
 
 1. **Channel History**
    ```python
@@ -218,9 +224,10 @@ The `BotStateManager` maintains these key data structures:
    }
    ```
 
-### Pruning Mechanism
+### Persistence and Pruning
 
-The bot implements automatic pruning to prevent excessive memory usage:
+- **Persistence:** The `Database` class handles writing the state held by `BotStateManager` to the SQLite file (`gideon.db`). This typically happens during the auto-save cycle and on shutdown.
+- **Pruning:** The `BotStateManager` implements automatic pruning *before* saving to prevent excessive database growth and manage memory:
 
 1. Applies time-window based pruning (default: 24 hours)
 2. Enforces maximum history count per channel
@@ -369,18 +376,24 @@ Handles fetching, summarizing, and distributing news articles from RSS feeds.
 - `/getnews`: Fetches and displays the latest news articles (up to 5 per feed) directly in the current channel, optionally filtering by category. Supports a `force_refresh` option.
 - `/setfeedfrequency` (Admin): Sets how often (in hours) the bot automatically checks for new articles (1-24 hours).
 - `/feedstatus`: Displays the status of configured feeds, including the last check time, channel subscriptions, and the next scheduled update time.
+- `/myfeeds list`: (User) Show your saved personal RSS feeds.
+- `/myfeeds add`: (User) Add an RSS feed URL to your personal list.
+- `/myfeeds remove`: (User) Remove an RSS feed URL from your personal list.
+- `/mynews`: (User) Get a personalized news digest from your saved feeds.
 
 Implementation details:
 - Uses `feedparser` library to parse RSS/Atom feeds.
 - Integrates with `OpenRouterClient` to summarize article content using a configured AI model.
-- Maintains state via `BotStateManager` for:
-    - `news_feeds`: Dictionary of configured feeds (URL, name, category, last checked time).
-    - `news_channel_config`: Dictionary mapping channel IDs to subscribed categories.
-    - `news_article_history`: Dictionary tracking seen article IDs per feed to prevent duplicates.
-    - `news_update_frequency`: Integer representing hours between automatic checks.
-- Runs a background task (`check_news_feeds`) using `discord.ext.tasks` to periodically fetch and distribute updates based on the configured frequency.
+- Maintains state via `BotStateManager` and `Database` for:
+    - `news_feeds`: Configured feeds (URL, name, category, last checked time).
+    - `news_channel_config`: Channel subscriptions to feeds.
+    - `news_article_history`: Seen article IDs per feed.
+    - `news_update_frequency`: Hours between automatic checks.
+    - `user_preferences`: Stores personal feed URLs per user for `/mynews`.
+- Runs a background task (`check_news_feeds`) using `discord.ext.tasks` to periodically fetch and distribute updates.
 - Handles potential errors during feed fetching, parsing, summarization, and posting.
 - Truncates summaries to fit Discord embed limits.
+- Provides user-specific feed management (`/myfeeds`) and personalized digests (`/mynews`).
 
 ## API Integrations
 
@@ -516,9 +529,9 @@ await ctx.send(f"⚠️ Error: {str(e)}")
 
 ### Data Protection
 
-- State file contains conversation history
-- No encryption of state file (potential improvement)
-- Automatic pruning of old conversations
+- The SQLite database file (`gideon.db`) contains conversation history and configurations.
+- The database file itself is not encrypted by the bot (filesystem encryption may apply).
+- Automatic pruning helps manage the size of the stored data.
 
 ### Input Validation
 
@@ -548,3 +561,4 @@ Dynamic settings stored in `BotStateManager`:
 - Thread-specific configurations
 - System prompts for different contexts
 - Memory limits and time windows
+- User preferences (e.g., personal RSS feeds)
