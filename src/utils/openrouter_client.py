@@ -23,10 +23,10 @@ class OpenRouterClient:
         
         # List of model name fragments that support vision
         self.vision_models = [
-            "claude-3", 
-            "gpt-4-vision", 
-            "gpt-4-turbo",
+            "claude-3",
+            "gpt-4", # Make more general to catch gpt-4o, etc.
             "gemini",
+            "llava", # Add Llava models
         ]
         
     def model_supports_vision(self) -> bool:
@@ -198,22 +198,33 @@ class OpenRouterClient:
                         pricing = model.get("pricing", {})
                         
                         # Check if model supports vision based on capabilities
+                        # Check if model supports vision based on capabilities OR known identifiers
                         supports_vision = False
+                        # 1. Check the capabilities field from API (if present)
                         if model.get("capabilities", {}).get("vision", False):
                             supports_vision = True
-                            vision_models.append(model_id)
-                        
+                        # 2. Check if model ID matches known vision model patterns (fallback)
+                        elif model_id and any(vision_pattern in model_id.lower() for vision_pattern in self.vision_models):
+                             supports_vision = True
+                             # Log if we used the fallback
+                             logger.debug(f"Identified vision support for '{model_id}' using fallback pattern matching.")
+
+                        # Keep track of models identified as vision-capable by the API check (for logging/debugging if needed)
+                        if supports_vision:
+                             vision_models.append(model_id) # Note: This local list is not used further after this loop
+
                         processed_models.append({
                             "id": model_id,
                             "name": model.get("name", "Unknown"),
                             "description": model.get("description", ""),
                             "context_length": context_length,
-                            "supports_vision": supports_vision,
+                            "supports_vision": supports_vision, # This is the flag used by ModelManager
                             "pricing": pricing
                         })
                     
-                    # Update the vision models list dynamically
-                    self.vision_models = vision_models
+                    # DO NOT dynamically update self.vision_models here.
+                    # Keep the original hardcoded list for the client's internal checks.
+                    # self.vision_models = vision_models
                     
                     return {
                         "success": True,

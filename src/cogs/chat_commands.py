@@ -238,7 +238,7 @@ class ChatCommands(commands.Cog):
             conversation_context = await get_channel_context(channel_id)
             
             # Add this new message
-            self.state.add_to_channel_history(channel_id, {
+            await self.state.add_to_channel_history(channel_id, {
                 "role": "user",
                 "name": ctx.author.display_name,
                 "content": message,
@@ -274,7 +274,7 @@ class ChatCommands(commands.Cog):
                 await processing_msg.edit(content=response)
             else:
                 # Add assistant's response to history
-                self.state.add_to_channel_history(channel_id, {
+                await self.state.add_to_channel_history(channel_id, {
                     "role": "assistant",
                     "content": response,
                     "timestamp": datetime.now()

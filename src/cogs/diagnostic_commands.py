@@ -165,30 +165,52 @@ class DiagnosticCommands(commands.Cog):
     )
     async def vision_models_slash(self, ctx):
         await ctx.defer()
-        vision_fragments = self.openrouter_client.vision_models
-        all_models = await self.bot.model_manager.get_models()
-        vision_models = [model for model in all_models if 
-                        any(fragment in model.lower() for fragment in vision_fragments)]
+        
+        # Directly get the list of vision model IDs
+        vision_models = await self.bot.model_manager.get_vision_models()
+        
         embed = discord.Embed(
             title="Vision-Capable Models",
-            description="These models can analyze images:",
+            description="These models, identified by OpenRouter, can analyze images:",
             color=discord.Color.blue()
         )
+
         if vision_models:
-            model_list = "\n".join([f"• `{model}`" for model in vision_models])
-            embed.add_field(
-                name="Available Vision Models",
-                value=model_list,
-                inline=False
-            )
+            # Helper function to add fields, respecting Discord limits
+            def add_model_fields(embed, models):
+                current_field_value = ""
+                field_count = 0
+                max_field_len = 1024 # Discord embed field value limit
+                
+                for i, model in enumerate(models):
+                    model_line = f"• `{model}`\n"
+                    
+                    # Check if adding the next model exceeds the limit
+                    if len(current_field_value) + len(model_line) > max_field_len:
+                        # Add the current field
+                        field_name = f"Available Vision Models ({field_count + 1})" if field_count > 0 else "Available Vision Models"
+                        embed.add_field(name=field_name, value=current_field_value, inline=False)
+                        current_field_value = model_line # Start new field
+                        field_count += 1
+                    else:
+                        current_field_value += model_line
+                        
+                # Add the last remaining field if it has content
+                if current_field_value:
+                    field_name = f"Available Vision Models ({field_count + 1})" if field_count > 0 else "Available Vision Models"
+                    embed.add_field(name=field_name, value=current_field_value, inline=False)
+
+            add_model_fields(embed, vision_models)
         else:
             embed.add_field(
                 name="Available Vision Models",
-                value="No vision-capable models found in your allowed models list.",
+                value="No vision-capable models found.",
                 inline=False
             )
+            
+        # Check current model (using the accurate list now)
         current_model = self.state.get_global_model()
-        supports_vision = any(fragment in current_model.lower() for fragment in vision_fragments)
+        supports_vision = current_model in vision_models
         embed.add_field(
             name="Current Model",
             value=f"`{current_model}` {'✅ supports' if supports_vision else '❌ does not support'} image analysis",
