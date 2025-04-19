@@ -346,8 +346,8 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
         </tbody>
       </table>
       
-      ### User Feed Commands
-      <table>
+### User Feed Commands
+<table>
         <thead>
           <tr>
             <th>Command</th>
