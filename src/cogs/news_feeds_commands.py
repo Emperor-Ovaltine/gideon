@@ -105,13 +105,24 @@ class NewsFeedsCommands(commands.Cog):
         else:
             logger.info("News feed check task is already running.")
 
+        # Start the personal feed background task
+        if not self.check_personal_feeds.is_running():
+            personal_frequency = self.state.get_personal_feed_frequency()
+            self.check_personal_feeds.change_interval(hours=personal_frequency)
+            self.check_personal_feeds.start()
+            logger.info(f"Personal feed check task started with frequency: {personal_frequency} hours")
+        else:
+            logger.info("Personal feed check task is already running.")
+
 
     def cog_unload(self):
         """Stop tasks when the cog is unloaded."""
         self.check_news_feeds.cancel()
-        logger.info("News feed check task cancelled.")
+        self.check_personal_feeds.cancel() # Cancel the new task too
+        logger.info("News feed check tasks cancelled.")
 
-    @tasks.loop(hours=6)  # Define default interval (will be overridden by change_interval)
+    # --- Background Task for System Feeds ---
+    @tasks.loop(hours=6)  # Default interval, overridden by config
     async def check_news_feeds(self):
         """Background task to check feeds based on configured frequency."""
         frequency = self.state.get_news_update_frequency()
@@ -125,16 +136,32 @@ class NewsFeedsCommands(commands.Cog):
         logger.info("News feed check task initialized, waiting for bot to be ready.")
 
 
+    # --- Background Task for Personal Feeds ---
+    @tasks.loop(hours=12) # Default interval, overridden by config
+    async def check_personal_feeds(self):
+        """Background task to check personal feeds for all users."""
+        frequency = self.state.get_personal_feed_frequency()
+        logger.info(f"Starting scheduled personal news feed check (every {frequency} hours)")
+        await self.process_all_personal_feeds()
+
+    @check_personal_feeds.before_loop
+    async def before_check_personal_feeds(self):
+        """Wait until the bot is ready before starting the personal feed task."""
+        await self.bot.wait_until_ready()
+        logger.info("Personal feed check task initialized, waiting for bot to be ready.")
+
+    # --- Processing Logic ---
+
     async def process_all_feeds(self, force_refresh=False): # Add force_refresh parameter
-        """Process all feeds, send individual updates, and optionally an AI digest."""
+        """Process all SYSTEM feeds, send individual updates, and optionally an AI digest."""
         # Get feeds from the database via state manager
         all_feeds = self.state.get_news_feeds()
 
         if not all_feeds:
-            logger.info("No news feeds configured, skipping check")
+            logger.info("No SYSTEM news feeds configured, skipping system feed check")
             return
 
-        all_new_summaries_data = [] # Collect summaries {title, link, summary, feed_name, category}
+        all_new_summaries_data = [] # Collect summaries {title, link, summary, feed_name, category} for GLOBAL digest
         feeds_processed_count = 0
         articles_found_count = 0
 
@@ -172,9 +199,9 @@ class NewsFeedsCommands(commands.Cog):
             except Exception as e:
                 logger.error(f"Error processing feed {feed_id} ({feed_name}): {str(e)}", exc_info=True)
 
-        logger.info(f"Feed processing cycle complete. Checked {feeds_processed_count} feeds, found {articles_found_count} new articles in total.")
+        logger.info(f"SYSTEM feed processing cycle complete. Checked {feeds_processed_count} feeds, found {articles_found_count} new articles in total.")
 
-        # After checking all feeds, if broadcast channel is set AND we have summaries, generate and send AI digest
+        # After checking all SYSTEM feeds, if broadcast channel is set AND we have summaries, generate and send AI digest
         broadcast_channel_id = self.state.get_news_broadcast_channel_id()
         if broadcast_channel_id and all_new_summaries_data:
             logger.info(f"Generating AI digest for {len(all_new_summaries_data)} summarized articles.")
@@ -201,13 +228,97 @@ class NewsFeedsCommands(commands.Cog):
         # Removed: Explicit state saving - now handled by DB operations
 
 
+    async def process_all_personal_feeds(self):
+        """Fetch, summarize, and cache articles for all users' personal feeds."""
+        users_with_feeds = self.state.get_users_with_personal_feeds()
+        if not users_with_feeds:
+            logger.info("No users have configured personal feeds, skipping personal feed check.")
+            return
+
+        logger.info(f"Starting personal feed check for {len(users_with_feeds)} users.")
+        total_articles_processed = 0
+        total_feeds_checked = 0
+
+        for user_id in users_with_feeds:
+            try:
+                preferences = self.state.db_manager.get_user_preferences(user_id)
+                if not preferences: continue # Should not happen based on get_users_with_personal_feeds logic
+                feed_urls = preferences.get("custom_rss_feeds", [])
+                if not feed_urls: continue # Skip if list is empty
+
+                logger.debug(f"Processing {len(feed_urls)} personal feeds for user {user_id}")
+
+                for feed_url in feed_urls:
+                    total_feeds_checked += 1
+                    try:
+                        # Fetch latest articles (no history check needed for personal cache population)
+                        # Use run_in_executor for feedparser
+                        feed_data = await asyncio.get_event_loop().run_in_executor(
+                            None, feedparser.parse, feed_url
+                        )
+
+                        if feed_data.bozo:
+                            logger.warning(f"Personal feed failed parsing (bozo) for user {user_id}, URL: {feed_url}. Exception: {feed_data.get('bozo_exception')}")
+                            continue
+                        if not feed_data.entries:
+                            logger.debug(f"No entries found in personal feed for user {user_id}, URL: {feed_url}")
+                            continue
+
+                        # Process latest N articles (e.g., 5)
+                        articles_to_process = feed_data.entries[:5]
+                        logger.debug(f"Found {len(articles_to_process)} articles in personal feed {feed_url} for user {user_id}")
+
+                        for article in articles_to_process:
+                            article_link = article.get('link')
+                            if not article_link:
+                                logger.warning(f"Skipping article with no link in personal feed {feed_url} for user {user_id}")
+                                continue
+
+                            # Summarize (use a generic category like 'Personal')
+                            summary_dict = await self.summarize_article(article, "Personal")
+
+                            if summary_dict and not summary_dict['summary'].startswith("Error") and not summary_dict['summary'].startswith("Unable"):
+                                # Cache the successful summary in the user_article_summaries table
+                                try:
+                                    self.state.add_user_article_summary(
+                                        user_id=user_id,
+                                        article_link=article_link, # Use link as the unique ID per user
+                                        feed_url=feed_url,
+                                        title=summary_dict['title'],
+                                        published_date=summary_dict['published_dt'],
+                                        summary_text=summary_dict['summary']
+                                        # timestamp_summarized is added by state_manager
+                                    )
+                                    total_articles_processed += 1
+                                    logger.debug(f"Cached personal summary for user {user_id}, article: {article_link}")
+                                except Exception as cache_err:
+                                    logger.error(f"Failed to cache personal summary for user {user_id}, article {article_link}: {cache_err}", exc_info=True)
+
+                                # Add slight delay
+                                await asyncio.sleep(0.5) # Shorter delay maybe ok here?
+                            else:
+                                logger.warning(f"Failed to summarize article {article_link} from personal feed {feed_url} for user {user_id}")
+
+                    except Exception as feed_err:
+                        logger.error(f"Error processing personal feed URL {feed_url} for user {user_id}: {feed_err}", exc_info=True)
+                        await asyncio.sleep(1) # Wait a bit longer after a feed error
+
+            except Exception as user_err:
+                 logger.error(f"Error processing personal feeds for user {user_id}: {user_err}", exc_info=True)
+
+        logger.info(f"Personal feed processing cycle complete. Checked {total_feeds_checked} feeds across {len(users_with_feeds)} users, cached {total_articles_processed} summaries.")
+
+
     async def fetch_new_articles(self, feed_id, feed_url, force_refresh=False): # Added feed_url parameter
-        """Fetch and return new articles from a feed.
+        """Fetch and return new articles from a SYSTEM feed, checking history.
 
         Args:
-            feed_id: The ID of the feed to fetch
-            feed_url: The URL of the feed
-            force_refresh: If True, ignore history and fetch recent articles
+            feed_id (str): The ID of the feed to fetch (typically the URL).
+            feed_url (str): The URL of the feed.
+            force_refresh (bool): If True, ignore history and fetch recent articles.
+
+        Returns:
+            List[Any]: A list of new feedparser entry objects.
         """
         try:
             # Using synchronous feedparser with run_in_executor for async compatibility
@@ -248,15 +359,15 @@ class NewsFeedsCommands(commands.Cog):
             logger.error(f"Error fetching feed {feed_id} from {feed_url}: {str(e)}", exc_info=True)
             return []
 
-    def truncate_for_embed(self, text, max_length=1000):
+    def truncate_for_embed(self, text: str, max_length: int = 1000) -> str:
         """Truncate text to be safely under Discord's embed field character limit.
 
         Args:
-            text: The text to truncate
-            max_length: Maximum length (default: 1000 to leave room for additional formatting)
+            text (str): The text to truncate.
+            max_length (int): Maximum length (default: 1000 to leave room for additional formatting).
 
         Returns:
-            Truncated text with ellipsis if needed
+            str: Truncated text with ellipsis if needed.
         """
         if len(text) <= max_length:
             return text
@@ -264,13 +375,32 @@ class NewsFeedsCommands(commands.Cog):
         # Truncate and add ellipsis
         return text[:max_length] + "..."
 
-    async def summarize_article(self, article, feed_category):
-        """Summarize a news article using AI."""
+    async def summarize_article(self, article: Any, feed_category: str) -> Dict[str, Any]:
+        """Summarize a news article using AI.
+
+        Args:
+            article (Any): A feedparser entry object.
+            feed_category (str): The category associated with the feed.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing title, summary, link, published_dt, and article_id.
+        """
         try:
             # Extract article information
             title = article.get('title', 'No title')
             link = article.get('link', '')
-            published = article.get('published', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            # Attempt to parse published date from feedparser entry
+            published_parsed = article.get('published_parsed')
+            published_dt = None
+            if published_parsed:
+                try:
+                    # feedparser returns time.struct_time, convert to datetime
+                    published_dt = datetime(*published_parsed[:6])
+                except Exception:
+                    logger.warning(f"Could not parse published_parsed time struct for article: {title}", exc_info=True)
+                    published_dt = None # Fallback if parsing fails
+
+            published_str = article.get('published', datetime.now().strftime('%Y-%m-%d %H:%M:%S')) # Keep original string as fallback for prompt
 
             # Get content - try different fields that might contain the article text
             content = article.get('content', [{'value': ''}])[0].get('value', '')
@@ -278,7 +408,7 @@ class NewsFeedsCommands(commands.Cog):
                 content = article.get('summary', '')
 
             # Prepare summarization prompt - More direct instruction
-            prompt = f"Provide a summary of the following news article as 3-4 concise bullet points. Output *only* the bullet points, nothing else:\n\nTitle: {title}\n\nDate: {published}\n\nCategory: {feed_category}\n\nContent: {content}"
+            prompt = f"Provide a summary of the following news article as 3-4 concise bullet points. Output *only* the bullet points, nothing else:\n\nTitle: {title}\n\nDate: {published_str}\n\nCategory: {feed_category}\n\nContent: {content}" # Use original string in prompt
 
             # Send to AI for summarization - Updated system prompt
             response = await self.openrouter_client.send_message_with_history([
@@ -292,14 +422,16 @@ class NewsFeedsCommands(commands.Cog):
                     "title": title,
                     "summary": "Unable to summarize this article.",
                     "link": link,
-                    "published": published
+                    "published_dt": published_dt, # Return parsed datetime or None
+                    "article_id": article.get('id', link) # Need article ID for caching
                 }
 
             return {
                 "title": title,
                 "summary": response.strip(), # Added strip() to remove potential leading/trailing whitespace
                 "link": link,
-                "published": published
+                "published_dt": published_dt, # Return parsed datetime or None
+                "article_id": article.get('id', link) # Need article ID for caching
             }
 
         except Exception as e:
@@ -308,11 +440,22 @@ class NewsFeedsCommands(commands.Cog):
                 "title": article.get('title', 'No title'),
                 "summary": "Error generating summary.",
                 "link": article.get('link', ''),
-                "published": article.get('published', 'Unknown date')
+                "published_dt": None,
+                "article_id": article.get('id', article.get('link', '')) # Need article ID for caching
             }
 
-    async def send_feed_updates(self, feed_id: str, feed_name: str, category: str, articles: List[Any]):
-        """Send feed updates (individual summaries) to all configured channels and return summaries."""
+    async def send_feed_updates(self, feed_id: str, feed_name: str, category: str, articles: List[Any]) -> List[Dict[str, Any]]:
+        """Summarizes articles, sends updates to channels, caches SYSTEM summaries, and returns summary data.
+
+        Args:
+            feed_id (str): The ID of the feed being processed.
+            feed_name (str): The name of the feed.
+            category (str): The category/categories of the feed.
+            articles (List[Any]): A list of feedparser entry objects for new articles.
+
+        Returns:
+            List[Dict[str, Any]]: A list of the generated summary dictionaries for the processed articles.
+        """
         if not articles:
             return [] # Return empty list if no articles
 
@@ -332,13 +475,32 @@ class NewsFeedsCommands(commands.Cog):
         # Pass the potentially multi-category string for context in summarization
         for article in articles[:5]:
             summary_dict = await self.summarize_article(article, category)
-            if summary_dict and not summary_dict['summary'].startswith("Error") and not summary_dict['summary'].startswith("Unable"): # Check for valid summary
-                summaries_data.append(summary_dict)
+            if summary_dict and not summary_dict['summary'].startswith("Error") and not summary_dict['summary'].startswith("Unable"):
+                summaries_data.append(summary_dict) # Keep original summary dict for channel updates
+
+                # --- Cache the successful summary ---
+                try:
+                    self.state.add_article_summary(
+                        article_id=summary_dict['article_id'], # Use the ID from the summary dict
+                        feed_id=feed_id,
+                        title=summary_dict['title'],
+                        link=summary_dict['link'],
+                        published_date=summary_dict['published_dt'], # Use parsed datetime
+                        summary_text=summary_dict['summary'],
+                        feed_name=feed_name,
+                        feed_category=category
+                        # timestamp_summarized is added by state_manager
+                    )
+                    logger.debug(f"Cached summary for article: {summary_dict['article_id']}")
+                except Exception as cache_err:
+                    logger.error(f"Failed to cache summary for article {summary_dict.get('article_id', 'UNKNOWN')}: {cache_err}", exc_info=True)
+                # ------------------------------------
+
                 # Add slight delay to avoid hitting AI rate limits too hard
                 await asyncio.sleep(1)
 
         if not summaries_data:
-            logger.info(f"No successful summaries generated for feed {feed_id}")
+            logger.info(f"No successful summaries generated or cached for feed {feed_id}")
             return [] # Return empty list if no summaries
 
         # Send to each subscribed channel
@@ -632,68 +794,48 @@ class NewsFeedsCommands(commands.Cog):
         if category:
             # Generate a digest for a specific category
             target_category = category.strip().lower()
-            await ctx.followup.send(f"Generating a news digest for category: **{target_category}**...")
+            await ctx.edit(content=f"⏳ Fetching recent summaries for category: **{target_category}**...") # Edit original response
 
-            all_feeds = self.state.get_news_feeds()
-            feeds_in_category = [
-                feed for feed in all_feeds
-                # Check if target_category is one of the potentially comma-separated categories, handling spaces
-                if target_category in [c.strip() for c in feed.get('category', '').lower().split(',')]
-            ]
+            # --- Fetch recent summaries from DB cache ---
+            try:
+                # Limit to 50 most recent summaries for the digest generation
+                # get_article_summaries already filters by retention period
+                cached_summaries = self.state.get_article_summaries(category=target_category, limit=50)
+                logger.info(f"Retrieved {len(cached_summaries)} cached summaries for category '{target_category}'.")
 
-            if not feeds_in_category:
-                await ctx.followup.send(f"⚠️ No feeds found for category: **{category}**")
-                return
+                # Map cached data to the format expected by generate_ai_digest
+                # Expected keys: 'title', 'summary', 'link', 'feed_name', 'category'
+                digest_input_data = []
+                for summary in cached_summaries:
+                    digest_input_data.append({
+                        "title": summary.get('article_title', 'No Title'),
+                        "summary": summary.get('summary_text', 'No Summary'), # Use the cached summary
+                        "link": summary.get('article_link', ''),
+                        "feed_name": summary.get('feed_name', 'Unknown Feed'),
+                        "category": summary.get('feed_category', 'General')
+                    })
 
-            category_articles_data = []
-            articles_processed_count = 0
-            feeds_checked_count = 0
+            except Exception as e:
+                 logger.error(f"Error retrieving cached summaries for category '{target_category}': {e}", exc_info=True)
+                 await ctx.edit(content=f"⚠️ An error occurred while fetching summaries for category: **{category}**.")
+                 return
+            # -----------------------------------------
 
-            for feed_info in feeds_in_category:
-                feed_id = feed_info.get('feed_id')
-                feed_url = feed_info.get('url')
-                feed_name = feed_info.get('name', 'Unknown Feed')
-                feed_category = feed_info.get('category', 'General') # Use the feed's specific category for summarization context
 
-                if not feed_id or not feed_url:
-                    logger.warning(f"Skipping feed with missing ID or URL during category digest generation: {feed_info}")
-                    continue
-
-                feeds_checked_count += 1
-                try:
-                    # Fetch latest articles (force refresh for on-demand)
-                    new_articles = await self.fetch_new_articles(feed_id, feed_url, force_refresh=True)
-
-                    if new_articles:
-                        logger.info(f"Processing {len(new_articles)} articles for category digest from feed {feed_id} ({feed_name})")
-                        # Summarize articles
-                        for article in new_articles: # Summarize all fetched articles for the digest
-                            summary_dict = await self.summarize_article(article, feed_category)
-                            if summary_dict and not summary_dict['summary'].startswith("Error") and not summary_dict['summary'].startswith("Unable"):
-                                summary_dict['feed_name'] = feed_name
-                                summary_dict['category'] = feed_category # Store original category
-                                category_articles_data.append(summary_dict)
-                                articles_processed_count += 1
-                                await asyncio.sleep(0.5) # Shorter delay for faster on-demand generation
-                    else:
-                        logger.debug(f"No new articles found for feed {feed_id} during category digest generation.")
-
-                except Exception as e:
-                    logger.error(f"Error processing feed {feed_id} for category digest: {e}", exc_info=True)
-
-            logger.info(f"Category digest generation: Checked {feeds_checked_count} feeds for category '{target_category}', processed {articles_processed_count} articles.")
-
-            if category_articles_data:
-                # Generate the category-specific digest
-                digest_content = await self.generate_ai_digest(category_articles_data)
-                # Send the generated digest
+            if digest_input_data:
+                await ctx.edit(content=f"🧠 Generating AI digest from {len(digest_input_data)} summaries for category: **{target_category}**...")
+                # Generate the category-specific digest from cached summaries
+                digest_content = await self.generate_ai_digest(digest_input_data)
+                # Send the generated digest (target_channel is the current channel)
                 await self.send_ai_digest(digest_content, target_channel=ctx.channel)
-                # Send a confirmation followup
-                await ctx.followup.send(f"✅ Generated and displayed news digest for category: **{category}**.", ephemeral=True)
+                # Edit the original response to confirm completion (followup might interfere with digest display)
+                # We send the digest first, then edit the original deferred message.
+                await ctx.edit(content=f"✅ Displayed news digest for category: **{category}**.")
             else:
-                await ctx.followup.send(f"ℹ️ No new articles found to generate a digest for category: **{category}**.")
+                await ctx.edit(content=f"ℹ️ No recent summaries found in the cache for category: **{category}**.")
 
         else:
+            # --- Logic for /getnews without category remains unchanged ---
             # Get the last globally generated AI digest from the database
             last_digest_content = self.state.get_last_digest_content()
 
@@ -872,12 +1014,13 @@ class NewsFeedsCommands(commands.Cog):
             return json.dumps({"error": f"Failed to generate digest: {error_detail}", "digest_stories": []})
 
 
-    async def send_ai_digest(self, digest_content, target_channel=None): # Add target_channel parameter
+    async def send_ai_digest(self, digest_content: str, target_channel: Optional[discord.TextChannel] = None):
         """Parses the AI-generated digest and sends it as paginated embeds using discord.ui.View.
 
         Args:
-            digest_content: The raw string content generated by the AI.
-            target_channel: The specific channel to send the digest to. If None, uses the configured broadcast channel.
+            digest_content (str): The raw string content generated by the AI (expected JSON).
+            target_channel (Optional[discord.TextChannel]): The specific channel to send the digest to.
+                If None, uses the configured broadcast channel.
         """
         # Determine the channel to send to
         channel_to_send = target_channel # Use the provided channel if available
@@ -1013,12 +1156,12 @@ class NewsFeedsCommands(commands.Cog):
 
     @discord.slash_command(
         name="setbroadcastchannel",
-        description="Set the channel where the AI news digest will be broadcast"
+        description="Set the channel where the GLOBAL AI news digest will be broadcast"
     )
     @commands.has_permissions(administrator=True)
     async def set_broadcast_channel_slash(self, ctx,
-                                        channel: discord.Option(discord.TextChannel, "The channel to set as the broadcast channel")):
-        """Set the channel where the AI news digest will be broadcast."""
+                                        channel: discord.Option(discord.TextChannel, "The channel for the global digest")):
+        """Set the channel where the GLOBAL AI news digest will be broadcast."""
         await ctx.defer(ephemeral=True) # Respond ephemerally
 
         # Set broadcast channel ID in the database via state manager
@@ -1029,11 +1172,11 @@ class NewsFeedsCommands(commands.Cog):
 
     @discord.slash_command(
         name="unsetbroadcastchannel",
-        description="Unset the AI news digest broadcast channel"
+        description="Unset the GLOBAL AI news digest broadcast channel"
     )
     @commands.has_permissions(administrator=True)
     async def unset_broadcast_channel_slash(self, ctx):
-        """Unset the AI news digest broadcast channel."""
+        """Unset the GLOBAL AI news digest broadcast channel."""
         await ctx.defer(ephemeral=True) # Respond ephemerally
 
         # Unset broadcast channel ID in the database via state manager
@@ -1159,11 +1302,11 @@ class NewsFeedsCommands(commands.Cog):
         description="Get a personalized news digest from your saved feeds"
     )
     async def mynews_slash(self, ctx: discord.ApplicationContext):
-        """Generates and displays a personalized news digest for the user."""
+        """Generates and displays a personalized news digest for the user using the cache."""
         await ctx.defer()
         user_id = str(ctx.author.id)
 
-        # Corrected: Access db_manager through state
+        # Check if user has any feeds saved first
         preferences = self.state.db_manager.get_user_preferences(user_id)
         feed_urls = preferences.get("custom_rss_feeds", []) if preferences else []
 
@@ -1171,65 +1314,52 @@ class NewsFeedsCommands(commands.Cog):
             await ctx.followup.send("You haven't saved any personal feeds yet. Use `/myfeeds add <url>` to add some and then run `/mynews` again.")
             return
 
-        await ctx.followup.send(f"⏳ Generating your personal news digest from {len(feed_urls)} feed(s)...")
+        # --- Updated /mynews logic using USER article summary cache ---
+        await ctx.edit(content=f"⏳ Fetching recent summaries from the cache for your {len(feed_urls)} saved feed(s)...") # Edit original response
 
-        collected_summaries = []
-        articles_processed_count = 0
-        feeds_checked_count = 0
-        max_articles_per_feed = 3 # As decided
+        digest_input_data = []
+        try:
+            # Query the new user_article_summaries table via state manager
+            # Limit to a reasonable number, e.g., 100 most recent summaries for this user
+            cached_summaries = self.state.get_user_article_summaries(user_id=user_id, limit=100)
+            logger.info(f"Retrieved {len(cached_summaries)} cached personal summaries for user {user_id}.")
 
-        for feed_url in feed_urls:
-            feeds_checked_count += 1
-            logger.info(f"Processing feed for /mynews: {feed_url}")
-            try:
-                # Use run_in_executor for the blocking feedparser call
-                feed_data = await asyncio.get_event_loop().run_in_executor(
-                    None, feedparser.parse, feed_url
-                )
+            # Map cached data to the format expected by generate_ai_digest
+            # Expected keys: 'title', 'summary', 'link', 'feed_name', 'category'
+            for summary in cached_summaries:
+                # Determine feed_name - use the feed_url as a fallback
+                feed_name = f"Personal Feed ({summary.get('feed_url', 'Unknown URL')})" # Simple naming
+                digest_input_data.append({
+                    "title": summary.get('article_title', 'No Title'),
+                    "summary": summary.get('summary_text', 'No Summary'),
+                    "link": summary.get('article_link', ''), # Use article_link from user_article_summaries
+                    "feed_name": feed_name, # Construct a name
+                    "category": "Personal" # Assign category
+                })
 
-                if feed_data.bozo:
-                    logger.warning(f"Skipping feed {feed_url} for /mynews due to parsing error (bozo). Exception: {feed_data.get('bozo_exception')}")
-                    continue # Skip this feed if it has parsing errors
+        except AttributeError as e:
+             # This might happen if state manager methods haven't been updated/reloaded
+             logger.error(f"State manager missing user summary method? Error: {e}", exc_info=True)
+             await ctx.edit(content=f"⚠️ An internal error occurred: The functionality to look up personal summaries is missing.")
+             return
+        except Exception as e:
+             logger.error(f"Error retrieving cached personal summaries for user {user_id}: {e}", exc_info=True)
+             await ctx.edit(content=f"⚠️ An error occurred while fetching summaries for your feeds.")
+             return
+        # -----------------------------------------
 
-                if not feed_data.entries:
-                    logger.info(f"No entries found in feed {feed_url} for /mynews.")
-                    continue
-
-                # Get the latest N articles
-                latest_articles = feed_data.entries[:max_articles_per_feed]
-
-                for article in latest_articles:
-                    # Summarize article
-                    # Use a generic category or none, as it's less relevant for personal feeds
-                    summary_dict = await self.summarize_article(article, feed_category="Personal Feed")
-                    if summary_dict and not summary_dict['summary'].startswith("Error") and not summary_dict['summary'].startswith("Unable"):
-                        # Add feed URL for potential future reference, though not used in digest generation currently
-                        summary_dict['feed_url'] = feed_url
-                        # Use a generic feed name or the feed title if available
-                        summary_dict['feed_name'] = feed_data.feed.get('title', feed_url)
-                        summary_dict['category'] = 'Personal' # Assign a category for digest generation context
-                        collected_summaries.append(summary_dict)
-                        articles_processed_count += 1
-                        await asyncio.sleep(0.5) # Rate limiting for AI calls
-                    else:
-                        logger.warning(f"Failed to summarize article from {feed_url}: {summary_dict.get('title', 'Unknown Title')}")
-
-            except Exception as e:
-                logger.error(f"Error processing feed {feed_url} for /mynews: {e}", exc_info=True)
-                # Optionally notify user about specific feed errors? For now, just log.
-
-        logger.info(f"/mynews for {user_id}: Checked {feeds_checked_count} feeds, processed {articles_processed_count} articles.")
-
-        if collected_summaries:
-            # Generate the digest using the existing function
-            digest_content = await self.generate_ai_digest(collected_summaries)
-            # Send the digest to the current channel using the existing function
+        if digest_input_data:
+            await ctx.edit(content=f"🧠 Generating AI digest from {len(digest_input_data)} cached summaries for your personal feeds...")
+            # Generate the digest from cached summaries
+            digest_content = await self.generate_ai_digest(digest_input_data)
+            # Send the generated digest (target_channel is the current channel)
             await self.send_ai_digest(digest_content, target_channel=ctx.channel)
-            # Send a new followup message instead of editing
-            await ctx.followup.send(content=f"✅ Here is your personal news digest!", ephemeral=True) # Optional: ephemeral confirmation
+            # Edit the original response to confirm completion
+            # Need to use edit_original_response because we already edited it once
+            await ctx.interaction.edit_original_response(content=f"✅ Displayed your personal news digest.")
         else:
-            # Send a new followup message instead of editing
-            await ctx.followup.send(content="ℹ️ Could not fetch or summarize any new articles from your saved feeds.", ephemeral=True) # Optional: ephemeral confirmation
+            # Need to use edit_original_response because we already edited it once
+            await ctx.edit_original_response(content=f"ℹ️ No recent summaries found in the cache for your saved feeds. The cache updates periodically.")
 
     # --- End User Feed Commands ---
 

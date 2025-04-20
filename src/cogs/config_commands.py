@@ -1,6 +1,6 @@
 """Configuration commands for the bot."""
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks # Import tasks
 from discord import Option
 from ..utils.state_manager import BotStateManager
 from ..utils.openrouter_client import OpenRouterClient
@@ -235,7 +235,88 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
                 await ctx.respond(f"⚠️ An unexpected error occurred: {e}")
         else:
             await ctx.respond("⚠️ Only administrators can change the model.")
-    
+
+    @discord.slash_command(
+        name="setprunefrequency",
+        description="Set how often old data is pruned (in hours)"
+    )
+    @commands.has_permissions(administrator=True)
+    async def set_prune_frequency_slash(self, ctx, hours: Option(int, "Frequency in hours (minimum 1)", min_value=1)):
+        """Sets how often old messages, threads, summaries, etc., are pruned."""
+        await ctx.defer(ephemeral=True)
+        try:
+            await self.state.set_prune_frequency_hours(hours)
+
+            # Attempt to update the running task's interval
+            if hasattr(self.bot, 'prune_data_task') and isinstance(self.bot.prune_data_task, tasks.Loop):
+                try:
+                    self.bot.prune_data_task.change_interval(hours=hours)
+                    await ctx.respond(f"✅ Pruning frequency set to **{hours} hours**. The task interval has been updated.")
+                except Exception as task_err:
+                    logger.error(f"Error updating prune task interval: {task_err}", exc_info=True)
+                    await ctx.respond(f"✅ Pruning frequency set to **{hours} hours**. Restart the bot for the new schedule to take effect.")
+            else:
+                logger.warning("Could not find prune_data_task on bot object to update interval.")
+                await ctx.respond(f"✅ Pruning frequency set to **{hours} hours**. Restart the bot for the new schedule to take effect.")
+
+        except ValueError as e:
+            await ctx.respond(f"⚠️ Error: {e}")
+        except Exception as e:
+            logger.error(f"Error setting prune frequency: {e}", exc_info=True)
+            await ctx.respond(f"⚠️ An unexpected error occurred.")
+
+
+    @discord.slash_command(
+        name="setsummaryretention",
+        description="Set how long news summaries are kept (in days)"
+    )
+    @commands.has_permissions(administrator=True)
+    async def set_summary_retention_slash(self, ctx, days: Option(int, "Retention period in days (minimum 1)", min_value=1)):
+        """Sets how long cached news article summaries are kept before pruning."""
+        await ctx.defer(ephemeral=True)
+        try:
+            await self.state.set_summary_retention_days(days)
+            await ctx.respond(f"✅ News summary retention period set to **{days} days**.")
+        except ValueError as e:
+            await ctx.respond(f"⚠️ Error: {e}")
+        except Exception as e:
+            logger.error(f"Error setting summary retention: {e}", exc_info=True)
+            await ctx.respond(f"⚠️ An unexpected error occurred.")
+
+
+    @discord.slash_command(
+        name="setpersonalfeedfrequency",
+        description="Set how often personal news feeds are checked (in hours)"
+    )
+    @commands.has_permissions(administrator=True)
+    async def set_personal_feed_frequency_slash(self, ctx, hours: Option(int, "Frequency in hours (minimum 1)", min_value=1)):
+        """Sets how often personal news feeds are checked and summaries cached."""
+        await ctx.defer(ephemeral=True)
+        try:
+            await self.state.set_personal_feed_frequency(hours)
+
+            # Attempt to update the running task's interval
+            # Note: The task name 'check_personal_feeds' is assumed based on the plan.
+            # It will be defined in the NewsFeedsCommands cog.
+            news_cog = self.bot.get_cog("NewsFeedsCommands")
+            if news_cog and hasattr(news_cog, 'check_personal_feeds') and isinstance(news_cog.check_personal_feeds, tasks.Loop):
+                try:
+                    news_cog.check_personal_feeds.change_interval(hours=hours)
+                    await ctx.respond(f"✅ Personal feed check frequency set to **{hours} hours**. The task interval has been updated.")
+                except Exception as task_err:
+                    logger.error(f"Error updating personal feed task interval: {task_err}", exc_info=True)
+                    await ctx.respond(f"✅ Personal feed check frequency set to **{hours} hours**. Restart the bot for the new schedule to take effect.")
+            else:
+                logger.warning("Could not find check_personal_feeds task on NewsFeedsCommands cog to update interval.")
+                await ctx.respond(f"✅ Personal feed check frequency set to **{hours} hours**. Restart the bot for the new schedule to take effect.")
+
+        except ValueError as e:
+            await ctx.respond(f"⚠️ Error: {e}")
+        except Exception as e:
+            logger.error(f"Error setting personal feed frequency: {e}", exc_info=True)
+            await ctx.respond(f"⚠️ An unexpected error occurred.")
+
+
 def setup(bot):
     config_cog = ConfigCommands(bot)
     bot.add_cog(config_cog)

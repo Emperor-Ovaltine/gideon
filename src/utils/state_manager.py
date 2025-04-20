@@ -19,6 +19,9 @@ CONFIG_KEY_TIME_WINDOW = "time_window_hours"
 CONFIG_KEY_GLOBAL_MODEL = "global_model"
 CONFIG_KEY_NEWS_FREQUENCY = "news_update_frequency"
 CONFIG_KEY_NEWS_BROADCAST = "news_broadcast_channel_id"
+CONFIG_KEY_SUMMARY_RETENTION_DAYS = "summary_retention_days" # New
+CONFIG_KEY_PRUNE_FREQUENCY_HOURS = "prune_frequency_hours"   # New
+CONFIG_KEY_PERSONAL_FEED_FREQUENCY_HOURS = "personal_feed_frequency_hours" # New
 
 class BotStateManager:
     """Singleton class to manage shared state via DatabaseManager."""
@@ -52,6 +55,9 @@ class BotStateManager:
         self.global_model = await self._load_or_set_config(CONFIG_KEY_GLOBAL_MODEL, CONFIG_DEFAULT_MODEL, 'string')
         self.news_update_frequency = await self._load_or_set_config(CONFIG_KEY_NEWS_FREQUENCY, 6, 'int')
         self.news_broadcast_channel_id = await self._load_or_set_config(CONFIG_KEY_NEWS_BROADCAST, None, 'string') # Stored as string
+        self.summary_retention_days = await self._load_or_set_config(CONFIG_KEY_SUMMARY_RETENTION_DAYS, 7, 'int') # New
+        self.prune_frequency_hours = await self._load_or_set_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, 24, 'int') # New
+        self.personal_feed_frequency_hours = await self._load_or_set_config(CONFIG_KEY_PERSONAL_FEED_FREQUENCY_HOURS, 12, 'int') # New
 
         self._initialized = True
         logger.info("BotStateManager initialized successfully.")
@@ -116,6 +122,37 @@ class BotStateManager:
     async def set_news_broadcast_channel_id(self, value: Optional[str]):
         self.news_broadcast_channel_id = value
         await self._save_config(CONFIG_KEY_NEWS_BROADCAST, value, 'string') # Store channel ID as string
+
+    def get_summary_retention_days(self) -> int:
+        return self.summary_retention_days
+
+    async def set_summary_retention_days(self, value: int):
+        if value < 1:
+            raise ValueError("Summary retention must be at least 1 day.")
+        self.summary_retention_days = value
+        await self._save_config(CONFIG_KEY_SUMMARY_RETENTION_DAYS, value, 'int')
+
+    def get_prune_frequency_hours(self) -> int:
+        return self.prune_frequency_hours
+
+    async def set_prune_frequency_hours(self, value: int):
+        if value < 1:
+            raise ValueError("Pruning frequency must be at least 1 hour.")
+        self.prune_frequency_hours = value
+        await self._save_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, value, 'int')
+
+
+    def get_personal_feed_frequency(self) -> int:
+        """Gets how often personal feeds are checked (in hours)."""
+        return self.personal_feed_frequency_hours
+
+    async def set_personal_feed_frequency(self, value: int):
+        """Sets how often personal feeds are checked (in hours)."""
+        if value < 1:
+            raise ValueError("Personal feed frequency must be at least 1 hour.")
+        self.personal_feed_frequency_hours = value
+        await self._save_config(CONFIG_KEY_PERSONAL_FEED_FREQUENCY_HOURS, value, 'int')
+
 
     async def _save_config(self, key: str, value: Any, value_type: str):
         """Saves a configuration value to the database."""
@@ -250,25 +287,40 @@ class BotStateManager:
         message_cutoff = datetime.now() - timedelta(hours=self.time_window_hours)
         # Keep threads longer? Let's use 14 days as before.
         thread_cutoff = datetime.now() - timedelta(days=14)
-        # Keep article history for 7 days
+        # Keep article history for 7 days (or make configurable later if needed)
         article_cutoff = datetime.now() - timedelta(days=7)
+        # Use configurable retention for summaries
+        summary_cutoff = datetime.now() - timedelta(days=self.summary_retention_days)
+
 
         try:
             messages_pruned = self.db_manager.prune_old_messages(message_cutoff)
             threads_pruned = self.db_manager.prune_old_threads(thread_cutoff) # Assumes thread creation time is the criterion
             articles_pruned = self.db_manager.prune_old_articles(article_cutoff)
+            summaries_pruned = self.db_manager.prune_old_summaries(summary_cutoff) # System summaries
+            user_summaries_pruned = self.db_manager.prune_old_user_summaries(summary_cutoff) # Personal summaries
 
             prune_stats = {
                 "messages_pruned": messages_pruned,
                 "threads_pruned": threads_pruned,
-                "news_entries_pruned": articles_pruned,
+                "news_article_history_pruned": articles_pruned,
+                "news_summaries_pruned": summaries_pruned, # System summaries
+                "user_news_summaries_pruned": user_summaries_pruned, # Personal summaries
                 "channels_pruned": 0 # Channels aren't pruned automatically here
             }
             logger.info(f"Pruning complete: {prune_stats}")
             return prune_stats
         except Exception as e:
             logger.error(f"Error during data pruning: {e}", exc_info=True)
-            return {"messages_pruned": 0, "threads_pruned": 0, "news_entries_pruned": 0, "channels_pruned": 0}
+            # Return dict with all keys, including the new one
+            return {
+                "messages_pruned": 0,
+                "threads_pruned": 0,
+                "news_article_history_pruned": 0,
+                "news_summaries_pruned": 0, # System summaries
+                "user_news_summaries_pruned": 0, # Personal summaries
+                "channels_pruned": 0
+            }
 
 
     # --- Model and System Prompt Methods ---
@@ -379,6 +431,73 @@ class BotStateManager:
     def get_last_digest_content(self) -> Optional[str]:
         """Retrieves the last generated news digest content from the database."""
         return self.db_manager.get_last_digest_content()
+
+    # --- Article Summary Methods (Delegation) ---
+
+    def add_article_summary(self, article_id: str, feed_id: str, title: str, link: str,
+                            published_date: Optional[datetime], summary_text: str,
+                            feed_name: Optional[str], feed_category: Optional[str]):
+        """Adds or replaces an article summary in the database."""
+        # Pass data to the database manager method
+        self.db_manager.add_article_summary(
+            article_id=article_id,
+            feed_id=feed_id,
+            title=title,
+            link=link,
+            published_date=published_date,
+            summary_text=summary_text,
+            feed_name=feed_name,
+            feed_category=feed_category,
+            timestamp_summarized=datetime.now() # Add timestamp here
+        )
+
+    def get_article_summaries(self, feed_ids: Optional[List[str]] = None,
+                              category: Optional[str] = None,
+                              limit: Optional[int] = 50) -> List[Dict[str, Any]]:
+        """
+        Retrieves recent article summaries from the database, optionally filtered.
+        Uses the configured retention period to limit how far back it looks.
+        """
+        since_cutoff = datetime.now() - timedelta(days=self.summary_retention_days)
+        return self.db_manager.get_article_summaries(
+            feed_ids=feed_ids,
+            category=category,
+            since=since_cutoff,
+            limit=limit
+        )
+
+
+    # --- User-Specific Article Summary Methods (Delegation) ---
+
+    def add_user_article_summary(self, user_id: str, article_link: str, feed_url: str,
+                                 title: Optional[str], published_date: Optional[datetime],
+                                 summary_text: str):
+        """Adds or replaces a user-specific article summary."""
+        # Add timestamp here before delegating
+        self.db_manager.add_user_article_summary(
+            user_id=user_id,
+            article_link=article_link,
+            feed_url=feed_url,
+            title=title,
+            published_date=published_date,
+            summary_text=summary_text,
+            timestamp_summarized=datetime.now()
+        )
+
+    def get_user_article_summaries(self, user_id: str, limit: Optional[int] = 50) -> List[Dict[str, Any]]:
+        """Retrieves recent article summaries for a specific user."""
+        # Use configured retention period
+        since_cutoff = datetime.now() - timedelta(days=self.summary_retention_days)
+        return self.db_manager.get_user_article_summaries(
+            user_id=user_id,
+            since=since_cutoff,
+            limit=limit
+        )
+
+    def get_users_with_personal_feeds(self) -> List[str]:
+        """Gets user IDs who have configured personal feeds."""
+        return self.db_manager.get_users_with_personal_feeds()
+
 
     # --- Statistics Methods (Example) ---
 

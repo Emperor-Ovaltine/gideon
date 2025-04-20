@@ -152,7 +152,41 @@ class DatabaseManager:
                 user_id TEXT PRIMARY KEY,
                 preferences_json TEXT
             );
+            """,
+            # --- New Table for Article Summaries ---
             """
+            CREATE TABLE IF NOT EXISTS article_summaries (
+                article_id TEXT PRIMARY KEY,      -- Unique identifier for the article (e.g., link or GUID)
+                feed_id TEXT NOT NULL,            -- Foreign key to the feed it came from
+                article_title TEXT,
+                article_link TEXT UNIQUE,         -- Make link unique to help prevent duplicates if article_id isn't perfect
+                article_published_date DATETIME,  -- Original publication date if available
+                summary_text TEXT NOT NULL,       -- The AI-generated summary
+                feed_name TEXT,                   -- Denormalized feed name for easier querying
+                feed_category TEXT,               -- Denormalized feed category for easier querying
+                timestamp_summarized DATETIME NOT NULL, -- When this summary was generated/cached
+                FOREIGN KEY (feed_id) REFERENCES NEWS_FEEDS(feed_id) ON DELETE CASCADE
+            );
+            """,
+            """CREATE INDEX IF NOT EXISTS idx_article_summaries_timestamp ON article_summaries (timestamp_summarized);""",
+            """CREATE INDEX IF NOT EXISTS idx_article_summaries_feed_id ON article_summaries (feed_id);""",
+            """CREATE INDEX IF NOT EXISTS idx_article_summaries_category ON article_summaries (feed_category);""",
+            # --- New Table for User Article Summaries ---
+            """
+            CREATE TABLE IF NOT EXISTS user_article_summaries (
+                user_id TEXT NOT NULL,            -- Discord User ID
+                article_link TEXT NOT NULL,       -- Unique identifier for the article (link is usually good enough here)
+                feed_url TEXT NOT NULL,           -- The specific URL the user saved for this feed
+                article_title TEXT,
+                article_published_date DATETIME,  -- Original publication date if available
+                summary_text TEXT NOT NULL,       -- The AI-generated summary
+                timestamp_summarized DATETIME NOT NULL, -- When this summary was generated/cached
+                PRIMARY KEY (user_id, article_link) -- Composite key per user
+            );
+            """,
+            """CREATE INDEX IF NOT EXISTS idx_user_article_summaries_user_timestamp ON user_article_summaries (user_id, timestamp_summarized);""",
+            """CREATE INDEX IF NOT EXISTS idx_user_article_summaries_timestamp ON user_article_summaries (timestamp_summarized);""",
+            """CREATE INDEX IF NOT EXISTS idx_user_article_summaries_feed_url ON user_article_summaries (feed_url);"""
             # Add more indexes as needed based on query patterns
         ]
 
@@ -876,6 +910,29 @@ class DatabaseManager:
             logger.error(f"Error pruning old article history: {e}", exc_info=True)
             raise
 
+    def prune_old_summaries(self, cutoff_timestamp: datetime) -> int:
+        """
+        Deletes article summary records older than the specified cutoff timestamp.
+
+        Args:
+            cutoff_timestamp (datetime): Records older than this will be deleted.
+
+        Returns:
+            int: The number of summary records deleted.
+        """
+        sql = "DELETE FROM article_summaries WHERE timestamp_summarized < ?;"
+        try:
+            with self._conn:
+                cursor = self._get_cursor()
+                cursor.execute(sql, (cutoff_timestamp,))
+                deleted_count = cursor.rowcount
+            if deleted_count > 0:
+                logger.info(f"Pruned {deleted_count} old article summary records before {cutoff_timestamp}.")
+            return deleted_count
+        except sqlite3.Error as e:
+            logger.error(f"Error pruning old article summaries: {e}", exc_info=True)
+            raise
+
     def get_news_article_history_count(self) -> int:
         """Gets the total number of news article history records stored."""
         sql = "SELECT COUNT(*) FROM NEWS_ARTICLES_HISTORY;"
@@ -900,6 +957,191 @@ class DatabaseManager:
         """Retrieves the last generated news digest content."""
         # Retrieve as a string from GLOBAL_CONFIG
         return self.get_global_config("last_news_digest_content")
+
+    # --- Article Summary Methods ---
+
+    def add_article_summary(self, article_id: str, feed_id: str, title: str, link: str,
+                            published_date: Optional[datetime], summary_text: str,
+                            feed_name: Optional[str], feed_category: Optional[str],
+                            timestamp_summarized: datetime):
+        """Adds or replaces an article summary in the database."""
+        sql = """
+        INSERT OR REPLACE INTO article_summaries (
+            article_id, feed_id, article_title, article_link, article_published_date,
+            summary_text, feed_name, feed_category, timestamp_summarized
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """
+        try:
+            with self._conn:
+                cursor = self._get_cursor()
+                cursor.execute(sql, (
+                    article_id, feed_id, title, link, published_date,
+                    summary_text, feed_name, feed_category, timestamp_summarized
+                ))
+            logger.debug(f"Added/Replaced article summary: {article_id}")
+        except sqlite3.Error as e:
+            logger.error(f"Error adding/replacing article summary '{article_id}': {e}", exc_info=True)
+            # Decide if we should raise or just log
+            # raise # Re-raising might stop the whole feed processing cycle
+
+    def get_article_summaries(self, feed_ids: Optional[List[str]] = None,
+                              category: Optional[str] = None,
+                              since: Optional[datetime] = None,
+                              limit: Optional[int] = 50) -> List[Dict[str, Any]]:
+        """
+        Retrieves recent article summaries, optionally filtered by feed IDs or category.
+
+        Args:
+            feed_ids (Optional[List[str]]): List of feed IDs to filter by.
+            category (Optional[str]): Category name to filter by (case-insensitive LIKE).
+            since (Optional[datetime]): Only retrieve summaries generated after this time.
+            limit (Optional[int]): Maximum number of summaries to return (default 50).
+
+        Returns:
+            List[Dict[str, Any]]: A list of summary dictionaries.
+        """
+        params = []
+        where_clauses = []
+
+        if feed_ids:
+            placeholders = ','.join('?' * len(feed_ids))
+            where_clauses.append(f"feed_id IN ({placeholders})")
+            params.extend(feed_ids)
+
+        if category:
+            # Handle potentially comma-separated categories stored in the DB
+            # This assumes the category filter is for a single category name
+            where_clauses.append("LOWER(feed_category) LIKE ?")
+            params.append(f"%{category.lower()}%") # Simple substring match
+
+        if since:
+            where_clauses.append("timestamp_summarized >= ?")
+            params.append(since)
+
+        sql = """
+        SELECT article_id, feed_id, article_title, article_link, article_published_date,
+               summary_text, feed_name, feed_category, timestamp_summarized
+        FROM article_summaries
+        """
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+
+        sql += " ORDER BY timestamp_summarized DESC" # Get most recent first
+
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+
+        try:
+            cursor = self._get_cursor()
+            cursor.execute(sql, tuple(params))
+            rows = cursor.fetchall()
+            # Convert rows to dictionaries
+            # Handle datetime conversion explicitly if detect_types isn't reliable
+            summaries = []
+            for row in rows:
+                summary_dict = dict(row)
+                # Example explicit conversion (adapt if needed based on actual stored format)
+                for dt_key in ['article_published_date', 'timestamp_summarized']:
+                    if isinstance(summary_dict.get(dt_key), str):
+                        try:
+                            summary_dict[dt_key] = datetime.fromisoformat(summary_dict[dt_key])
+                        except ValueError:
+                             logger.warning(f"Could not parse timestamp string '{summary_dict[dt_key]}' for key '{dt_key}' in summary {summary_dict.get('article_id')}. Setting to None.")
+                             summary_dict[dt_key] = None
+                summaries.append(summary_dict)
+            return summaries
+        except sqlite3.Error as e:
+            logger.error(f"Error getting article summaries: {e}", exc_info=True)
+            return []
+
+
+    # --- User-Specific Article Summary Methods ---
+
+    def add_user_article_summary(self, user_id: str, article_link: str, feed_url: str,
+                                 title: Optional[str], published_date: Optional[datetime],
+                                 summary_text: str, timestamp_summarized: datetime):
+        """Adds or replaces a user-specific article summary."""
+        sql = """
+        INSERT OR REPLACE INTO user_article_summaries (
+            user_id, article_link, feed_url, article_title, article_published_date,
+            summary_text, timestamp_summarized
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+        """
+        try:
+            # Ensure the user exists in the USERS table first
+            self._ensure_user_exists(user_id)
+            with self._conn:
+                cursor = self._get_cursor()
+                cursor.execute(sql, (
+                    user_id, article_link, feed_url, title, published_date,
+                    summary_text, timestamp_summarized
+                ))
+            logger.debug(f"Added/Replaced user article summary for user {user_id}, link: {article_link}")
+        except sqlite3.Error as e:
+            logger.error(f"Error adding/replacing user article summary for user '{user_id}', link '{article_link}': {e}", exc_info=True)
+            # Decide if we should raise or just log
+
+    def get_user_article_summaries(self, user_id: str,
+                                   since: Optional[datetime] = None,
+                                   limit: Optional[int] = 50) -> List[Dict[str, Any]]:
+        """Retrieves recent article summaries for a specific user."""
+        params: List[Any] = [user_id]
+        where_clauses = ["user_id = ?"]
+
+        if since:
+            where_clauses.append("timestamp_summarized >= ?")
+            params.append(since)
+
+        sql = """
+        SELECT user_id, article_link, feed_url, article_title, article_published_date,
+               summary_text, timestamp_summarized
+        FROM user_article_summaries
+        """
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+
+        sql += " ORDER BY timestamp_summarized DESC" # Get most recent first
+
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+
+        try:
+            cursor = self._get_cursor()
+            cursor.execute(sql, tuple(params))
+            rows = cursor.fetchall()
+            # Convert rows to dictionaries and handle datetimes
+            summaries = []
+            for row in rows:
+                summary_dict = dict(row)
+                for dt_key in ['article_published_date', 'timestamp_summarized']:
+                    if isinstance(summary_dict.get(dt_key), str):
+                        try:
+                            summary_dict[dt_key] = datetime.fromisoformat(summary_dict[dt_key])
+                        except ValueError:
+                             logger.warning(f"Could not parse timestamp string '{summary_dict[dt_key]}' for key '{dt_key}' in user summary {summary_dict.get('article_link')}. Setting to None.")
+                             summary_dict[dt_key] = None
+                summaries.append(summary_dict)
+            return summaries
+        except sqlite3.Error as e:
+            logger.error(f"Error getting user article summaries for user '{user_id}': {e}", exc_info=True)
+            return []
+
+    def prune_old_user_summaries(self, cutoff_timestamp: datetime) -> int:
+        """Deletes user article summary records older than the specified cutoff timestamp."""
+        sql = "DELETE FROM user_article_summaries WHERE timestamp_summarized < ?;"
+        try:
+            with self._conn:
+                cursor = self._get_cursor()
+                cursor.execute(sql, (cutoff_timestamp,))
+                deleted_count = cursor.rowcount
+            if deleted_count > 0:
+                logger.info(f"Pruned {deleted_count} old user article summary records before {cutoff_timestamp}.")
+            return deleted_count
+        except sqlite3.Error as e:
+            logger.error(f"Error pruning old user article summaries: {e}", exc_info=True)
+            raise # Re-raise error during pruning
 
     # --- User Methods (Basic Structure) ---
 
@@ -948,6 +1190,33 @@ class DatabaseManager:
         except json.JSONDecodeError as e:
             logger.error(f"Error decoding preferences JSON for user '{user_id}': {e}", exc_info=True)
             return None
+
+    def get_users_with_personal_feeds(self) -> List[str]:
+        """Gets a list of user IDs who have entries in their custom_rss_feeds preference."""
+        # This requires parsing the JSON in SQLite, which can be slow.
+        # It's generally better to fetch all and filter in Python,
+        # unless the number of users is extremely large.
+        sql = "SELECT user_id, preferences_json FROM USERS WHERE preferences_json IS NOT NULL;"
+        user_ids = []
+        try:
+            import json
+            cursor = self._get_cursor()
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+            for row in rows:
+                try:
+                    prefs = json.loads(row['preferences_json'])
+                    if isinstance(prefs, dict) and prefs.get("custom_rss_feeds"):
+                        # Check if the list is not empty
+                        if isinstance(prefs["custom_rss_feeds"], list) and len(prefs["custom_rss_feeds"]) > 0:
+                             user_ids.append(row['user_id'])
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"Could not parse preferences for user {row['user_id']} when checking for personal feeds.")
+                    continue # Skip user if preferences are invalid
+            return user_ids
+        except sqlite3.Error as e:
+            logger.error(f"Error getting users with personal feeds: {e}", exc_info=True)
+            return []
 
 
 # Example usage (optional, for testing)
