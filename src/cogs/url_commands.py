@@ -40,11 +40,32 @@ class URLCommands(commands.Cog):
             processing_msg = await ctx.respond(f"📄 Fetching content from: {url}")
             
             # Fetch the webpage content
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate'
+            }
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=30) as response:
-                    if response.status != 200:
-                        await ctx.followup.send(f"⚠️ Error: Could not access URL (Status code: {response.status})")
-                        return
+                try:
+                    async with session.get(url, headers=headers, timeout=30) as response:
+                        if response.status != 200:
+                            await ctx.followup.send(f"⚠️ Error: Could not access URL (Status code: {response.status})")
+                            return
+                        
+                        html = await response.text()
+                        
+                except aiohttp.http_exceptions.ContentEncodingError:
+                    # If we get brotli error despite not requesting it, retry with no encoding
+                    logger.warning(f"Brotli encoding encountered, retrying with no encoding for URL: {url}")
+                    no_encoding_headers = headers.copy()
+                    no_encoding_headers['Accept-Encoding'] = 'identity'
+                    async with session.get(url, headers=no_encoding_headers, timeout=30) as response:
+                        if response.status != 200:
+                            await ctx.followup.send(f"⚠️ Error: Could not access URL (Status code: {response.status})")
+                            return
+                            
+                        html = await response.text()
                     
                     html = await response.text()
             
