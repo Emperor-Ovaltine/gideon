@@ -5,3 +5,4 @@ dnspython
 Pillow>=9.0.0  # For potential image processing
 beautifulsoup4>=4.12.0  # For HTML parsing in URL summarization
 feedparser>=6.0.0  # For parsing RSS feeds
+openai>=1.0.0  # For OpenAI API access (Dall-E)

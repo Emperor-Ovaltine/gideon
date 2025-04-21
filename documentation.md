@@ -14,6 +14,7 @@
 10. [Error Handling and Logging](#error-handling-and-logging)
 11. [Security Considerations](#security-considerations)
 12. [Configuration System](#configuration-system)
+13. [Unified Image Commands](#unified-image-commands)
 
 ## Overview
 
@@ -37,8 +38,7 @@ gideon/
 │   │   ├── config_commands.py          # Configuration commands
 │   │   ├── diagnostic_commands.py      # Diagnostic tools
 │   │   ├── mention_commands.py         # Mention handling
-│   │   ├── image_commands.py           # AI Horde image generation
-│   │   ├── cloudflare_image_commands.py # Cloudflare-based image generation
+│   │   ├── unified_image_commands.py   # Unified image generation
 │   │   ├── url_commands.py             # URL handling
 │   │   ├── dungeon_master_commands.py  # RPG adventure system
 │   │   └── news_feeds_commands.py      # RSS News Feed Summaries
@@ -322,28 +322,21 @@ Implementation details:
 - Ensures settings persist across restarts
 - Provides validation for input parameters
 
-### ImageCommands (`image_commands.py`)
+### UnifiedImageCommands (`unified_image_commands.py`)
 
-Handles AI Horde image generation:
-- `/imagine` - Generate images from text
-- `/hordemodels` - List available models
+Handles unified AI image generation with support for multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E).
 
-Implementation details:
-- Communicates with AI Horde API
-- Manages generation settings (dimensions, steps, etc.)
-- Handles generation queuing and waiting
-- Provides progress updates
-
-### CloudflareImageCommands (`cloudflare_image_commands.py`)
-
-Provides Cloudflare Worker-based image generation:
-- `/dream` - Generate images using Cloudflare
-- `/cftest` - Test connection to Cloudflare Worker
+- `/dream prompt:... [negative_prompt:...]`: Generate an image using the currently configured AI backend.
+- `/dream manage set_provider provider:<Choice>` (Admin): Set the active image generation provider.
+- `/dream manage configure <provider> [options...]` (Admin): Configure default settings for a specific provider.
+- `/dream manage view_config` (Admin): View the current active provider and configuration.
 
 Implementation details:
-- Handles authentication with Cloudflare Worker
-- Manages request formatting and response parsing
-- Implements error handling for worker connectivity
+- Selects the appropriate API client based on the active provider configuration.
+- Reads provider-specific default settings from the database.
+- Passes user prompts and default settings to the selected client's generation method.
+- Handles response formatting and error reporting for different providers.
+- Provides admin commands for managing the active provider and its configuration, persisting settings to the database.
 
 ### DungeonMasterCommands (`dungeon_master_commands.py`)
 
@@ -352,7 +345,7 @@ Implements the tabletop RPG adventure system:
 - `/adventure action` - Describe the action you want to take in the adventure.
 - `/adventure roll` - Roll dice with narration (e.g., `1d20`, `2d6+3`).
 - `/adventure status` - Check adventure status (setting, turn count, etc.).
-- `/adventure end` - End current adventure and get a summary.
+- `/adventure end` - Conclude the adventure.
 - `/adventure config_images` (Admin) - Configure scene image frequency (requires Cloudflare Worker).
 
 Implementation details:
@@ -414,7 +407,7 @@ Implementation details:
 
 ### AI Horde Integration
 
-Enables access to community-hosted image generation:
+Enables access to community-hosted image generation via the unified `/dream` command:
 - Supports multiple Stable Diffusion variants
 - Handles generation queue management
 - Provides progress indicators
@@ -428,8 +421,7 @@ Implementation details:
 
 ### Cloudflare Worker Integration
 
-Custom implementation for additional image generation:
-- Provides alternative to AI Horde when available
+Provides Cloudflare Worker-based image generation via the unified `/dream` command:
 - Allows for custom model implementations
 - Can be configured for different backends
 
@@ -439,12 +431,16 @@ Implementation details:
 - Manages timeouts and error states
 - Provides diagnostics
 
-### Cloudflare Worker Setup
+### OpenAI Integration
 
-To configure Cloudflare Worker for image generation:
-1. Create a Cloudflare Worker and deploy your custom image generation script.
-2. Set the `CLOUDFLARE_WORKER_URL` and `CLOUDFLARE_API_KEY` in the `.env` file.
-3. Test the connection using the `/cftest` command.
+Enables access to OpenAI's DALL-E models via the unified `/dream` command:
+- Supports DALL-E 2 and DALL-E 3 models.
+- Requires an `OPENAI_API_KEY`.
+
+Implementation details:
+- Communicates with the OpenAI API.
+- Handles model-specific parameters (e.g., quality, style for DALL-E 3).
+- Processes responses and image URLs.
 
 ## Adventure System
 
@@ -468,8 +464,8 @@ The tabletop RPG system is a complex feature combining:
    - Integration with Cloudflare image generation.
    - Dynamic prompt formation based on the narrative context.
    - Configurable generation frequency via `/adventure config_images`.
-
-5. **Game Mechanics**
+ 
+ 5. **Game Mechanics**
    - Implicit character state and world state managed by the AI.
    - Action outcome determination handled by the AI based on narrative and dice rolls.
 
@@ -549,9 +545,11 @@ Configured through `.env` file:
 - `SYSTEM_PROMPT` - Default AI personality
 - `DEFAULT_MODEL` - Fallback AI model
 - `DATA_DIRECTORY` - Storage location
-- `AI_HORDE_API_KEY` - Optional for image generation
-- `CLOUDFLARE_WORKER_URL` - Optional for custom image generation
-- `CLOUDFLARE_API_KEY` - Optional authentication
+- `AI_HORDE_API_KEY` - Optional for AI Horde image generation
+- `CLOUDFLARE_WORKER_URL` - Optional for Cloudflare Worker image generation
+- `CLOUDFLARE_API_KEY` - Optional authentication for Cloudflare Worker
+- `OPENAI_API_KEY` - Optional for OpenAI image generation
+- `OPENAI_API_KEY` - Optional for OpenAI image generation
 
 ### Runtime Configuration
 

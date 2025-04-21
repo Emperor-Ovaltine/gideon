@@ -469,29 +469,35 @@ Gideon leverages Discord's native thread system to organize conversations and cr
 </table>
 
 ### Image Commands
+Gideon now uses a unified command for image generation with support for multiple backend providers.
+
 <table>
   <thead>
     <tr>
       <th>Command</th>
       <th>Description</th>
+      <th>Permissions</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td><code>/imagine</code></td>
-      <td>Generate images from text using AI Horde</td>
+      <td><code>/dream prompt:... [negative_prompt:...]</code></td>
+      <td>Generate an image using the currently configured AI backend.</td>
+      <td>All Users</td>
     </tr>
     <tr>
-      <td><code>/hordemodels</code></td>
-      <td>List available AI Horde image models</td>
+      <td><code>/dream manage set_provider provider:<Choice></code></td>
+      <td>Set the active image generation provider (AI Horde, Cloudflare, OpenAI).</td>
+      <td>Admin</td>
     </tr>
     <tr>
-      <td><code>/dream</code></td>
-      <td>Generate images using your configured Cloudflare Worker</td>
+      <td><code>/dream manage configure <provider> [options...]</code></td>
+      <td>Configure default settings for a specific provider (e.g., model, size, steps).</td>
+      <td>Admin</td>
     </tr>
     <tr>
-      <td><code>/cftest</code></td>
-      <td>Test the connection to the Cloudflare Worker</td>
+      <td><code>/dream manage view_config</code></td>
+      <td>View the current active provider and configuration for all providers.</td>
       <td>Admin</td>
     </tr>
   </tbody>

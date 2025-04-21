@@ -50,7 +50,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   <img src="assets/images/replys-to-at-tags.png" alt="analyze-demo" width="1200"/>
 </p>
 
-- **Image Generation** - Create stunning visuals with various Stable Diffusion models via AI Horde or a custom Cloudflare Worker
+- **Image Generation** - Create stunning visuals using a unified command (`/dream`) with support for multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E). Admins can configure the active provider and its default settings.
 
 <p align="center">
   <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="1200"/>
@@ -216,11 +216,15 @@ python3 -m src
    - Scopes: `bot`, `applications.commands`
    - Permissions: Send Messages, Read Message History, Embed Links, Use Slash Commands, Manage Threads (for `/thread` commands)
 
-### Cloudflare Worker Configuration (Optional)
+### Image Generation Provider Configuration (Optional)
+
+Gideon's unified `/dream` command supports multiple backend providers. To enable providers other than the default AI Horde, you need to configure their respective API keys or endpoints in your `.env` file.
+
+**Cloudflare Worker (Optional)**
 
 **⚠️ IMPORTANT:** Setting up and deploying the Cloudflare Worker is the responsibility of the end user. Gideon does not provide support for configuring or troubleshooting Cloudflare Workers.
 
-If you want to use the `/dream` command for generating images or enable scene visualization in Adventure mode:
+If you want to use your own Cloudflare Worker as an image generation provider or enable Adventure scene visualization via a worker:
 
 1. Create and deploy your own Cloudflare Worker that can generate images (e.g., using Cloudflare's AI platform or another service).
 2. The worker should accept a JSON payload with at least a `prompt` field and return image data.
@@ -228,6 +232,13 @@ If you want to use the `/dream` command for generating images or enable scene vi
 4. Optionally set `CLOUDFLARE_API_KEY` if your worker requires authentication (e.g., via a header like `Authorization: Bearer YOUR_KEY`).
 
 An example Cloudflare worker that has been tested with Gideon can be found here: [flux1-cloudflare-worker](https://github.com/Emperor-Ovaltine/flux1-cloudflare-worker)
+
+**OpenAI (Optional)**
+
+If you want to use OpenAI's DALL-E models for image generation:
+
+1. Obtain an OpenAI API key from the [OpenAI platform](https://platform.openai.com/).
+2. Set the `OPENAI_API_KEY` in your `.env` file to your OpenAI API key.
 
 **Example /dream output**
 
@@ -293,12 +304,14 @@ Gideon leverages Discord's native thread system to organize conversations and cr
 | `/setwindow` | Set the time window for memory (in hours) | Admin |
 
 ### Image Commands
-| Command | Description |
-|:-------:|:------------|
-| `/imagine` | Generate images from text using AI Horde |
-| `/hordemodels` | List available AI Horde image models |
-| `/dream` | Generate images using your configured Cloudflare Worker |
-| `/cftest` | Test the connection to the Cloudflare Worker | Admin |
+Gideon now uses a unified command for image generation with support for multiple backend providers.
+
+| Command | Description | Permissions |
+|:-------:|:------------|:------------|
+| `/dream prompt:... [negative_prompt:...]` | Generate an image using the currently configured AI backend. | All Users |
+| `/dream manage set_provider provider:<Choice>` | Set the active image generation provider (AI Horde, Cloudflare, OpenAI). | Admin |
+| `/dream manage configure <provider> [options...]` | Configure default settings for a specific provider (e.g., model, size, steps). | Admin |
+| `/dream manage view_config` | View the current active provider and configuration for all providers. | Admin |
 
 ### Adventure Commands
 | Command | Description |

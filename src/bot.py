@@ -92,8 +92,9 @@ async def on_ready():
         "src.cogs.config_commands",
         "src.cogs.diagnostic_commands",
         "src.cogs.mention_commands",
-        "src.cogs.image_commands",
-        "src.cogs.cloudflare_image_commands",
+        # "src.cogs.image_commands", # Replaced by unified_image_commands
+        # "src.cogs.cloudflare_image_commands", # Replaced by unified_image_commands
+        "src.cogs.unified_image_commands", # New unified image cog
         "src.cogs.url_commands",
         "src.cogs.dungeon_master_commands",
         "src.cogs.news_feeds_commands"  # Add our new cog here
