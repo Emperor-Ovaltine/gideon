@@ -17,12 +17,22 @@ logger = logging.getLogger('chat_commands')
 
 class ChatCommands(commands.Cog):
     """Commands for basic AI chat functionality."""
-    
-    def __init__(self, bot):
+
+    # Ensure __init__ accepts the clients passed by setup()
+    def __init__(self, bot, openrouter_client, openai_client, ai_horde_client):
         self.bot = bot
-        self.state = BotStateManager()
-        self.openrouter_client = OpenRouterClient(OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL)
-    
+        # Use the shared state manager from the bot instance
+        self.state = bot.state_manager
+        # Store references to all provider clients
+        self.clients = {
+            "openrouter": openrouter_client,
+            "openai": openai_client,
+            "ai_horde": ai_horde_client
+        }
+        # Keep a direct reference for potential backward compatibility or specific uses
+        self.openrouter_client = openrouter_client
+        # TODO: Consider if openai_client and ai_horde_client need direct references too
+
     async def check_internet_connection(self):
         """Check if the bot has an internet connection."""
         try:
@@ -35,7 +45,7 @@ class ChatCommands(commands.Cog):
     def get_model_for_channel(self, channel_id):
         """Get the appropriate model for this channel"""
         return self.state.get_effective_model(channel_id)
-        
+
     def format_perplexity_response(self, response_text):
         """
         Formats model responses into embeds with pagination.
@@ -43,7 +53,7 @@ class ChatCommands(commands.Cog):
         """
         # Create embeds with pagination
         embeds = []
-        
+
         # Split main content into chunks of ~4000 characters (embed description limit is 4096)
         # Try to split on paragraph boundaries
         paragraphs = response_text.split('\n\n')
@@ -52,7 +62,7 @@ class ChatCommands(commands.Cog):
             color=discord.Color.blue()
         )
         current_content = ""
-        
+
         for paragraph in paragraphs:
             # If adding this paragraph would exceed the limit, create a new embed
             if len(current_content) + len(paragraph) + 2 > 4000:  # +2 for the \n\n
@@ -68,12 +78,12 @@ class ChatCommands(commands.Cog):
                     current_content += "\n\n" + paragraph
                 else:
                     current_content = paragraph
-        
+
         # Don't forget the last embed
         if current_content:
             current_embed.description = current_content
             embeds.append(current_embed)
-        
+
         # If no embeds were created (unlikely), create a default one
         if not embeds:
             embeds.append(discord.Embed(
@@ -81,134 +91,139 @@ class ChatCommands(commands.Cog):
                 description=response_text[:4000] if len(response_text) > 4000 else response_text,
                 color=discord.Color.blue()
             ))
-        
+
         # Add page numbers
         for i, embed in enumerate(embeds):
             embed.set_footer(text=f"Page {i+1}/{len(embeds)}")
-        
+
         return embeds
 
     def is_citation_based_model(self, model_name):
         """
         Determines if a model uses citations/footnotes in its responses.
-        
+
         Args:
             model_name (str): The model identifier
-            
+
         Returns:
             bool: True if the model typically uses citations
         """
         if not model_name:
             return False
-            
+
         # Common identifiers for citation-based models, using more standardized patterns
         citation_identifiers = [
             "sonar",
-            "perplexity", 
+            "perplexity",
             "pplx",
             "claude-3",  # Covers all Claude 3 models
             "fireworks/mixtral",
             "anthropic/claude"
         ]
-        
+
         model_lower = str(model_name).lower()
-        
+
         # More detailed logging about the model name
         print(f"Checking citation model: '{model_name}' (lower: '{model_lower}')")
-        
+
         # Check if model contains any of the citation identifiers
         for identifier in citation_identifiers:
             if identifier in model_lower:
                 print(f"✅ Model '{model_name}' identified as citation-based (matches '{identifier}')")
                 return True
-                
+
         print(f"❌ Model '{model_name}' is NOT identified as citation-based")
         return False
-        
+
     def should_format_citations(self, model_name, response_text):
         """
         Determines if a response should be formatted for citations.
         Checks both the model name and if the response appears to contain citations.
-        
+
         Args:
             model_name (str): The model identifier
             response_text (str): The model's response
-            
+
         Returns:
             bool: True if the response should be formatted for citations
         """
         import re
-        
+
         # Explicitly check for Sonar first
         if "sonar" in str(model_name).lower() or "perplexity" in str(model_name).lower():
             print(f"✅ Direct match for Sonar/Perplexity model: {model_name}")
             return True
-            
+
         # More robust pattern to detect footnote-style citations
         # Looks for [number] patterns that likely indicate footnotes
         footnote_pattern = r'\[\d+\](?:\s+|\n|$)'
         has_citation_format = bool(re.search(footnote_pattern, response_text))
-        
+
         # Check for citation section markers
-        has_reference_section = any(marker in response_text.lower() for marker in 
+        has_reference_section = any(marker in response_text.lower() for marker in
                                  ["sources:", "references:", "citations:", "footnotes:"])
-        
+
         # Is this a known citation model?
         is_citation_model = self.is_citation_based_model(model_name)
-        
+
         # Log detailed detection info
         print(f"Citation detection for '{model_name}':")
         print(f"- Is known citation model: {is_citation_model}")
         print(f"- Has citation format: {has_citation_format}")
         print(f"- Has reference section: {has_reference_section}")
-        
+
         # More permissive logic:
         # 1. It's a known citation model OR
         # 2. It has citation format OR
         # 3. It has a reference section
         should_format = is_citation_model or has_citation_format or has_reference_section
         print(f"Citation formatting decision: {should_format}")
-        
+
         return should_format
 
     @discord.slash_command(
         name="chat",
         description="Send a message to the AI assistant"
     )
-    async def chat_slash(self, ctx, 
+    async def chat_slash(self, ctx,
                          message: str,
                          image: discord.Attachment = None):
         await ctx.defer()
-        
+        logger.info(f"[Chat Entry] Command invoked by {ctx.author.id} in channel {ctx.channel.id}") # ADDED LOG
+
         # Check internet connection first
         if not await self.check_internet_connection():
             await ctx.respond("⚠️ Network issue: Unable to connect to the internet. Please check your connection and try again.")
             return
-        
+
         # Get channel ID to track conversation per channel
         channel_id = str(ctx.channel.id)
 
-        # Removed: History initialization check (handled by DB now)
-        # if channel_id not in self.state.channel_history:
-        #     self.state.channel_history[channel_id] = []
+        # Determine which provider and model to use for this channel
+        model_id_full = self.get_model_for_channel(channel_id) # e.g., "openai/gpt-4o"
+        logger.info(f"[Chat Start] Channel {channel_id}: Effective model ID from state = '{model_id_full}'") # Enhanced log
 
-        # Determine which model to use for this channel
-        current_model = self.openrouter_client.model  # Store original model
-        model_to_use = self.get_model_for_channel(channel_id)  # Get effective model for this channel
-        
-        # Set the model to use for this request
-        self.openrouter_client.model = model_to_use
-        
-        # Log which model is being used for debugging
-        print(f"Using model for channel {channel_id}: {model_to_use}")
+        # Parse provider and model name
+        try:
+            provider, model_name = model_id_full.split('/', 1)
+        except ValueError:
+            logger.warning(f"Invalid model format '{model_id_full}' for channel {channel_id}. Defaulting to OpenRouter.")
+            # Fallback logic: Use global provider or default to openrouter
+            provider = self.state.global_provider # Fetch the configured global provider
+            model_name = model_id_full # Use the full string as model name for the default provider
+            model_id_full = f"{provider}/{model_name}" # Reconstruct full ID for logging
 
-        # Check if the model supports images
-        model_supports_images = self.openrouter_client.model_supports_vision()
-        
-        # Process image if provided and model supports it
+        # Select the appropriate client
+        client_to_use = self.clients.get(provider)
+        logger.info(f"[Chat Client Select] Parsed Provider='{provider}', Model='{model_name}'. Found client object: {client_to_use is not None}") # Enhanced log
+
+        # Log which provider and model are being used
+        logger.info(f"Using provider '{provider}' and model '{model_name}' (resolved from '{model_id_full}') for channel {channel_id}")
+
+        # Process image if provided (vision check happens later)
         images = []
         image_embed = None
-        
+
         if image:
             # Check if it's an image file
             if any(image.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
@@ -216,10 +231,22 @@ class ChatCommands(commands.Cog):
                 image_embed = discord.Embed(title="Analyzing Image", color=discord.Color.blue())
                 image_embed.set_image(url=image.url)
                 image_embed.add_field(name="File", value=image.filename)
-                
-                if model_supports_images:
+
+                # Check if the selected client and model support vision *before* downloading
+                client_supports_vision = False
+                if client_to_use and hasattr(client_to_use, 'model_supports_vision'):
+                    # Check if the specific model within the provider supports vision
+                    if asyncio.iscoroutinefunction(client_to_use.model_supports_vision):
+                        client_supports_vision = await client_to_use.model_supports_vision(model_name)
+                    else:
+                        client_supports_vision = client_to_use.model_supports_vision(model_name)
+                    logger.info(f"Client '{provider}' model '{model_name}' vision support: {client_supports_vision}")
+                else:
+                    logger.warning(f"Client for provider '{provider}' missing 'model_supports_vision' method.")
+
+                if client_supports_vision:
                     try:
-                        # Download the image data
+                        # Download the image data only if supported
                         image_data = await image.read()
                         images.append({
                             'data': image_data,
@@ -228,16 +255,17 @@ class ChatCommands(commands.Cog):
                     except Exception as e:
                         await ctx.respond(f"⚠️ Failed to process image {image.filename}: {str(e)}")
                         return
-                else:
-                    image_embed.description = "⚠️ Current model doesn't support image analysis. Consider switching to a vision-capable model."
-        
+                elif client_to_use: # Only add warning if client exists but doesn't support vision
+                    image_embed.description = f"⚠️ Provider '{provider}' model '{model_name}' doesn't support image analysis."
+                # If client_to_use is None, the error will be handled later
+
         # Get channel-specific system prompt if it exists
         channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
-        
+
         try:
             # Get recent channel context from state manager
             conversation_context = self.state.get_channel_history(channel_id)
-            
+
             # Add this new message
             await self.state.add_to_channel_history(channel_id, {
                 "role": "user",
@@ -245,30 +273,42 @@ class ChatCommands(commands.Cog):
                 "content": message,
                 "timestamp": datetime.now()
             })
-            
+
             # Format the final query with the current user's question
             conversation_context.append({
-                "role": "user", 
+                "role": "user",
                 "content": f"{ctx.author.display_name}: {message}"
             })
-            
+
             # First response - show the user's message
             if image_embed:
                 await ctx.respond(f"**{ctx.author.display_name}**: {message}", embed=image_embed)
             else:
                 # Show user's message (without processing note)
                 await ctx.respond(f"**{ctx.author.display_name}**: {message}")
-            
+
             # Always send a separate processing message that we'll edit
             processing_msg = await ctx.followup.send("Processing response...")
-                
-            # Send to API with images if applicable and channel-specific system prompt
-            response = await self.openrouter_client.send_message_with_history(
-                conversation_context,
-                images=images if model_supports_images else [],
-                system_prompt=channel_system_prompt
-            )
-            
+
+            # --- Select and Call Correct Client ---
+            logger.debug(f"Attempting to select client. Provider='{provider}', Client Object='{client_to_use}', Has Send Method='{hasattr(client_to_use, 'send_message_with_history') if client_to_use else 'N/A'}'") # DETAILED LOG
+            if client_to_use and hasattr(client_to_use, 'send_message_with_history'):
+                logger.info(f"✅ Calling send_message_with_history on client for provider '{provider}' ({type(client_to_use).__name__}) with model '{model_name}'") # DETAILED LOG
+                response = await client_to_use.send_message_with_history(
+                    messages=conversation_context,
+                    model=model_name, # Pass only the model name part
+                    system_prompt=channel_system_prompt,
+                    # Pass images only if an image was provided AND the selected client/model supports vision
+                    images=images if image and client_supports_vision else []
+                )
+            elif client_to_use:
+                 logger.error(f"❌ Client for provider '{provider}' exists but does not have 'send_message_with_history' method.") # DETAILED LOG
+                 response = f"⚠️ Error: Client for provider '{provider}' does not support chat ('send_message_with_history' missing)."
+            else:
+                 logger.error(f"❌ Client for provider '{provider}' not found or not initialized in self.clients.") # DETAILED LOG
+                 response = f"⚠️ Error: Client for provider '{provider}' not available or not initialized."
+            # --- End Client Call ---
+
             # Check if response is an error
             if response.startswith("⚠️"):
                 # If it's an error, don't split chunks and don't add to history
@@ -280,31 +320,31 @@ class ChatCommands(commands.Cog):
                     "content": response,
                     "timestamp": datetime.now()
                 })
-                
-                # Debug logs for better troubleshooting
-                is_citation_model = self.is_citation_based_model(model_to_use)
+
+                # Debug logs using the actual model ID used
+                is_citation_model = self.is_citation_based_model(model_id_full) # Check full ID for citation patterns
                 has_citation_format = bool(re.search(r'\[\d+\]', response))
-                print(f"Model: {model_to_use}, Is citation model: {is_citation_model}, Has citation format: {has_citation_format}")
-                
+                logger.debug(f"Model: {model_id_full}, Is citation model: {is_citation_model}, Has citation format: {has_citation_format}")
+
                 # Format responses from models that use citations as paginated embeds
-                if self.should_format_citations(model_to_use, response):
-                    print(f"Formatting response from {model_to_use} with citations")
+                if self.should_format_citations(model_id_full, response):
+                    logger.info(f"Formatting response from {model_id_full} with citations")
                     embeds = self.format_perplexity_response(response)
-                    
+
                     # Send the first embed by editing the processing message
                     if embeds:
                         await processing_msg.edit(content=None, embed=embeds[0])
-                        
+
                         # Send additional embeds if there are more than one
                         for embed in embeds[1:]:
                             await ctx.channel.send(embed=embed)
                 else:
-                    print(f"Using standard formatting for model {model_to_use}")
-                    # For non-Sonar models, use the original text response approach
+                    logger.info(f"Using standard formatting for model {model_id_full}")
+                    # For non-citation models, use the original text response approach
                     # Split response into chunks of 2000 characters or fewer
                     max_length = 2000
                     chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
-                    
+
                     # Send each chunk as a separate message
                     for i, chunk in enumerate(chunks):
                         if i == 0:
@@ -312,9 +352,23 @@ class ChatCommands(commands.Cog):
                             await processing_msg.edit(content=chunk)
                         else:
                             await ctx.channel.send(chunk)
-        finally:
-            # Always restore the original model
-            self.openrouter_client.model = current_model
+        # Correctly indented except block for the try starting at line 269
+        except Exception as e:
+            logger.exception(f"Error during chat processing for channel {channel_id}: {e}")
+            # Attempt to edit the processing message if it exists
+            try:
+                if processing_msg:
+                    await processing_msg.edit(content=f"⚠️ An unexpected error occurred: {str(e)}")
+                else:
+                    # If processing_msg doesn't exist for some reason, send a new message
+                    await ctx.followup.send(f"⚠️ An unexpected error occurred: {str(e)}")
+            except discord.NotFound:
+                 # If the processing message was deleted, send a new one
+                 await ctx.followup.send(f"⚠️ An unexpected error occurred: {str(e)}")
+            except Exception as followup_e:
+                 # Log if sending the error message itself fails
+                 logger.error(f"Failed to send error message to user: {followup_e}")
+        # Removed finally block that restored openrouter_client.model
 
     @discord.slash_command(
         name="reset",
@@ -341,7 +395,7 @@ class ChatCommands(commands.Cog):
             await ctx.respond(f"Currently storing {history_length} messages for this channel, spanning up to {self.state.time_window_hours} hours.")
         else:
             await ctx.respond("No conversation history found for this channel.")
-            
+
     @discord.slash_command(
         name="summarize",
         description="Summarize the current conversation history"
@@ -353,15 +407,18 @@ class ChatCommands(commands.Cog):
         if not history:
             await ctx.respond("No conversation history to summarize.")
             return
-            
+
         await ctx.respond("Generating conversation summary...")
-        
+
         conversation_context = self.state.get_channel_history(channel_id)
         summary_request = [
             {"role": "system", "content": "Summarize the following conversation in 3-5 bullet points:"},
             {"role": "user", "content": "\n".join([msg["content"] for msg in conversation_context])}
         ]
-        
+
+        # Summarization might still use a default client/model for simplicity, or could be updated
+        # For now, let's keep it using the cog's default openrouter_client
+        # TODO: Consider if summarize should use the channel's effective model/provider
         summary = await self.openrouter_client.send_message_with_history(summary_request)
         await ctx.respond(f"**Conversation Summary:**\n{summary}")
 
@@ -369,70 +426,86 @@ class ChatCommands(commands.Cog):
         name="search",
         description="Search the web for current information"
     )
-    async def search_slash(self, ctx, 
+    async def search_slash(self, ctx,
                          query: discord.Option(str, "What would you like to search for?"),
                          model: discord.Option(str, "AI model to use (optional)", required=False) = None):
         """Search the web for current information using AI."""
         await ctx.defer()
-        
+
         # Get the channel ID and set the model
         channel_id = str(ctx.channel.id)
-        
-        # Store current model to restore later
-        current_model = self.openrouter_client.model
-        
-        # Use provided model or the effective model for this channel
-        model_to_use = model if model else self.state.get_effective_model(channel_id)
-        self.openrouter_client.model = model_to_use
-        
+
+        # Determine provider and model
+        model_id_full = model if model else self.state.get_effective_model(channel_id)
+
+        # Parse provider and model name
+        try:
+            provider, model_name = model_id_full.split('/', 1)
+        except ValueError:
+            logger.warning(f"Invalid model format '{model_id_full}' for search command. Defaulting to OpenRouter.")
+            provider = self.state.global_provider
+            model_name = model_id_full
+            model_id_full = f"{provider}/{model_name}"
+
+        # Select the appropriate client (primarily for web search capability check)
+        client_to_use = self.clients.get(provider)
+        logger.info(f"Search using provider '{provider}' and model '{model_name}' (resolved from '{model_id_full}')")
+
+        # Check if the selected client supports web search (currently only OpenRouter does)
+        web_search_supported = provider == "openrouter" and client_to_use and hasattr(client_to_use, 'send_message_with_history')
+        if not web_search_supported:
+             await ctx.respond(f"⚠️ Provider '{provider}' does not support the web search command.")
+             return
+
         try:
             # Create a thinking message
             processing_msg = await ctx.respond(f"🔍 Searching for information about: **{query}**...")
-            
+
             # Prepare the user message
             user_message = {
                 "role": "user",
                 "content": query
             }
-            
+
             # Get channel-specific system prompt if it exists
             channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
-            
+
             # Add a search-focused wrapper to the system prompt
             search_system_prompt = channel_system_prompt
             if search_system_prompt:
                 search_system_prompt += "\n\nYou have access to web search. When answering, use the most current information available from searching the web."
             else:
                 search_system_prompt = "You are a helpful AI assistant with access to web search. When answering questions, use the most current information available from searching the web. Always cite your sources."
-            
-            # Send to AI with web search enabled
-            response = await self.openrouter_client.send_message_with_history(
+
+            # Send to the OpenRouter client (as only it supports web_search flag currently)
+            response = await client_to_use.send_message_with_history(
                 messages=[user_message],
+                model=model_name, # Pass only model name
                 system_prompt=search_system_prompt,
-                web_search=True  # Enable web search
+                web_search=True # Enable web search
             )
-            
+
             # Check if response is an error
             if response.startswith("⚠️"):
                 # If it's an error, don't format and just show the error
                 await processing_msg.edit(content=response)
             else:
                 # Format responses from models that use citations as paginated embeds
-                if self.should_format_citations(model_to_use, response):
-                    print(f"Formatting search response from {model_to_use} with citations")
+                if self.should_format_citations(model_id_full, response): # Use full ID for citation check
+                    logger.info(f"Formatting search response from {model_id_full} with citations")
                     embeds = self.format_perplexity_response(response)
-                    
+
                     # Customize the first embed for search results
                     if embeds:
                         embeds[0].title = f"🔍 Search Results: {query}"
-                        embeds[0].set_footer(text=f"Using {model_to_use} • Web search enabled")
-                        
+                        embeds[0].set_footer(text=f"Using {model_id_full} • Web search enabled") # Show full ID
+
                         # Send the first embed by editing the processing message
                         await processing_msg.edit(content=None, embed=embeds[0])
-                        
+
                         # Send additional embeds if there are more than one
                         for embed in embeds[1:]:
-                            embed.set_footer(text=f"Using {model_to_use} • Web search enabled")
+                            embed.set_footer(text=f"Using {model_id_full} • Web search enabled") # Show full ID
                             await ctx.channel.send(embed=embed)
                 else:
                     # For non-citation models, use a single embed
@@ -441,15 +514,104 @@ class ChatCommands(commands.Cog):
                         description=response,
                         color=discord.Color.blue()
                     )
-                    embed.set_footer(text=f"Using {model_to_use} • Web search enabled")
+                    embed.set_footer(text=f"Using {model_id_full} • Web search enabled") # Show full ID
                     await processing_msg.edit(content=None, embed=embed)
-                    
+
         except Exception as e:
-            logger.error(f"Error in search command: {str(e)}", exc_info=True)
-            await processing_msg.edit(content=f"⚠️ Error: {str(e)}")
-        finally:
-            # Always restore the original model
-            self.openrouter_client.model = current_model
+            logger.error(f"Error in search command for provider '{provider}', model '{model_name}': {str(e)}", exc_info=True)
+            # Edit the original message if possible
+            try:
+                await processing_msg.edit(content=f"⚠️ Error during search: {str(e)}")
+            except discord.NotFound:
+                 await ctx.followup.send(f"⚠️ Error during search: {str(e)}", ephemeral=True)
+            except Exception as edit_e:
+                 logger.error(f"Failed to edit processing message for search error: {edit_e}")
+                 await ctx.followup.send(f"⚠️ Error during search: {str(e)}", ephemeral=True)
+        # Removed finally block that restored openrouter_client.model
+
+    @discord.slash_command(
+        name="setprovider",
+        description="Set the AI provider for this channel"
+    )
+    async def setprovider_slash(self, ctx):
+        """Set the AI provider for this channel with interactive selection."""
+        await ctx.defer(ephemeral=True)
+
+        try:
+            # Get available providers
+            providers = await self.state.model_manager.get_providers()
+            if not providers:
+                await ctx.respond("⚠️ No AI providers available")
+                return
+
+            # Create select menu with provider options
+            select = discord.ui.Select(
+                placeholder="Choose a provider...",
+                options=[
+                    discord.SelectOption(
+                        label=provider.capitalize(),
+                        value=provider
+                    ) for provider in providers
+                ]
+            )
+
+            # Create view to hold the select menu
+            view = discord.ui.View()
+            view.add_item(select)
+
+            # Function to handle the selection
+            async def on_select(interaction):
+                if interaction.user != ctx.author:
+                    await interaction.response.send_message("You didn't initiate this command!", ephemeral=True)
+                    return
+
+                selected_provider = select.values[0]
+                await self.state.set_channel_provider(str(ctx.channel.id), selected_provider)
+                await interaction.response.edit_message(
+                    content=f"✅ Provider set to {selected_provider.capitalize()}",
+                    view=None
+                )
+
+            select.callback = on_select
+
+            # Send the select menu
+            await ctx.followup.send(
+                "Select an AI provider for this channel:",
+                view=view,
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logger.error(f"Error in setprovider command: {str(e)}", exc_info=True)
+            await ctx.followup.send(
+                f"⚠️ Error setting provider: {str(e)}",
+                ephemeral=True
+            )
 
 def setup(bot):
-    bot.add_cog(ChatCommands(bot))
+    # Pass the required client instances from the bot object
+    logger.info("Setting up ChatCommands cog...")
+    openrouter_client = getattr(bot, 'openrouter_client', None)
+    openai_client = getattr(bot, 'openai_client', None)
+    ai_horde_client = getattr(bot, 'ai_horde_client', None)
+
+    # Check if essential clients are available
+    if not openrouter_client:
+        logger.error("OpenRouter client not found on bot object. Cannot load ChatCommands cog.")
+        # Optionally raise an exception to clearly indicate failure
+        # raise TypeError("OpenRouter client is required for ChatCommands cog.")
+        return # Prevent loading if essential client is missing
+
+    # Log if optional clients are missing (they might be None if API keys are missing)
+    if not openai_client:
+        logger.warning("OpenAI client not found or initialized. OpenAI provider unavailable in ChatCommands.")
+    if not ai_horde_client:
+        logger.warning("AI Horde client not found or initialized. AI Horde provider unavailable in ChatCommands.")
+
+    # Add the cog if essential clients are present
+    try:
+        cog_instance = ChatCommands(bot, openrouter_client, openai_client, ai_horde_client)
+        bot.add_cog(cog_instance)
+        logger.info("ChatCommands cog loaded successfully.")
+    except Exception as e:
+        logger.exception(f"Failed to initialize or add ChatCommands cog: {e}")

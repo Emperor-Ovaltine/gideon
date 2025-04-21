@@ -1,11 +1,15 @@
 import logging
 import asyncio
 from openai import AsyncOpenAI, OpenAIError
+from typing import Dict, Any, Optional, List # Added List import
 
 logger = logging.getLogger('openai_client')
 
 class OpenAIClient:
-    """Client for interacting with the OpenAI API, specifically for image generation."""
+    """Client for interacting with the OpenAI API for chat completions and image generation."""
+
+    # Known OpenAI models that support vision
+    VISION_MODELS = {"gpt-4o", "gpt-4-turbo", "gpt-4-turbo-2024-04-09"}
 
     def __init__(self, api_key: str):
         """
@@ -96,6 +100,103 @@ class OpenAIClient:
         except Exception as e:
             logger.exception(f"Unexpected error during OpenAI image generation: {e}")
             return {"success": False, "error": f"An unexpected error occurred: {str(e)}"}
+
+    def model_supports_vision(self, model_name: str) -> bool:
+        """Checks if the specified OpenAI model name supports vision."""
+        # Normalize model name if needed (e.g., remove preview suffixes if base model supports vision)
+        base_model = model_name.split('-preview')[0] # Basic normalization
+        return base_model in self.VISION_MODELS
+
+    async def send_message_with_history(self, messages: List[Dict[str, str]], model: str, system_prompt: Optional[str] = None, **kwargs) -> str:
+        """
+        Sends a message to the OpenAI Chat Completions API using conversation history.
+
+        Args:
+            messages: A list of message dictionaries, e.g., [{"role": "user", "content": "Hello"}, {"role": "assistant", "content": "Hi!"}].
+                      For vision models, content can be a list: [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}]
+            model: The specific OpenAI model to use (e.g., "gpt-4o", "gpt-3.5-turbo").
+            system_prompt: An optional system prompt to guide the AI.
+            **kwargs: Potential additional arguments, primarily 'images' for vision models.
+                      'images' should be a list of dicts: [{'data': bytes, 'type': 'image/jpeg'}]
+
+        Returns:
+            The text content of the AI's response, or a formatted error string starting with "⚠️ Error: ".
+        """
+        if not self.client:
+            return "⚠️ OpenAI Error: Client is not initialized (API key missing or invalid)."
+
+        api_messages = []
+
+        # Add system prompt if provided
+        if system_prompt:
+            api_messages.append({"role": "system", "content": system_prompt})
+
+        # Process images if provided and model supports vision
+        images_to_include = []
+        if self.model_supports_vision(model):
+            images_arg = kwargs.get('images', [])
+            if images_arg:
+                logger.info(f"Processing {len(images_arg)} image(s) for vision model {model}")
+                for img in images_arg:
+                    try:
+                        base64_image = base64.b64encode(img['data']).decode('utf-8')
+                        images_to_include.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{img['type']};base64,{base64_image}"}
+                        })
+                    except Exception as e:
+                        logger.error(f"Failed to encode image for OpenAI: {e}")
+                        return f"⚠️ OpenAI Error: Failed to process image data - {e}"
+
+        # Format conversation history
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content")
+            if not role or not content:
+                logger.warning(f"Skipping message with missing role or content: {msg}")
+                continue
+
+            # For the last user message, combine text and images if applicable
+            if role == "user" and msg == messages[-1] and images_to_include:
+                 # Content becomes a list for multimodal input
+                 user_content_list = [{"type": "text", "text": content}]
+                 user_content_list.extend(images_to_include)
+                 api_messages.append({"role": "user", "content": user_content_list})
+            else:
+                 # Standard text message
+                 api_messages.append({"role": role, "content": content})
+
+
+        logger.debug(f"Sending request to OpenAI model '{model}' with {len(api_messages)} messages.")
+        # logger.debug(f"API Messages Payload: {api_messages}") # Be careful logging potentially large payloads
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=api_messages,
+                # Add other parameters like temperature, max_tokens if needed later
+            )
+
+            if response.choices and response.choices[0].message:
+                ai_response = response.choices[0].message.content
+                logger.info(f"Received response from OpenAI model '{model}'")
+                return ai_response.strip() if ai_response else ""
+            else:
+                logger.error(f"OpenAI API returned no response choices for model '{model}'. Full response: {response}")
+                return f"⚠️ OpenAI Error: API returned an unexpected response structure."
+
+        except OpenAIError as e:
+            logger.error(f"OpenAI API error for model '{model}': {e}")
+            error_message = str(e)
+            if hasattr(e, 'message'):
+                error_message = e.message
+            elif hasattr(e, 'body') and e.body and 'message' in e.body:
+                 error_message = e.body['message']
+            return f"⚠️ OpenAI Error: {error_message}"
+        except Exception as e:
+            logger.exception(f"Unexpected error during OpenAI chat completion for model '{model}': {e}")
+            return f"⚠️ Error: An unexpected error occurred - {str(e)}"
+
 
 # Example usage (for testing purposes)
 async def main():

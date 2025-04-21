@@ -1,12 +1,15 @@
 """Configuration commands for the bot."""
 import discord
+import logging # Add logging import
 from discord.ext import commands, tasks # Import tasks
 from discord import Option
 from ..utils.state_manager import BotStateManager
 from ..utils.openrouter_client import OpenRouterClient
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
-from ..utils.model_sync import sync_models
+# Removed: from ..utils.model_sync import sync_models
 from ..utils.model_manager import get_model_choices
+
+logger = logging.getLogger(__name__) # Define logger
 
 class ConfigCommands(commands.Cog, name="ConfigCommands"):
     """Commands for bot configuration."""
@@ -18,13 +21,29 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
         self.openrouter_client = OpenRouterClient(OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL)
     
     async def model_autocomplete(self, ctx):
-        """Dynamic model autocomplete using ModelManager"""
+        """Dynamic model autocomplete using ModelManager, filtered by channel provider."""
         current_input = ctx.value.lower() if ctx.value else ""
-        all_models = await self.bot.model_manager.get_models()
+        # Access channel ID via interaction in autocomplete context
+        channel_id = str(ctx.interaction.channel_id)
+        
+        # Get the provider for the current channel
+        current_provider = self.state.get_channel_provider(channel_id)
+        
+        # Get models for the current channel's provider
+        model_ids = await self.bot.model_manager.get_models(current_provider)
+        
+        # Format models as provider/model_id for the autocomplete list
+        all_models_formatted = [f"{current_provider}/{model_id}" for model_id in model_ids]
+        
         if not current_input:
-            return all_models[:25]
-        matching_models = [model for model in all_models if current_input in model.lower()]
-        return matching_models[:25] or all_models[:25]
+            # Return first 25 formatted models
+            return all_models_formatted[:25]
+            
+        # Match against the full provider/model_id string
+        matching_models = [model for model in all_models_formatted if current_input in model.lower()]
+        
+        # If no matches, return the first 25 formatted models for the provider
+        return matching_models[:25] or all_models_formatted[:25]
 
     @discord.slash_command(
         name="setmodel",
@@ -40,7 +59,7 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
         try:
             # self.openrouter_client.model = model_name # This is handled by sync_models
             await self.state.set_global_model(model_name)
-            sync_models(self.bot)
+            # sync_models(self.bot) # Removed - state manager handles source of truth
             await ctx.respond(f"✅ Global model set to `{model_name}`")
         except ValueError as e:
             await ctx.respond(f"⚠️ Error: {e}")
@@ -61,9 +80,9 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
         if new_model:
             if ctx.author.guild_permissions.administrator:
                 try:
-                    # self.openrouter_client.model = new_model # Handled by sync_models
+                    # self.openrouter_client.model = new_model # Removed - state manager handles source of truth
                     await self.state.set_global_model(new_model)
-                    sync_models(self.bot)
+                    # sync_models(self.bot) # Removed - state manager handles source of truth
                     await ctx.respond(f"✅ Global model changed to: `{new_model}`")
                 except ValueError as e:
                     await ctx.respond(f"⚠️ Error: {e}")
@@ -80,7 +99,7 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
                 # If the saved/default model is somehow invalid, reset to the absolute default
                 current_model = DEFAULT_MODEL
                 await self.state.set_global_model(current_model) # This should always work if DEFAULT_MODEL is valid initially
-                sync_models(self.bot)
+                # sync_models(self.bot) # Removed - state manager handles source of truth
                 await ctx.followup.send(f"⚠️ Warning: Previous global model was invalid. Resetting to default: `{current_model}`")
 
             models = await self.bot.model_manager.get_models()
@@ -219,15 +238,153 @@ class ConfigCommands(commands.Cog, name="ConfigCommands"):
         else:
             await ctx.respond(f"ℹ️ This channel is already using the default system prompt.")
 
+
+    @discord.slash_command(
+        name="showsettings",
+        description="Show current global, channel, and thread AI configurations"
+    )
+    @commands.has_permissions(administrator=True)
+    async def show_settings_slash(self, ctx):
+        """Displays all current AI configuration overrides."""
+        await ctx.defer(ephemeral=True)
+
+        try:
+            # Global Settings
+            global_provider = self.state.global_provider
+            global_model = self.state.get_global_model() # Removed await
+
+            embed = discord.Embed(title="⚙️ Current AI Settings", color=discord.Color.blue())
+            embed.add_field(
+                name="🌍 Global Defaults",
+                value=f"**Provider:** `{global_provider}`\n**Model:** `{global_model}`",
+                inline=False
+            )
+
+            # Channel Overrides
+            channel_configs = self.state.get_all_channel_configs()
+            channel_text = ""
+            if channel_configs:
+                for config in channel_configs:
+                    channel_id = config['channel_id']
+                    provider = config.get('provider')
+                    model = config.get('model')
+                    prompt = config.get('system_prompt')
+                    channel_text += f"\n**<#{channel_id}>:**"
+                    if provider:
+                        channel_text += f"\n  Provider: `{provider}`"
+                    if model:
+                        channel_text += f"\n  Model: `{model}`"
+                    if prompt:
+                        prompt_short = (prompt[:75] + '...') if len(prompt) > 75 else prompt
+                        channel_text += f"\n  System Prompt: `\"{prompt_short}\"`"
+                    channel_text += "\n" # Add spacing
+            else:
+                channel_text = "No channel overrides set."
+
+            # Truncate if too long for embed field
+            if len(channel_text) > 1020:
+                channel_text = channel_text[:1020] + "\n... (list truncated)"
+            embed.add_field(name="🔧 Channel Overrides", value=channel_text, inline=False)
+
+            # Thread Overrides
+            thread_configs = self.state.get_all_thread_configs()
+            thread_text = ""
+            if thread_configs:
+                for config in thread_configs:
+                    thread_id = config['thread_id']
+                    thread_name = config.get('name', 'Unknown Name')
+                    model = config.get('model')
+                    prompt = config.get('system_prompt')
+                    # Try to make thread name clickable if possible (might not work reliably everywhere)
+                    thread_text += f"\n**<#{thread_id}> ({thread_name}):**"
+                    if model:
+                        thread_text += f"\n  Model: `{model}`"
+                    if prompt:
+                        prompt_short = (prompt[:75] + '...') if len(prompt) > 75 else prompt
+                        thread_text += f"\n  System Prompt: `\"{prompt_short}\"`"
+                    thread_text += "\n" # Add spacing
+            else:
+                thread_text = "No thread overrides set."
+
+            # Truncate if too long for embed field
+            if len(thread_text) > 1020:
+                thread_text = thread_text[:1020] + "\n... (list truncated)"
+            embed.add_field(name="🧵 Thread Overrides", value=thread_text, inline=False)
+
+            await ctx.respond(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in /showsettings: {e}", exc_info=True)
+            await ctx.respond(f"⚠️ An error occurred while fetching settings: {e}", ephemeral=True)
+
+
+    @discord.slash_command(
+        name="restoredefaults",
+        description="Restore all AI configurations to default (OpenRouter, default model)"
+    )
+    @commands.has_permissions(administrator=True)
+    async def restore_defaults_slash(self, ctx):
+        """Resets global, channel, and thread AI settings to application defaults."""
+        await ctx.defer(ephemeral=True)
+        try:
+            # Import DEFAULT_MODEL here to ensure it's fresh if config changes
+            from ..config import DEFAULT_MODEL
+
+            # 1. Reset Global Settings
+            await self.state.set_global_provider("openrouter")
+            await self.state.set_global_model(DEFAULT_MODEL)
+            logger.info(f"Global settings reset to provider 'openrouter', model '{DEFAULT_MODEL}' by {ctx.author}")
+
+            # 2. Reset Channel Overrides
+            channel_ids_to_reset = self.state.db_manager.get_all_configured_channel_ids()
+            channels_reset_count = 0
+            for channel_id in channel_ids_to_reset:
+                try:
+                    # reset_channel_config handles model, provider, and system prompt
+                    success = self.state.db_manager.reset_channel_config(channel_id)
+                    if success:
+                        channels_reset_count += 1
+                        logger.debug(f"Reset config for channel {channel_id}")
+                except Exception as e:
+                    logger.error(f"Error resetting channel {channel_id} config: {e}", exc_info=True)
+
+            # 3. Reset Thread Overrides
+            thread_ids_to_reset = self.state.db_manager.get_all_configured_thread_ids()
+            threads_reset_count = 0
+            for thread_id in thread_ids_to_reset:
+                try:
+                    # Reset model and system prompt individually for threads
+                    model_reset = self.state.db_manager.set_thread_model(thread_id, None)
+                    prompt_reset = self.state.db_manager.set_thread_system_prompt(thread_id, None)
+                    if model_reset or prompt_reset: # Count if either was actually changed (or existed)
+                        threads_reset_count += 1
+                        logger.debug(f"Reset config for thread {thread_id}")
+                except Exception as e:
+                    logger.error(f"Error resetting thread {thread_id} config: {e}", exc_info=True)
+
+            await ctx.respond(
+                f"✅ All configurations restored to defaults.\n"
+                f"Provider: `openrouter`\n"
+                f"Model: `{DEFAULT_MODEL}`\n"
+                f"Reset {channels_reset_count} channel configurations.\n"
+                f"Reset {threads_reset_count} thread configurations.",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logger.error(f"Error in /restoredefaults: {e}", exc_info=True)
+            await ctx.respond(f"⚠️ An error occurred while restoring defaults: {e}", ephemeral=True)
+
+
     @commands.slash_command(name="select_model", description="Select a model")
     async def select_model(self, ctx, model: Option(str, "Choose a model", autocomplete=model_autocomplete)):
         """Select a model from available options."""
         await ctx.defer() # Defer response as validation is now async
         if ctx.author.guild_permissions.administrator:
             try:
-                # self.openrouter_client.model = model # Handled by sync_models
+                # self.openrouter_client.model = model # Removed - state manager handles source of truth
                 await self.state.set_global_model(model)
-                sync_models(self.bot)
+                # sync_models(self.bot) # Removed - state manager handles source of truth
                 await ctx.respond(f"✅ Global model changed to: `{model}`")
             except ValueError as e:
                 await ctx.respond(f"⚠️ Error: {e}")

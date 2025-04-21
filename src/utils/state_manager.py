@@ -17,6 +17,7 @@ CONFIG_KEY_MAX_HISTORY = "max_channel_history"
 CONFIG_KEY_MAX_THREADS = "max_threads_per_channel" # Note: Not directly used by DB logic, maybe remove?
 CONFIG_KEY_TIME_WINDOW = "time_window_hours"
 CONFIG_KEY_GLOBAL_MODEL = "global_model"
+CONFIG_KEY_GLOBAL_PROVIDER = "global_provider"
 CONFIG_KEY_NEWS_FREQUENCY = "news_update_frequency"
 CONFIG_KEY_NEWS_BROADCAST = "news_broadcast_channel_id"
 CONFIG_KEY_SUMMARY_RETENTION_DAYS = "summary_retention_days" # New
@@ -53,6 +54,7 @@ class BotStateManager:
         # self.max_threads_per_channel = await self._load_or_set_config(CONFIG_KEY_MAX_THREADS, 10, 'int') # Keep or remove?
         self.time_window_hours = await self._load_or_set_config(CONFIG_KEY_TIME_WINDOW, 48, 'int')
         self.global_model = await self._load_or_set_config(CONFIG_KEY_GLOBAL_MODEL, CONFIG_DEFAULT_MODEL, 'string')
+        self.global_provider = await self._load_or_set_config(CONFIG_KEY_GLOBAL_PROVIDER, "openrouter", 'string')
         self.news_update_frequency = await self._load_or_set_config(CONFIG_KEY_NEWS_FREQUENCY, 6, 'int')
         self.news_broadcast_channel_id = await self._load_or_set_config(CONFIG_KEY_NEWS_BROADCAST, None, 'string') # Stored as string
         self.summary_retention_days = await self._load_or_set_config(CONFIG_KEY_SUMMARY_RETENTION_DAYS, 7, 'int') # New
@@ -340,49 +342,182 @@ class BotStateManager:
         return self.db_manager.reset_channel_config(str(channel_id)) # Resets both model and prompt
 
     def get_global_model(self) -> str:
-        """Gets the current global model, falling back to DB if cache not initialized."""
+        """Gets the current global model, ensuring provider/model format."""
         try:
-            # Try returning the cached value first
-            return self.global_model
+            # Return cached value if available
+            model = self.global_model
+            # Ensure provider/model format. Add 'openrouter/' only if no separator exists.
+            if "/" not in model and ":" not in model:
+                 logger.warning(f"Global model '{model}' lacks provider prefix. Assuming 'openrouter'.")
+                 model = f"openrouter/{model}"
+            # Convert ':' to '/' if necessary (handle older format)
+            elif ":" in model and "/" not in model:
+                 logger.warning(f"Global model '{model}' uses ':' separator. Converting to '/'.")
+                 model = model.replace(":", "/", 1)
+            return model
         except AttributeError:
-            # If self.global_model doesn't exist yet (initialization race condition)
+            # Fallback to DB if cache not initialized
             logger.warning("get_global_model called before state fully initialized. Fetching directly from DB.")
-            # Fallback to fetching directly from DB
-            return self.db_manager.get_global_config(CONFIG_KEY_GLOBAL_MODEL, CONFIG_DEFAULT_MODEL)
+            model = self.db_manager.get_global_config(CONFIG_KEY_GLOBAL_MODEL, CONFIG_DEFAULT_MODEL)
+            # Ensure provider/model format. Add 'openrouter/' only if no separator exists.
+            if "/" not in model and ":" not in model:
+                 logger.warning(f"DB Global model '{model}' lacks provider prefix. Assuming 'openrouter'.")
+                 model = f"openrouter/{model}"
+            # Convert ':' to '/' if necessary (handle older format)
+            elif ":" in model and "/" not in model:
+                 logger.warning(f"DB Global model '{model}' uses ':' separator. Converting to '/'.")
+                 model = model.replace(":", "/", 1)
+            return model
 
     async def set_global_model(self, model: str):
-        """Sets the global model after validation."""
+        """Sets the global model after validation (accepts provider:model or model format)."""
         if not self.model_manager:
             raise RuntimeError("ModelManager not set in BotStateManager")
 
-        is_valid = await self.model_manager.is_valid_model(model)
-        if not is_valid:
-            allowed_models = await self.model_manager.get_models(force_refresh=True)
-            allowed_str = ', '.join(allowed_models[:10]) + ('...' if len(allowed_models) > 10 else '')
-            raise ValueError(f"Model '{model}' not found in available models. Allowed: {allowed_str}")
+        try:
+            # Log the exact input string received by set_global_model
+            logger.info(f"set_global_model received model string: '{model}'")
+            # Parse and validate the model ID format
+            provider, model_name = self.model_manager.parse_model_id(model) # 'model' is the input e.g., "openai/gpt-4-turbo"
 
-        self.global_model = model
-        # Save to DB (synchronous DB call)
-        self.db_manager.set_global_config(CONFIG_KEY_GLOBAL_MODEL, model, 'string')
+            # Use the parsed provider and model_name to create the canonical ID in provider/model_name format
+            canonical_model_id = f"{provider}/{model_name}"
+
+            # Force refresh models for the parsed provider before validation
+            await self.model_manager.get_models(provider, force_refresh=True)
+
+            # Validate the canonical model ID (using the provider's list)
+            is_valid = await self.model_manager.is_valid_model(canonical_model_id) # is_valid_model should handle provider/model format
+            if not is_valid:
+                # Fetch models for the specific provider for the error message
+                provider_models = []
+                try:
+                    models = await self.model_manager.get_models(provider, force_refresh=False) # Use cache if possible
+                    # Use slash separator for error message formatting
+                    provider_models = [f"{provider}/{m}" for m in models]
+                except Exception as ex:
+                    logger.warning(f"Could not fetch models for provider {provider} for error message: {ex}")
+
+                allowed_str = ', '.join(provider_models[:10]) + ('...' if len(provider_models) > 10 else '')
+                # Use canonical_model_id in error message
+                raise ValueError(f"Model '{canonical_model_id}' not found or is invalid for provider '{provider}'. Allowed for {provider}: {allowed_str}")
+
+            # Store the validated, canonical model ID
+            self.global_model = canonical_model_id
+            # Save to DB (synchronous DB call)
+            self.db_manager.set_global_config(CONFIG_KEY_GLOBAL_MODEL, canonical_model_id, 'string')
+            logger.info(f"Global model set to: {canonical_model_id}")
+        except ValueError as e:
+            # Re-raise the ValueError with the original message
+            raise ValueError(str(e))
+
+    async def set_global_provider(self, provider: str):
+        """Sets the global AI provider."""
+        # Basic validation - could enhance later if needed
+        if not isinstance(provider, str) or not provider:
+            raise ValueError("Provider must be a non-empty string.")
+        self.global_provider = provider
+        await self._save_config(CONFIG_KEY_GLOBAL_PROVIDER, provider, 'string')
+        logger.info(f"Global provider set to: {provider}")
 
     async def set_channel_model(self, channel_id: str, model: Optional[str]):
-        """Sets a channel-specific model after validation."""
+        """Sets a channel-specific model after validation, storing in provider/model_name format."""
+        canonical_model_id = None # Default to None if model input is None
         if model is not None: # Allow setting back to None to use global
-             if not self.model_manager:
-                 raise RuntimeError("ModelManager not set in BotStateManager")
-             is_valid = await self.model_manager.is_valid_model(model)
-             if not is_valid:
-                 allowed_models = await self.model_manager.get_models(force_refresh=True)
-                 allowed_str = ', '.join(allowed_models[:10]) + ('...' if len(allowed_models) > 10 else '')
-                 raise ValueError(f"Model '{model}' not found in available models. Allowed: {allowed_str}")
+            if not self.model_manager:
+                raise RuntimeError("ProviderManager not set in BotStateManager")
 
+            # Parse and create canonical ID *inside* the if block
+            provider, model_name = self.model_manager.parse_model_id(model)
+            canonical_model_id = f"{provider}/{model_name}"
+
+            # Validate the canonical model ID (Correctly indented)
+            is_valid = await self.model_manager.is_valid_model(canonical_model_id)
+            if not is_valid:
+                # Fetch models for the specific provider for the error message (Correctly indented)
+                provider_models = []
+                try:
+                    models = await self.model_manager.get_models(provider, force_refresh=False) # Use cache if possible
+                    provider_models = [f"{provider}/{m}" for m in models]
+                except Exception as ex:
+                    logger.warning(f"Could not fetch models for provider {provider} for error message: {ex}")
+
+                allowed_str = ', '.join(provider_models[:10]) + ('...' if len(provider_models) > 10 else '')
+                raise ValueError(f"Model '{canonical_model_id}' not found or is invalid for provider '{provider}'. Allowed for {provider}: {allowed_str}")
+
+        # Save canonical ID (or None) to DB (synchronous DB call)
+        self.db_manager.set_channel_model(str(channel_id), canonical_model_id)
+        if canonical_model_id:
+            logger.info(f"Channel {channel_id} model set to: {canonical_model_id}")
+        else:
+            logger.info(f"Channel {channel_id} model reset to global default.")
+
+    async def set_channel_provider(self, channel_id: str, provider: str):
+        """Sets the AI provider for a specific channel and refreshes models."""
+        if not self.model_manager:
+            raise RuntimeError("ModelManager not set in BotStateManager")
+            
+        providers = await self.model_manager.get_providers()
+        if provider not in providers:
+            raise ValueError(f"Invalid provider '{provider}'. Available: {', '.join(providers)}")
+            
+        # Force refresh models for the new provider
+        if hasattr(self.model_manager, 'get_models') and callable(self.model_manager.get_models):
+            # Handle both ProviderManager and ModelManager cases
+            params = {}
+            if 'force_refresh' in self.model_manager.get_models.__code__.co_varnames:
+                params['force_refresh'] = True
+            if 'provider' in self.model_manager.get_models.__code__.co_varnames:
+                params['provider'] = provider
+            await self.model_manager.get_models(**params)
+            
         # Save to DB (synchronous DB call)
-        self.db_manager.set_channel_model(str(channel_id), model)
+        self.db_manager.set_channel_provider(str(channel_id), provider)
+
+    def get_channel_provider(self, channel_id: str) -> str:
+        """Gets the AI provider for a specific channel."""
+        provider = self.db_manager.get_channel_provider(str(channel_id))
+        return provider if provider is not None else self.global_provider
 
     def get_effective_model(self, channel_id: str) -> str:
-        """Gets the effective model (channel override or global default) from the database."""
+        """Gets the effective model (channel override or global default) in provider/model_name format."""
+        logger.debug(f"[get_effective_model] Checking channel ID: {channel_id}")
         channel_model = self.db_manager.get_channel_model(str(channel_id))
-        return channel_model if channel_model is not None else self.global_model
+        logger.debug(f"[get_effective_model] DB result for channel_model: {channel_model}")
+
+        model_to_return = None
+        source = "unknown" # Initialize source
+        if channel_model is not None:
+            model_to_return = channel_model
+            source = f"channel override ({channel_id})"
+            logger.debug(f"[get_effective_model] Using channel override: {model_to_return}")
+        else:
+            model_to_return = self.get_global_model() # get_global_model now ensures correct format
+            source = "global default"
+            logger.debug(f"[get_effective_model] Using global default: {model_to_return}")
+
+        logger.debug(f"[get_effective_model] Model before format check: {model_to_return} (Source: {source})")
+        # Final check for format consistency (handle potential old data from channel config)
+        if model_to_return and "/" not in model_to_return and ":" not in model_to_return:
+             logger.warning(f"Effective model '{model_to_return}' from {source} lacks provider prefix. Assuming 'openrouter'.")
+             model_to_return = f"openrouter/{model_to_return}"
+        elif model_to_return and ":" in model_to_return and "/" not in model_to_return:
+             logger.warning(f"Effective model '{model_to_return}' from {source} uses ':' separator. Converting to '/'.")
+             model_to_return = model_to_return.replace(":", "/", 1)
+        elif not model_to_return: # Should not happen if get_global_model has fallback
+             logger.error(f"Effective model resolution failed for channel {channel_id}. Falling back to absolute default.")
+             return CONFIG_DEFAULT_MODEL
+
+        logger.debug(f"[get_effective_model] Final effective model for channel {channel_id}: {model_to_return} (from {source})")
+        return model_to_return
+
+    def get_all_channel_configs(self) -> List[Dict[str, Any]]:
+        """Gets detailed configuration for all channels with overrides."""
+        return self.db_manager.get_all_channel_configs()
+
+    def get_all_thread_configs(self) -> List[Dict[str, Any]]:
+        """Gets detailed configuration for all threads with overrides."""
+        return self.db_manager.get_all_thread_configs()
 
     # --- News Feed Methods (Delegation) ---
 

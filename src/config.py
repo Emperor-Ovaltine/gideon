@@ -20,11 +20,11 @@ You are powered by the Openrouter API and have access to a variety of models to 
 """)
 
 # Get allowed models from environment (comma-separated string)
-allowed_models_str = os.getenv('ALLOWED_MODELS', "openai/gpt-4o-mini,openai/gpt-4o,anthropic/claude-3.7-sonnet,perplexity/sonar-pro,google/gemini-2.0-flash-exp:free")
-ALLOWED_MODELS = [model.strip() for model in allowed_models_str.split(',') if model.strip()]
+allowed_models_str = os.getenv('ALLOWED_MODELS', "openai:gpt-4o-mini,openai:gpt-4o,anthropic:claude-3.7-sonnet,perplexity:sonar-pro,google:gemini-2.0-flash-exp")
+ALLOWED_MODELS = [model.strip().replace('/', ':') for model in allowed_models_str.split(',') if model.strip()]
 
-# Default model to use
-DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'google/gemini-2.0-flash-exp:free')
+# Default model to use (must include provider in provider/model_name format)
+DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'google/gemini-2.0-flash-exp') # Use slash separator
 
 # Data storage configuration
 DATA_DIRECTORY = os.getenv("DATA_DIRECTORY", os.path.join(os.path.dirname(os.path.dirname(__file__)), "data"))

@@ -106,11 +106,17 @@ class OpenRouterClient:
                     break
                     
         # Prepare the request body
+        # Strip the "openrouter/" prefix if present, as the API expects the base model ID
+        api_model_name = model_to_use
+        if api_model_name.startswith("openrouter/"):
+            api_model_name = api_model_name.split("/", 1)[1]
+            logger.info(f"Using OpenRouter API model name: {api_model_name}")
+
         payload = {
-            "model": model_to_use,
+            "model": api_model_name, # Use the potentially stripped name
             "messages": conversation
         }
-        
+
         # Add web search parameter if enabled using the 'plugins' field
         if web_search:
             payload["plugins"] = [{"id": "web"}]

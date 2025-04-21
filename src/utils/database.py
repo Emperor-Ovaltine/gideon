@@ -84,6 +84,7 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS CHANNEL_CONFIG (
                 channel_id TEXT PRIMARY KEY,
                 model TEXT,
+                provider TEXT,
                 system_prompt TEXT,
                 FOREIGN KEY (channel_id) REFERENCES CHANNELS(channel_id) ON DELETE CASCADE
             );
@@ -201,6 +202,9 @@ class DatabaseManager:
                 # Add url and category columns to NEWS_FEEDS if they don't exist
                 self._add_column_if_not_exists(cursor, "NEWS_FEEDS", "url", "TEXT") # Removed UNIQUE constraint for compatibility
                 self._add_column_if_not_exists(cursor, "NEWS_FEEDS", "category", "TEXT")
+                
+                # Ensure provider column exists in CHANNEL_CONFIG
+                self._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "provider", "TEXT")
 
                 logger.info("Database schema migration checks complete.")
         except sqlite3.Error as e:
@@ -342,8 +346,8 @@ class DatabaseManager:
         sql_channel = "INSERT OR IGNORE INTO CHANNELS (channel_id, name) VALUES (?, ?);"
         # Ensure config row exists too, even if empty, to simplify updates
         sql_config = """
-        INSERT OR IGNORE INTO CHANNEL_CONFIG (channel_id, model, system_prompt)
-        VALUES (?, NULL, NULL);
+        INSERT OR IGNORE INTO CHANNEL_CONFIG (channel_id, model, provider, system_prompt)
+        VALUES (?, NULL, NULL, NULL);
         """
         try:
             with self._conn:
@@ -409,9 +413,36 @@ class DatabaseManager:
             logger.error(f"Error getting system prompt for channel '{channel_id}': {e}", exc_info=True)
             return None # Return None on error
 
+    def set_channel_provider(self, channel_id: str, provider: Optional[str]):
+        """Sets the AI provider for a channel."""
+        self._ensure_channel_exists(channel_id)
+        sql = """
+        UPDATE CHANNEL_CONFIG SET provider = ? WHERE channel_id = ?;
+        """
+        try:
+            with self._conn:
+                cursor = self._get_cursor()
+                cursor.execute(sql, (provider, channel_id))
+            logger.debug(f"Set provider for channel {channel_id} to {provider}")
+        except sqlite3.Error as e:
+            logger.error(f"Error setting provider for channel '{channel_id}': {e}", exc_info=True)
+            raise
+
+    def get_channel_provider(self, channel_id: str) -> Optional[str]:
+        """Gets the AI provider for a channel."""
+        sql = "SELECT provider FROM CHANNEL_CONFIG WHERE channel_id = ?;"
+        try:
+            cursor = self._get_cursor()
+            cursor.execute(sql, (channel_id,))
+            row = cursor.fetchone()
+            return row['provider'] if row else None
+        except sqlite3.Error as e:
+            logger.error(f"Error getting provider for channel '{channel_id}': {e}", exc_info=True)
+            return None
+
     def get_channel_config(self, channel_id: str) -> Optional[Dict[str, Optional[str]]]:
-        """Gets both model and system prompt for a channel."""
-        sql = "SELECT model, system_prompt FROM CHANNEL_CONFIG WHERE channel_id = ?;"
+        """Gets model, provider and system prompt for a channel."""
+        sql = "SELECT model, provider, system_prompt FROM CHANNEL_CONFIG WHERE channel_id = ?;"
         try:
             cursor = self._get_cursor()
             cursor.execute(sql, (channel_id,))
@@ -430,7 +461,7 @@ class DatabaseManager:
         # We update to NULL instead of deleting the row, as the row might be needed
         # by foreign key constraints (e.g., if messages reference it, though CASCADE should handle).
         # Keeping the row simplifies logic.
-        sql = "UPDATE CHANNEL_CONFIG SET model = NULL, system_prompt = NULL WHERE channel_id = ?;"
+        sql = "UPDATE CHANNEL_CONFIG SET model = NULL, provider = NULL, system_prompt = NULL WHERE channel_id = ?;"
         try:
             with self._conn:
                 cursor = self._get_cursor()
@@ -442,6 +473,37 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error(f"Error resetting config for channel '{channel_id}': {e}", exc_info=True)
             raise
+
+    def get_all_configured_channel_ids(self) -> List[str]:
+        """Gets IDs of channels with non-NULL model, provider, or system_prompt."""
+        sql = """
+        SELECT DISTINCT channel_id FROM CHANNEL_CONFIG
+        WHERE model IS NOT NULL OR provider IS NOT NULL OR system_prompt IS NOT NULL;
+        """
+        try:
+            cursor = self._get_cursor()
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+            return [row['channel_id'] for row in rows]
+        except sqlite3.Error as e:
+            logger.error(f"Error getting configured channel IDs: {e}", exc_info=True)
+            return []
+
+    def get_all_channel_configs(self) -> List[Dict[str, Any]]:
+        """Gets detailed configuration for all channels with overrides."""
+        sql = """
+        SELECT channel_id, model, provider, system_prompt
+        FROM CHANNEL_CONFIG
+        WHERE model IS NOT NULL OR provider IS NOT NULL OR system_prompt IS NOT NULL;
+        """
+        try:
+            cursor = self._get_cursor()
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            logger.error(f"Error getting all channel configs: {e}", exc_info=True)
+            return []
 
     # --- Thread Methods ---
 
@@ -604,6 +666,37 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.error(f"Error getting message count for thread '{thread_id}': {e}", exc_info=True)
             return -1 # Indicate error
+
+    def get_all_configured_thread_ids(self) -> List[str]:
+        """Gets IDs of threads with non-NULL model or system_prompt."""
+        sql = """
+        SELECT DISTINCT thread_id FROM THREADS
+        WHERE model IS NOT NULL OR system_prompt IS NOT NULL;
+        """
+        try:
+            cursor = self._get_cursor()
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+            return [row['thread_id'] for row in rows]
+        except sqlite3.Error as e:
+            logger.error(f"Error getting configured thread IDs: {e}", exc_info=True)
+            return []
+
+    def get_all_thread_configs(self) -> List[Dict[str, Any]]:
+        """Gets detailed configuration for all threads with overrides."""
+        sql = """
+        SELECT thread_id, channel_id, name, model, system_prompt
+        FROM THREADS
+        WHERE model IS NOT NULL OR system_prompt IS NOT NULL;
+        """
+        try:
+            cursor = self._get_cursor()
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            logger.error(f"Error getting all thread configs: {e}", exc_info=True)
+            return []
 
     # --- Message Methods ---
 

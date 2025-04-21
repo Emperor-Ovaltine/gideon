@@ -9,7 +9,7 @@ from datetime import datetime
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
 from ..utils.openrouter_client import OpenRouterClient
-from ..utils.model_sync import sync_models
+# Removed: from ..utils.model_sync import sync_models
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 
 class DiagnosticCommands(commands.Cog):
@@ -87,83 +87,38 @@ class DiagnosticCommands(commands.Cog):
                 value=f"`{self.state.channel_models[channel_id]}`",
                 inline=False
             )
-        
-        # Check if cogs have consistent model settings
-        embed.add_field(
-            name="Model Consistency Check",
-            value="Checking model consistency across cogs...",
-            inline=False
-        )
-        
-        # Send initial report
-        report_msg = await ctx.respond(embed=embed)
-        
-        # Check model consistency across cogs
-        consistent = True
-        inconsistencies = []
-        
-        for cog_name, cog in self.bot.cogs.items():
-            if hasattr(cog, 'openrouter_client'):
-                if cog.openrouter_client.model != global_model:
-                    consistent = False
-                    inconsistencies.append(f"- {cog_name}: `{cog.openrouter_client.model}`")
-        
-        # Update the embed with consistency results
-        embed.remove_field(-1)  # Remove the placeholder field
-        
-        if consistent:
-            embed.add_field(
-                name="Model Consistency Check",
-                value="✅ All cogs using the correct model",
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="Model Consistency Check",
-                value=f"❌ Model inconsistencies detected:\n{''.join(inconsistencies)}\nRunning sync to fix...",
-                inline=False
-            )
-            
-            # Fix inconsistencies
-            sync_models(self.bot)
-            
-            embed.add_field(
-                name="Model Sync",
-                value="✅ Models synchronized across all cogs",
-                inline=False
-            )
-        
-        # Update the message with the complete report
-        await report_msg.edit(embed=embed)
-    
-    @discord.slash_command(
-        name="syncmodels",
-        description="Synchronize model settings across all cogs"
-    )
-    @commands.has_permissions(administrator=True)
-    async def sync_models_slash(self, ctx):
-        await ctx.defer()
-        
-        # Run the synchronization
-        sync_models(self.bot)
-        
-        # Get the global model
-        global_model = self.state.get_global_model()
-        
-        # Create an embed for displaying results
-        embed = discord.Embed(
-            title="Model Synchronization",
-            description=f"✅ All cogs now using model: `{global_model}`",
-            color=discord.Color.green()
-        )
-        
-        await ctx.respond(embed=embed)
-    
-    @discord.slash_command(
+
+        # Removed model consistency check as it's no longer relevant
+        # with the new provider switching logic.
+
+        # Send the report
+        await ctx.respond(embed=embed) # Corrected indentation
+
+    # Removed /syncmodels command as it's obsolete
+   # @discord.slash_command(
+   #     name="syncmodels",
+   #     description="Synchronize model settings across all cogs"
+   # )
+   # @commands.has_permissions(administrator=True)
+   # async def sync_models_slash(self, ctx):
+   #     await ctx.defer()
+   #     # Run the synchronization
+   #     # sync_models(self.bot) # Removed call
+   #     # Get the global model
+   #     global_model = self.state.get_global_model()
+   #     # Create an embed for displaying results
+   #     embed = discord.Embed(
+   #         title="Model Synchronization",
+   #         description=f"✅ Model sync is no longer needed. Provider selection is handled dynamically.",
+   #         color=discord.Color.orange()
+   #     )
+   #     await ctx.respond(embed=embed)
+
+    @discord.slash_command( # Corrected indentation
         name="visionmodels",
         description="List all models that support image analysis"
     )
-    async def vision_models_slash(self, ctx):
+    async def vision_models_slash(self, ctx): # Corrected indentation
         await ctx.defer()
         
         # Directly get the list of vision model IDs

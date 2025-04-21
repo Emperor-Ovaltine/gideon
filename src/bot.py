@@ -10,8 +10,8 @@ import sys
 import traceback
 
 # Import configuration
-from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY
-from .utils.model_sync import sync_models
+from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY, OPENAI_API_KEY, AI_HORDE_API_KEY
+# Removed: from .utils.model_sync import sync_models
 from .utils.state_manager import BotStateManager
 
 # Configure logger
@@ -33,23 +33,44 @@ bot = commands.Bot(
     # debug_guilds=[123456789012345678]  # Replace with your test server ID(s)
 )
 
-# Properly import OpenRouterClient - direct import, no try/except
+# Properly import client classes and ProviderManager
 from .utils.openrouter_client import OpenRouterClient
-from .utils.model_manager import ModelManager
+from .utils.openai_client import OpenAIClient # Ensure this import is present
+from .utils.ai_horde_client import AIHordeClient # Ensure this import is present
+from .utils.model_manager import ProviderManager # Import ProviderManager
 
 
-# Initialize OpenRouter client
+# Initialize provider clients
 openrouter_client = OpenRouterClient(
     api_key=OPENROUTER_API_KEY,
     system_prompt=SYSTEM_PROMPT,
     default_model=DEFAULT_MODEL
 )
 
-# Create model manager
-model_manager = ModelManager(openrouter_client, DATA_DIRECTORY)
+# Initialize other clients (handle missing keys gracefully if needed)
+openai_client = None
+if OPENAI_API_KEY:
+    openai_client = OpenAIClient(api_key=OPENAI_API_KEY)
+    logger.info("OpenAI client initialized.")
+else:
+    logger.warning("OPENAI_API_KEY not found. OpenAI provider will not be available.")
 
-# Add to bot context or cogs as needed
-bot.model_manager = model_manager
+ai_horde_client = None
+if AI_HORDE_API_KEY:
+    ai_horde_client = AIHordeClient(api_key=AI_HORDE_API_KEY)
+    logger.info("AI Horde client initialized.")
+else:
+    logger.warning("AI_HORDE_API_KEY not found. AI Horde provider will not be available.")
+
+
+# Create provider manager with all clients
+provider_manager = ProviderManager(openrouter_client, openai_client, ai_horde_client, DATA_DIRECTORY)
+
+# Add manager and individual clients to bot context
+bot.model_manager = provider_manager # Use provider_manager here (already ProviderManager)
+bot.openrouter_client = openrouter_client
+bot.openai_client = openai_client
+bot.ai_horde_client = ai_horde_client
 
 @bot.event
 async def on_ready():
@@ -147,10 +168,9 @@ async def on_ready():
 
     print("Slash commands are now registered. They may take up to an hour to appear across all servers.")
 
-    # Synchronize model settings across all cogs
-    sync_models(bot)
-
-    print('Model synchronization complete')
+    # Removed model synchronization call - handled by state manager and client selection now
+    # sync_models(bot)
+    # print('Model synchronization complete') # Removed log
 
     # Check if ConfigCommands cog is loaded before accessing it
     if "ConfigCommands" in bot.cogs:
@@ -161,8 +181,16 @@ async def on_ready():
         print(f'Using default model: {DEFAULT_MODEL}')
 
 
-    # Load models (will use cached data if available)
-    await bot.model_manager.get_models()
+    # Load models for the global provider (will use cached data if available)
+    # Ensure state_manager is available before accessing it
+    if hasattr(bot, 'state_manager'):
+        # Access the global_provider attribute directly
+        global_provider = bot.state_manager.global_provider
+        await bot.model_manager.get_models(global_provider)
+        logger.info(f"Loaded models for global provider: {global_provider}")
+    else:
+        logger.warning("State manager not available, skipping initial model load.")
+
     logger.info(f"Logged in as {bot.user.name}")
 
     # Start background tasks after everything is ready
