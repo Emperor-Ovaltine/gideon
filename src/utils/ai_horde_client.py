@@ -149,10 +149,23 @@ class AIHordeClient:
                         logger.error(f"Failed to get models: ({response.status}) {error_text}")
                         return {"error": f"API Error ({response.status}): {error_text}"}
                     
-                    return await response.json()
+                    raw_models_list = await response.json()
+                    # Transform the list: AI Horde uses 'name', model_manager expects 'id'
+                    formatted_models = []
+                    if isinstance(raw_models_list, list):
+                        for model_data in raw_models_list:
+                            # Transform the list: AI Horde uses 'name', model_manager expects 'id'
+                            if isinstance(model_data, dict) and "name" in model_data:
+                                formatted_models.append({"id": model_data["name"]}) # Create dict with 'id' key
+                            else:
+                                logger.warning(f"Skipping unexpected model data format: {model_data}")
+                    else:
+                         logger.error(f"AI Horde /status/models did not return a list: {type(raw_models_list)}")
+
+                    return {"success": True, "models": formatted_models}
         except Exception as e:
             logger.error(f"Error getting models: {str(e)}")
-            return {"error": f"Error getting models: {str(e)}"}
+            return {"success": False, "error": f"Error getting models: {str(e)}"}
 
     def model_supports_vision(self, model_name: str) -> bool:
         """Checks if the specified AI Horde model name supports vision."""
