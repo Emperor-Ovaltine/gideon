@@ -14,7 +14,7 @@ class ProviderManager:
         self.providers = {
             "openrouter": openrouter_client,
             "openai": openai_client,
-            "ai_horde": ai_horde_client
+            # "ai_horde": ai_horde_client
         }
         self.cache_file = os.path.join(data_directory, "models_cache.json")
         self.models_data = None
