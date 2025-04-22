@@ -313,10 +313,6 @@ Customize bot settings globally or per channel/thread. These settings are persis
 *   `/setmemory <limit>`: (Admin) Sets the maximum number of messages to remember per channel/thread for conversation history. Older messages beyond this limit are pruned.
 *   `/setwindow <hours>`: (Admin) Sets the time window (in hours) for remembering messages. Messages older than this time window are pruned, regardless of the message limit.
 
-### Diagnostic Commands
-
-*   `/ping`: Checks the bot's latency to the Discord API and provides the response time.
-
 ### Troubleshooting Common Issues
 
 *   **Bot is offline:**
@@ -419,7 +415,6 @@ gideon/
 ├── .env.example            # Template for environment variables
 ├── requirements.txt        # Project dependencies
 ├── documentation.md        # This documentation file
-├── documentation_outline.md # The outline used for this document
 ├── documentation_plan.md   # The plan for this document
 ├── LICENSE                 # Project license
 ├── README.md               # Project README
