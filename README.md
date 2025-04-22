@@ -108,7 +108,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 </p>
 
 
-### 🎲 Fantasy Game Master
+### 🎲 Adventure System
 - **Interactive Adventures** - Create and explore AI-driven tabletop RPG campaigns
 - **Multiple Settings** - Choose from Fantasy, Sci-Fi, Horror, Modern, or Custom worlds
 - **Dice Rolling** - Integrated dice mechanics with automatic result narration
@@ -258,6 +258,11 @@ If you want to use OpenAI's DALL-E models for image generation:
 | `/summarize` | Summarize the current conversation history |
 | `/memory` | Show conversation statistics (message count, history window) |
 
+### URL Commands
+| Command | Description |
+|:-------:|:------------|
+| `/summarizeurl` | Fetch and summarize the content of a given URL |
+
 ### News Feed Commands
 | Command | Description | Permissions |
 |:-------:|:------------|:------------|
@@ -295,11 +300,12 @@ Gideon leverages Discord's native thread system to organize conversations and cr
 ### Configuration Commands
 | Command | Description | Permissions |
 |:-------:|:------------|:------------|
-| `/setmodel` | Change the default AI model for the server | Admin |
-| `/model` | View or change the current model for the channel/thread | All Users |
-| `/setsystem` | Customize the default AI personality (system prompt) | Admin |
-| `/setchannelmodel` | Set the AI model for the current channel | Admin |
-| `/setchannelsystem` | Set the system prompt for the current channel | Admin |
+| `/setprovider` | Set the global default AI provider for chat | Admin |
+| `/setmodel` | Set the default AI model for the *current channel* | All Users |
+| `/model` | View the current model/provider for the channel/thread | All Users |
+| `/setsystem` | Set the system prompt for the *current channel* | All Users |
+| `/setchannelmodel` | Set the AI model for a *specific channel* | Admin |
+| `/setchannelsystem` | Set the system prompt for a *specific channel* | Admin |
 | `/setmemory` | Set the message history limit (max messages) | Admin |
 | `/setwindow` | Set the time window for memory (in hours) | Admin |
 
@@ -403,14 +409,32 @@ Each adventure is channel-specific and uses the channel's configured AI model un
 
 ## ❓ Troubleshooting
 
-- **Connection Issues**: Run `/diagnostic` to check network connectivity to Discord and APIs.
-- **Missing Commands**: Ensure the bot has `applications.commands` scope and necessary permissions (Send Messages, Read History, Embed Links, Manage Threads). Try re-inviting if needed. Use `/sync` (owner only) as a last resort.
-- **Model Problems**: Some models require OpenRouter credits - check your account balance. Ensure the model ID used is correct.
-- **State Issues**: Check logs for errors related to database operations. Ensure the `DATA_DIRECTORY` (Python) or Docker volume mount is writable and contains the `gideon.db` file (or the configured database file). The bot automatically saves state to the database periodically and on shutdown.
-- **Image Generation Issues**: If `/imagine` fails, try smaller dimensions (e.g., 512x512), fewer steps, or a different model via `/hordemodels`. Check AI Horde status.
-- **Cloudflare Worker Issues**: Use `/cftest` (Admin) to diagnose connectivity. Verify your `CLOUDFLARE_WORKER_URL` and `CLOUDFLARE_API_KEY` in `.env` are correct and your worker is running.
-- **Adventure Issues**: If an adventure gets stuck or unresponsive, try ending it with `/adventure end` and starting a new one. Check logs for errors.
-- **News Feed Issues**: Use `/feedstatus` to check configuration. Use `/feedupdate force_refresh:True` (Admin) to test fetching. Check logs for feed parsing or summarization errors.
+*   **Bot Offline/Unresponsive:**
+    *   **Python:** Check if the `python src/__main__.py` process is running. Check console logs for startup errors.
+    *   **Docker:** Check container status (`docker ps`). Check container logs (`docker-compose logs -f` or `docker logs <container_id>`).
+    *   Verify `DISCORD_TOKEN` in `.env` is correct.
+    *   Ensure the bot has necessary permissions (`Send Messages`, `Read History`, `Use Slash Commands`, etc.) in the server. Discord might take time to register commands after startup.
+*   **Commands Not Working:**
+    *   **Permissions:** Ensure you have the required permissions (e.g., Admin for config commands).
+    *   **API Keys:** Verify API keys (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `AI_HORDE_API_KEY`, `CLOUDFLARE_API_KEY`) in `.env` are correct for the features you're using. Check `/model` for the active chat provider. Check `/dream manage view_config` for the active image provider.
+    *   **Provider Issues:** Check the status of external services (OpenRouter, OpenAI, AI Horde). Check your account balance/credits if applicable.
+    *   **Logs:** Check the bot's console/container logs for specific error messages from the API or internal processes.
+*   **Image Generation (`/dream`) Failures:**
+    *   Verify provider configuration (`/dream manage view_config`) and API keys/URLs in `.env`.
+    *   Ensure the bot has `Attach Files` and `Embed Links` permissions.
+    *   Try simpler prompts, different models, or smaller dimensions/fewer steps via `/dream configure`.
+    *   Check AI Horde status/kudos if using that provider.
+    *   If using Cloudflare, ensure your worker is deployed and running correctly.
+*   **News Feed Issues:**
+    *   Check `/feedstatus`. Use `/feedupdate force_refresh:True` (Admin) to test fetching.
+    *   Verify feed URLs are valid and accessible.
+    *   Check logs for parsing or summarization errors (often related to API key issues for the summarization model).
+*   **Adventure System Issues:**
+    *   If stuck, try `/adventure end` and start a new one.
+    *   Check logs for errors during narrative generation or image generation (if enabled).
+*   **Database/State Issues:**
+    *   Ensure the `DATA_DIRECTORY` path (Python) or Docker volume mount (`./gideon_data:/app/data` in `docker-compose.yml`) is correct and writable by the bot process.
+    *   Check logs for SQLite errors (e.g., "database is locked", "unable to open database file").
 
 ## 📖 Documentation
 
