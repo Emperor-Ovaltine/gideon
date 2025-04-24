@@ -62,11 +62,32 @@ class ThreadCommands(commands.Cog):
              logger.warning("ModelManager not set in StateManager for autocomplete.")
              return [] # Return empty if ModelManager isn't ready
 
-        all_models = await self.state.model_manager.get_models()
+        # Determine the provider for the current context
+        try:
+            # Use interaction.channel_id for AutocompleteContext
+            channel_id = str(ctx.interaction.channel_id)
+            provider = self.state.get_channel_provider(channel_id)
+            logger.debug(f"Autocomplete using provider '{provider}' for channel {channel_id}")
+            all_models = await self.state.model_manager.get_models(provider=provider)
+        except Exception as e:
+            logger.error(f"Error getting models for autocomplete in channel {ctx.interaction.channel_id}: {e}", exc_info=True) # Also update here
+            return [] # Return empty on error
+
+        # Format models with provider prefix for consistency
+        formatted_models = [f"{provider}/{model}" for model in all_models]
+
         if not current_input:
-            return all_models[:25]
-        matching_models = [model for model in all_models if current_input in model.lower()]
-        return matching_models[:25] or all_models[:25]
+            # Return formatted models
+            return formatted_models[:25]
+        
+        # Filter formatted models based on input (which might include the prefix or not)
+        matching_models = [
+            fm for fm in formatted_models
+            if current_input in fm.lower() # Check against the full provider/model string
+        ]
+        
+        # Return matching formatted models, or the first 25 formatted models if no match
+        return matching_models[:25] or formatted_models[:25]
 
     def get_model_for_channel(self, channel_id):
         """Get the appropriate model for this channel"""
@@ -392,8 +413,8 @@ class ThreadCommands(commands.Cog):
         thread_id = str(ctx.channel.id)
 
         try:
-            # Use the state manager's method which includes validation
-            await self.state.set_discord_thread_model(thread_id, model_name)
+            # Use the state manager's method which includes validation (synchronous call)
+            self.state.set_discord_thread_model(thread_id, model_name)
             await ctx.respond(f"✅ Model for this thread set to `{model_name}`")
 
         except ValueError as e:
