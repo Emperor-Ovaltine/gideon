@@ -11,6 +11,7 @@ from .channel_manager import ChannelManager
 from .thread_manager import ThreadManager
 from .message_manager import MessageManager
 from .user_manager import UserManager
+from .reminder_manager import ReminderManager
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class DatabaseManager:
             self._threads = ThreadManager(self._conn)
             self._messages = MessageManager(self._conn)
             self._users = UserManager(self._conn)
+            self._reminders = ReminderManager(self._conn)
 
         except sqlite3.Error as e:
             logger.error(f"Database connection error to {self.db_path}: {e}", exc_info=True)
@@ -216,6 +218,35 @@ class DatabaseManager:
     def get_user_preferences(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Gets the preferences JSON for a user."""
         return self._users.get_user_preferences(user_id)
+
+    # --- Reminder Methods (delegate to ReminderManager) ---
+
+    def add_reminder(self, user_id: str, channel_id: str, message: str,
+                     due_timestamp: datetime) -> int:
+        """Adds a new reminder to the database."""
+        # Ensure parent channel exists
+        self._ensure_channel_exists(channel_id)
+        return self._reminders.add_reminder(user_id, channel_id, message, due_timestamp)
+
+    def get_due_reminders(self, current_time: datetime) -> List[Dict[str, Any]]:
+        """Gets reminders that are due."""
+        return self._reminders.get_due_reminders(current_time)
+
+    def mark_reminder_sent(self, reminder_id: int) -> bool:
+        """Marks a reminder as sent."""
+        return self._reminders.mark_reminder_sent(reminder_id)
+
+    def get_user_reminders(self, user_id: str, include_sent: bool = False) -> List[Dict[str, Any]]:
+        """Gets reminders for a specific user."""
+        return self._reminders.get_user_reminders(user_id, include_sent)
+
+    def delete_reminder(self, reminder_id: int, user_id: str) -> bool:
+        """Deletes a reminder by ID."""
+        return self._reminders.delete_reminder(reminder_id, user_id)
+
+    def prune_old_reminders(self, cutoff_timestamp: datetime) -> int:
+        """Deletes sent reminders older than cutoff."""
+        return self._reminders.prune_old_reminders(cutoff_timestamp)
 
     # Note: The following methods were removed as they were part of the news feed system:
     # - All news feed management methods

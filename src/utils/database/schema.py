@@ -59,6 +59,18 @@ class SchemaManager:
             user_id TEXT PRIMARY KEY,
             preferences_json TEXT
         );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS REMINDERS (
+            reminder_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            message TEXT NOT NULL,
+            due_timestamp DATETIME NOT NULL,
+            created_at DATETIME NOT NULL,
+            sent BOOLEAN NOT NULL DEFAULT 0,
+            FOREIGN KEY (channel_id) REFERENCES CHANNELS(channel_id) ON DELETE CASCADE
+        );
         """
     ]
 
@@ -66,7 +78,10 @@ class SchemaManager:
     INDEXES = [
         """CREATE INDEX IF NOT EXISTS idx_messages_channel_timestamp ON MESSAGES (channel_id, timestamp);""",
         """CREATE INDEX IF NOT EXISTS idx_messages_thread_timestamp ON MESSAGES (thread_id, timestamp);""",
-        """CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON MESSAGES (timestamp);"""
+        """CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON MESSAGES (timestamp);""",
+        """CREATE INDEX IF NOT EXISTS idx_reminders_due_timestamp ON REMINDERS (due_timestamp);""",
+        """CREATE INDEX IF NOT EXISTS idx_reminders_sent ON REMINDERS (sent);""",
+        """CREATE INDEX IF NOT EXISTS idx_reminders_user_id ON REMINDERS (user_id);"""
     ]
 
     @staticmethod

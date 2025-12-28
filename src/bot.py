@@ -120,7 +120,8 @@ async def on_ready():
         # New grouped command cogs
         "src.cogs.settings_commands",
         "src.cogs.channel_commands",
-        "src.cogs.admin_commands"
+        "src.cogs.admin_commands",
+        "src.cogs.reminder_commands"
     ]
 
     for cog in cogs:
@@ -201,6 +202,15 @@ async def on_ready():
             print(f"Error starting pruning task: {e}", file=sys.stderr)
             traceback.print_exc()
 
+    # Start reminder checking task
+    if not check_reminders_task.is_running():
+        try:
+            check_reminders_task.start()
+            print("Started reminder checking task to run every minute.")
+        except Exception as e:
+            print(f"Error starting reminder task: {e}", file=sys.stderr)
+            traceback.print_exc()
+
     print('Ready to serve!')
 
 
@@ -233,6 +243,132 @@ async def before_prune_data_task():
 
 # Attach the task to the bot instance so cogs can access it
 bot.prune_data_task = prune_data_task
+
+@tasks.loop(minutes=1)
+async def check_reminders_task():
+    """Periodically checks for due reminders and sends them."""
+    if not bot.is_ready() or not hasattr(bot, 'state_manager'):
+        logger.debug("Reminder task: Bot not ready or state manager not available yet.")
+        return
+
+    logger.debug("Checking for due reminders...")
+    try:
+        state = bot.state_manager
+        current_time = datetime.now()
+
+        due_reminders = state.get_due_reminders(current_time)
+
+        if not due_reminders:
+            logger.debug("No due reminders found.")
+            return
+
+        logger.info(f"Found {len(due_reminders)} due reminder(s)")
+
+        for reminder in due_reminders:
+            reminder_id = reminder['reminder_id']
+            user_id = reminder['user_id']
+            channel_id = reminder['channel_id']
+            message = reminder['message']
+            due_timestamp = reminder['due_timestamp']
+
+            try:
+                channel = bot.get_channel(int(channel_id))
+
+                if channel is None:
+                    logger.warning(f"Channel {channel_id} not found for reminder {reminder_id}. Marking as sent.")
+                    state.mark_reminder_sent(reminder_id)
+                    continue
+
+                # Handle datetime conversion if stored as string
+                if isinstance(due_timestamp, str):
+                    try:
+                        due_timestamp = datetime.fromisoformat(due_timestamp)
+                    except ValueError:
+                        due_timestamp = datetime.strptime(due_timestamp, '%Y-%m-%d %H:%M:%S')
+
+                discord_timestamp = int(due_timestamp.timestamp())
+
+                # Get the effective model for this channel
+                model_id_full = state.get_effective_model(str(channel_id))
+                try:
+                    provider, model_name = model_id_full.split('/', 1)
+                except ValueError:
+                    provider = state.global_provider
+                    model_name = model_id_full
+
+                # Select the appropriate AI client
+                client_map = {
+                    "openrouter": bot.openrouter_client,
+                    "openai": bot.openai_client,
+                    "ai_horde": bot.ai_horde_client
+                }
+                client_to_use = client_map.get(provider)
+
+                if not client_to_use:
+                    logger.error(f"Client for provider '{provider}' not available for reminder {reminder_id}")
+                    # Fallback to simple message without AI
+                    await channel.send(
+                        content=f"<@{user_id}> ⏰ **Reminder:** {message}\n"
+                        f"_Originally set for <t:{discord_timestamp}:F>_"
+                    )
+                else:
+                    # Generate personalized reminder message using AI
+                    system_prompt = f"""You are Gideon, a helpful AI assistant. You are delivering a reminder to a user.
+Be conversational, friendly, and in-character. Keep it brief but personable."""
+
+                    user_prompt = f"""The user asked to be reminded about: "{message}"
+This reminder was set for <t:{discord_timestamp}:F>.
+
+Deliver this reminder in a friendly, conversational way. Keep it brief (2-3 sentences max).
+Make sure to include the reminder content clearly."""
+
+                    try:
+                        ai_response = await client_to_use.send_message_with_history(
+                            messages=[{"role": "user", "content": user_prompt}],
+                            model=model_name,
+                            system_prompt=system_prompt
+                        )
+
+                        # Send AI-generated reminder with user mention
+                        await channel.send(
+                            content=f"<@{user_id}> {ai_response}"
+                        )
+
+                    except Exception as ai_error:
+                        logger.error(f"AI error generating reminder message: {ai_error}")
+                        # Fallback to simple message
+                        await channel.send(
+                            content=f"<@{user_id}> ⏰ **Reminder:** {message}\n"
+                            f"_Originally set for <t:{discord_timestamp}:F>_"
+                        )
+
+                state.mark_reminder_sent(reminder_id)
+                logger.info(f"Sent reminder {reminder_id} to user {user_id} in channel {channel_id}")
+
+            except discord.Forbidden:
+                logger.warning(f"No permission to send reminder {reminder_id} in channel {channel_id}. Marking as sent.")
+                state.mark_reminder_sent(reminder_id)
+            except discord.HTTPException as e:
+                logger.error(f"Discord API error sending reminder {reminder_id}: {e}")
+                # Don't mark as sent - will retry next cycle
+            except Exception as e:
+                logger.error(f"Error sending reminder {reminder_id}: {e}", exc_info=True)
+                # Don't mark as sent - will retry next cycle
+
+    except Exception as e:
+        logger.error(f"Error during reminder check: {e}", exc_info=True)
+
+@check_reminders_task.before_loop
+async def before_check_reminders_task():
+    """Wait until the bot is ready before starting the reminder task."""
+    await bot.wait_until_ready()
+    while not hasattr(bot, 'state_manager'):
+        logger.debug("before_check_reminders_task: Waiting for state_manager...")
+        await asyncio.sleep(5)
+    logger.info("Reminder check task ready.")
+
+# Attach the task to the bot instance
+bot.check_reminders_task = check_reminders_task
 
 
 # --- Bot Commands ---

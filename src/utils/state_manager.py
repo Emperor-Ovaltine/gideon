@@ -238,18 +238,21 @@ class BotStateManager:
     # --- Pruning Method ---
 
     def prune_old_data(self) -> Dict[str, int]:
-        """Prunes old messages and threads from the database."""
+        """Prunes old messages, threads, and sent reminders from the database."""
         logger.info("Starting data pruning...")
         message_cutoff = datetime.now() - timedelta(hours=self.time_window_hours)
         thread_cutoff = datetime.now() - timedelta(days=14)
+        reminder_cutoff = datetime.now() - timedelta(days=30)
 
         try:
             messages_pruned = self.db_manager.prune_old_messages(message_cutoff)
             threads_pruned = self.db_manager.prune_old_threads(thread_cutoff)
+            reminders_pruned = self.db_manager.prune_old_reminders(reminder_cutoff)
 
             prune_stats = {
                 "messages_pruned": messages_pruned,
                 "threads_pruned": threads_pruned,
+                "reminders_pruned": reminders_pruned,
                 "channels_pruned": 0
             }
             logger.info(f"Pruning complete: {prune_stats}")
@@ -259,6 +262,7 @@ class BotStateManager:
             return {
                 "messages_pruned": 0,
                 "threads_pruned": 0,
+                "reminders_pruned": 0,
                 "channels_pruned": 0
             }
 
@@ -611,6 +615,34 @@ class BotStateManager:
         except sqlite3.Error as e:
             logger.error(f"Error getting thread count: {e}", exc_info=True)
             return -1
+
+    # --- Reminder Methods (Delegation) ---
+
+    def add_reminder(self, user_id: str, channel_id: str, message: str,
+                     due_timestamp: datetime) -> int:
+        """Adds a reminder to the database."""
+        return self.db_manager.add_reminder(
+            user_id=str(user_id),
+            channel_id=str(channel_id),
+            message=message,
+            due_timestamp=due_timestamp
+        )
+
+    def get_due_reminders(self, current_time: datetime) -> List[Dict[str, Any]]:
+        """Gets reminders that are due."""
+        return self.db_manager.get_due_reminders(current_time)
+
+    def mark_reminder_sent(self, reminder_id: int) -> bool:
+        """Marks a reminder as sent."""
+        return self.db_manager.mark_reminder_sent(reminder_id)
+
+    def get_user_reminders(self, user_id: str, include_sent: bool = False) -> List[Dict[str, Any]]:
+        """Gets reminders for a specific user."""
+        return self.db_manager.get_user_reminders(str(user_id), include_sent)
+
+    def delete_reminder(self, reminder_id: int, user_id: str) -> bool:
+        """Deletes a reminder by ID."""
+        return self.db_manager.delete_reminder(reminder_id, str(user_id))
 
     # def get_news_feeds_count(self) -> int:
     #     """Gets the count of configured news feeds."""
