@@ -246,29 +246,55 @@ If you want to use OpenAI's DALL-E models for image generation:
 |:-------:|:------------|
 | `/summarizeurl` | Fetch and summarize the content of a given URL |
 
+### Settings Commands (Admin)
+Manage global bot configuration settings.
+
+| Command | Description |
+|:-------:|:------------|
+| `/settings show` | View all current global settings |
+| `/settings model` | Set global AI model (format: provider/model) |
+| `/settings system` | Set global system prompt |
+| `/settings provider` | Set global AI provider (openrouter/openai) |
+| `/settings memory` | Set message history limit |
+| `/settings window` | Set time window for history (hours) |
+| `/settings restore` | Reset all settings to defaults |
+
+### Channel Commands (Admin)
+Configure channel-specific overrides for AI behavior.
+
+| Command | Description |
+|:-------:|:------------|
+| `/channel show` | View current channel settings |
+| `/channel model` | Set AI model for this channel |
+| `/channel system` | Set system prompt for this channel |
+| `/channel provider` | Set AI provider for this channel |
+| `/channel reset` | Clear all channel overrides |
+| `/channel list` | List all channels with custom settings |
+
 ### Thread Commands
 Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
+
 | Command | Description |
 |:-------:|:------------|
 | `/thread new` | Create a new AI conversation thread |
 | `/thread message` | Send a message to a specific thread |
 | `/thread list` | View all active AI threads in the channel |
-| `/thread delete` | Remove an AI thread and its history |
+| `/thread show` | View thread configuration settings |
+| `/thread model` | Set AI model for this thread |
+| `/thread system` | Set system prompt for this thread |
 | `/thread rename` | Change the name of an AI thread |
-| `/thread setmodel` | Set the AI model specifically for a thread |
-| `/thread setsystem` | Set the system prompt specifically for a thread |
+| `/thread delete` | Remove an AI thread and its history |
 
-### Configuration Commands
-| Command | Description | Permissions |
-|:-------:|:------------|:------------|
-| `/setprovider` | Set the global default AI provider for chat | Admin |
-| `/setmodel` | Set the default AI model for the *current channel* | All Users |
-| `/model` | View the current model/provider for the channel/thread | All Users |
-| `/setsystem` | Set the system prompt for the *current channel* | All Users |
-| `/setchannelmodel` | Set the AI model for a *specific channel* | Admin |
-| `/setchannelsystem` | Set the system prompt for a *specific channel* | Admin |
-| `/setmemory` | Set the message history limit (max messages) | Admin |
-| `/setwindow` | Set the time window for memory (in hours) | Admin |
+### Admin Commands
+Administrative tools and diagnostics (Admin/Owner only).
+
+| Command | Description |
+|:-------:|:------------|
+| `/admin sync` | Sync slash commands with Discord (Owner only) |
+| `/admin debug` | Show debug information |
+| `/admin state` | Display database state information |
+| `/admin diagnostic` | Run system diagnostics |
+| `/admin vision_models` | List all vision-capable AI models |
 
 ### Image Commands
 Gideon now uses a unified command for image generation with support for multiple backend providers.
@@ -308,24 +334,25 @@ gideon/
 │   ├── config.py           # Configuration loading (.env)
 │   ├── __main__.py         # Entry point for running the bot
 │   ├── cogs/               # Command modules (features)
-│   │   ├── chat_commands.py
-│   │   ├── cloudflare_image_commands.py
-│   │   ├── config_commands.py
-│   │   ├── diagnostic_commands.py
-│   │   ├── dungeon_master_commands.py
-│   │   ├── image_commands.py
-│   │   ├── mention_commands.py
-│   │   ├── news_feeds_commands.py
-│   │   ├── thread_commands.py
-│   │   └── url_commands.py
+│   │   ├── admin_commands.py        # Admin tools (/admin group)
+│   │   ├── channel_commands.py      # Channel settings (/channel group)
+│   │   ├── chat_commands.py         # AI chat commands (/chat, /reset, etc.)
+│   │   ├── config_commands.py       # Legacy commands (deprecated)
+│   │   ├── diagnostic_commands.py   # Diagnostic utilities
+│   │   ├── mention_commands.py      # Bot mention handling
+│   │   ├── settings_commands.py     # Global settings (/settings group)
+│   │   ├── thread_commands.py       # Thread management (/thread group)
+│   │   ├── unified_image_commands.py # Image generation (/dream)
+│   │   └── url_commands.py          # URL summarization
 │   └── utils/              # Utility classes and functions
-│       ├── openrouter_client.py  # API client for text models
-│       ├── ai_horde_client.py    # API client for AI Horde images
-│       ├── cloudflare_client.py  # API client for Cloudflare images
-│       ├── state_manager.py      # In-memory state management (uses database)
+│       ├── ai_horde_client.py    # API client for AI Horde
+│       ├── cloudflare_client.py  # API client for Cloudflare Worker
 │       ├── database.py           # SQLite database interactions
-│       ├── model_manager.py      # Handling model info
+│       ├── model_manager.py      # AI model management
+│       ├── openai_client.py      # API client for OpenAI
+│       ├── openrouter_client.py  # API client for OpenRouter
 │       ├── permissions.py        # Permission checks
+│       ├── state_manager.py      # Centralized state management
 │       └── ...
 ├── .env.example            # Environment variables template
 ├── Dockerfile              # For building the Docker image

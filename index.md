@@ -77,23 +77,6 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   <img src="assets/images/imagine-tea-screenshot.png" alt="imagine-queue" width="1200"/>
 </p>
 
-### 📰 News Feed Summaries
-- **RSS Feed Monitoring** - Add and manage RSS feeds by category (tech, world, finance, etc.)
-
-<p align="center">
-  <img src="assets/images/rss-feed1.png" alt="rss-feed-setup" width="1200"/>
-</p>
-
-- **AI Summarization** - Automatically summarize new articles using configured AI models
-
-<p align="center">
-  <img src="assets/images/rss-feed2.png" alt="rss-feed-summary" width="1200"/>
-</p>
-
-- **Channel Subscriptions** - Subscribe channels to specific news categories or all feeds
-- **Scheduled Updates** - Configure how often the bot checks for and posts news updates
-- **Manual Fetching** - Manually trigger news updates or fetch news on demand
-
 ### 🧵 Organization
 - **Conversation Threads** - Create dedicated topics with independent histories using Discord's native threads
 - **Auto-Responses** - Bot automatically responds to all messages in AI threads
@@ -120,13 +103,6 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   <img src="assets/images/url-summary-screenshot.png" alt="url-summary-demo" width="1200"/>
 </p>
 
-
-### 🎲 Fantasy Game Master
-- **Interactive Adventures** - Create and explore AI-driven tabletop RPG campaigns
-- **Multiple Settings** - Choose from Fantasy, Sci-Fi, Horror, Modern, or Custom worlds
-- **Dice Rolling** - Integrated dice mechanics with automatic result narration
-- **Campaign State Tracking** - Track progress and character actions throughout your adventure
-- **Automatic Scene Visualization** - Generate images of key moments in your adventure (requires Cloudflare Worker)
 
 ### 🛠️ Customization
 - **Model Switching** - Change AI models on-the-fly with simple commands
@@ -283,102 +259,6 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
   </tbody>
 </table>
 
-### News Feed Commands
-<table>
-  <thead>
-    <tr>
-      <th>Command</th>
-      <th>Description</th>
-      <th>Permissions</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>/addfeed</code></td>
-      <td>Add a new RSS feed to monitor</td>
-      <td>Admin</td>
-    </tr>
-    <tr>
-      <td><code>/removefeed</code></td>
-      <td>Remove an RSS feed</td>
-      <td>Admin</td>
-    </tr>
-    <tr>
-      <td><code>/listfeeds</code></td>
-      <td>List all configured RSS feeds</td>
-      <td>All Users</td>
-    </tr>
-    <tr>
-      <td><code>/subscribechannel</code></td>
-      <td>Subscribe the current channel to news categories</td>
-      <td>Admin</td>
-    </tr>
-    <tr>
-      <td><code>/unsubscribechannel</code></td>
-      <td>Unsubscribe the current channel from news updates</td>
-      <td>Admin</td>
-    </tr>
-    <tr>
-      <td><code>/feedupdate</code></td>
-      <td>Manually trigger an update for all feeds</td>
-      <td>Admin</td>
-    </tr>
-    <tr>
-      <td><code>/getnews</code></td>
-      <td>Fetch and display the latest news in the current channel</td>
-      <td>All Users</td>
-    </tr>
-    <tr>
-      <td><code>/setfeedfrequency</code></td>
-      <td>Set how often the bot checks for news (in hours)</td>
-      <td>Admin</td>
-    </tr>
-    <tr>
-      <td><code>/feedstatus</code></td>
-      <td>Show the status of news feeds and subscriptions</td>
-      <td>All Users</td>
-    </tr>
-    <tr>
-      <td><code>/newsdigest</code></td>
-      <td>Display the most recently generated AI news digest</td>
-      <td>All Users</td>
-          </tr>
-        </tbody>
-      </table>
-      
-### User Feed Commands
-<table>
-        <thead>
-          <tr>
-            <th>Command</th>
-            <th>Description</th>
-            <th>Permissions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>/myfeeds list</code></td>
-            <td>Show your saved personal RSS feeds</td>
-            <td>All Users</td>
-          </tr>
-          <tr>
-            <td><code>/myfeeds add</code></td>
-            <td>Add an RSS feed URL to your personal list</td>
-            <td>All Users</td>
-          </tr>
-          <tr>
-            <td><code>/myfeeds remove</code></td>
-            <td>Remove an RSS feed URL from your personal list</td>
-            <td>All Users</td>
-          </tr>
-          <tr>
-            <td><code>/mynews</code></td>
-            <td>Get a personalized news digest from your saved feeds</td>
-            <td>All Users</td>
-          </tr>
-        </tbody>
-      </table>
-
 ### Thread Commands
 Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
 <table>
@@ -410,17 +290,136 @@ Gideon leverages Discord's native thread system to organize conversations and cr
       <td>Change the name of an AI thread</td>
     </tr>
     <tr>
-      <td><code>/thread setmodel</code></td>
-      <td>Set the AI model specifically for a thread</td>
+      <td><code>/thread show</code></td>
+      <td>View thread configuration settings</td>
     </tr>
     <tr>
-      <td><code>/thread setsystem</code></td>
-      <td>Set the system prompt specifically for a thread</td>
+      <td><code>/thread model</code></td>
+      <td>Set the AI model for this thread</td>
+    </tr>
+    <tr>
+      <td><code>/thread system</code></td>
+      <td>Set the system prompt for this thread</td>
     </tr>
   </tbody>
 </table>
 
-### Configuration Commands
+### Settings Commands (Admin)
+Manage global bot configuration settings.
+
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/settings show</code></td>
+      <td>View all current global settings</td>
+    </tr>
+    <tr>
+      <td><code>/settings model</code></td>
+      <td>Set global AI model (format: provider/model)</td>
+    </tr>
+    <tr>
+      <td><code>/settings system</code></td>
+      <td>Set global system prompt</td>
+    </tr>
+    <tr>
+      <td><code>/settings provider</code></td>
+      <td>Set global AI provider (openrouter/openai)</td>
+    </tr>
+    <tr>
+      <td><code>/settings memory</code></td>
+      <td>Set message history limit</td>
+    </tr>
+    <tr>
+      <td><code>/settings window</code></td>
+      <td>Set time window for history (hours)</td>
+    </tr>
+    <tr>
+      <td><code>/settings restore</code></td>
+      <td>Reset all settings to defaults</td>
+    </tr>
+  </tbody>
+</table>
+
+### Channel Commands (Admin)
+Configure channel-specific overrides for AI behavior.
+
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/channel show</code></td>
+      <td>View current channel settings</td>
+    </tr>
+    <tr>
+      <td><code>/channel model</code></td>
+      <td>Set AI model for this channel</td>
+    </tr>
+    <tr>
+      <td><code>/channel system</code></td>
+      <td>Set system prompt for this channel</td>
+    </tr>
+    <tr>
+      <td><code>/channel provider</code></td>
+      <td>Set AI provider for this channel</td>
+    </tr>
+    <tr>
+      <td><code>/channel reset</code></td>
+      <td>Clear all channel overrides</td>
+    </tr>
+    <tr>
+      <td><code>/channel list</code></td>
+      <td>List all channels with custom settings</td>
+    </tr>
+  </tbody>
+</table>
+
+### Admin Commands
+Administrative tools and diagnostics (Admin/Owner only).
+
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/admin sync</code></td>
+      <td>Sync slash commands with Discord (Owner only)</td>
+    </tr>
+    <tr>
+      <td><code>/admin debug</code></td>
+      <td>Show debug information</td>
+    </tr>
+    <tr>
+      <td><code>/admin state</code></td>
+      <td>Display database state information</td>
+    </tr>
+    <tr>
+      <td><code>/admin diagnostic</code></td>
+      <td>Run system diagnostics</td>
+    </tr>
+    <tr>
+      <td><code>/admin vision_models</code></td>
+      <td>List all vision-capable AI models</td>
+    </tr>
+  </tbody>
+</table>
+
+### Configuration Commands (Deprecated)
+These commands are deprecated and will be removed in a future update. Please use the new grouped commands above.
 <table>
   <thead>
     <tr>
@@ -503,43 +502,6 @@ Gideon now uses a unified command for image generation with support for multiple
   </tbody>
 </table>
 
-### Adventure Commands
-<table>
-  <thead>
-    <tr>
-      <th>Command</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>/adventure new</code></td>
-      <td>Start a new tabletop RPG adventure (Fantasy, Sci-Fi, Horror, Modern, or Custom)</td>
-    </tr>
-    <tr>
-      <td><code>/adventure action</code></td>
-      <td>Describe the action you want to take in the adventure</td>
-    </tr>
-    <tr>
-      <td><code>/adventure roll</code></td>
-      <td>Roll dice (e.g., 1d20, 2d6, 3d8+2) with narrated results</td>
-    </tr>
-    <tr>
-      <td><code>/adventure status</code></td>
-      <td>Check the status of the current adventure</td>
-    </tr>
-    <tr>
-      <td><code>/adventure end</code></td>
-      <td>End the current adventure with summary</td>
-    </tr>
-    <tr>
-      <td><code>/adventure config_images</code></td>
-      <td>Configure frequency of scene image generation (requires Cloudflare Worker)</td>
-      <td>Admin</td>
-    </tr>
-  </tbody>
-</table>
-
 ## 📚 Supported Models
 
 ### Text Models (via OpenRouter)
@@ -559,43 +521,19 @@ Gideon now uses a unified command for image generation with support for multiple
 #### Via Cloudflare Worker (requires self-setup)
 - **Custom model implementation** - Your Cloudflare Worker can integrate any image generation model you choose (e.g., Stable Diffusion via Cloudflare's platform).
 
-## 🎲 Adventure System
-
-The Adventure System transforms Gideon into an AI Game Master for immersive tabletop roleplaying experiences:
-
-### Features
-- **AI-Powered Storytelling**: Dynamic narratives adapt to player actions
-- **Multiple Settings**: Fantasy worlds, sci-fi universes, horror scenarios, and more
-- **Persistent State**: Adventure progress is saved between sessions
-- **Integrated Dice System**: Roll dice with standard RPG notation (1d20, 2d6+3, etc.)
-- **Campaign Management**: Check status and track adventure progress
-- **Scene Visualization**: Automatically generate images of key moments (requires Cloudflare Worker)
-
-### Using the Adventure System
-1. Start an adventure with `/adventure new` (select a setting).
-2. Interact with the adventure by sending messages in the channel or using `/adventure action [your action]`.
-3. Roll dice when needed with `/adventure roll [dice notation]`.
-4. Check your progress with `/adventure status`.
-5. End your adventure when complete with `/adventure end`.
-6. Adjust image generation frequency with `/adventure config_images [frequency]` (0 to disable, requires Admin perms and Cloudflare Worker setup).
-
-Each adventure is channel-specific and uses the channel's configured AI model unless overridden.
-
 ## ❓ Troubleshooting
 
-- **Connection Issues**: Run `/diagnostic` to check network connectivity to Discord and APIs.
-- **Missing Commands**: Ensure the bot has `applications.commands` scope and necessary permissions (Send Messages, Read History, Embed Links, Manage Threads). Try re-inviting if needed. Use `/sync` (owner only) as a last resort.
-- **Model Problems**: Some models require OpenRouter credits - check your account balance. Ensure the model ID used is correct.
-- **State Issues**: Check logs for errors related to database operations. Ensure the `DATA_DIRECTORY` (Python) or Docker volume mount is writable and contains the `gideon.db` file (or the configured database file). The bot automatically saves state to the database periodically and on shutdown.
-- **Image Generation Issues**: If `/imagine` fails, try smaller dimensions (e.g., 512x512), fewer steps, or a different model via `/hordemodels`. Check AI Horde status.
-- **Cloudflare Worker Issues**: Use `/cftest` (Admin) to diagnose connectivity. Verify your `CLOUDFLARE_WORKER_URL` and `CLOUDFLARE_API_KEY` in `.env` are correct and your worker is running.
-- **Adventure Issues**: If an adventure gets stuck or unresponsive, try ending it with `/adventure end` and starting a new one. Check logs for errors.
-- **News Feed Issues**: Use `/feedstatus` to check configuration. Use `/feedupdate force_refresh:True` (Admin) to test fetching. Check logs for feed parsing or summarization errors.
+- **Connection Issues**: Run `/admin diagnostic` to check network connectivity to Discord and APIs.
+- **Missing Commands**: Ensure the bot has `applications.commands` scope and necessary permissions (Send Messages, Read History, Embed Links, Manage Threads). Try re-inviting if needed. Use `/admin sync` (owner only) as a last resort.
+- **Model Problems**: Some models require OpenRouter credits - check your account balance. Ensure the model ID used is correct. Use `/settings show` to view current model configuration.
+- **State Issues**: Check logs for errors related to database operations. Ensure the `DATA_DIRECTORY` (Python) or Docker volume mount is writable and contains the `gideon_state.db` file. The bot automatically saves state to the database periodically and on shutdown.
+- **Image Generation Issues**: If `/dream` fails, try simpler prompts, different models, or smaller dimensions. Check provider configuration with `/dream manage view_config`. Verify API keys in `.env`.
+- **Cloudflare Worker Issues**: Verify your `CLOUDFLARE_WORKER_URL` and `CLOUDFLARE_API_KEY` in `.env` are correct and your worker is deployed and running.
 
 ## 📖 Documentation
 
 For detailed technical information about Gideon's architecture, implementation details, and advanced setup instructions, please refer to the [Technical Documentation](documentation.md).
 
 <p align="center">
-Made with ❤️ by <a href="https://github.com/Emperor-Ovaltine">Emperor-Ovaltine</a>
+Made with ❤️ by <a href="https://github.com/eoko-dev">eoko</a>
 </p>

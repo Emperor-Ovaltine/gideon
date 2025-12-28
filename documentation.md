@@ -45,14 +45,12 @@ The bot follows a modular architecture using Py-Cord's cogs system, with state m
 
 Gideon is a versatile Discord bot designed to enhance server interactions with advanced AI capabilities. Its core functionalities include:
 
-*   **AI Conversation:** Engage in natural language conversations with the bot, powered by various AI models from multiple providers (e.g., OpenRouter, OpenAI, AI Horde).
+*   **AI Conversation:** Engage in natural language conversations with the bot, powered by various AI models from multiple providers (e.g., OpenRouter, OpenAI).
 *   **Thread Management:** Utilize Discord's native threads for focused AI conversations with per-thread configuration overrides for models and system prompts.
 *   **Image Generation:** Create images using different AI backends (AI Horde, Cloudflare Worker, OpenAI DALL-E) via a unified command interface.
-*   **News Feed Summaries:** Subscribe to RSS/Atom feeds and get AI-generated summaries posted to designated channels. Supports both server-wide and personal feeds.
-*   **Adventure System:** Participate in tabletop RPG-style adventures guided by the AI, featuring dice rolls and optional image generation for scenes.
-*   **Flexible Configuration:** Customize bot behavior globally, per channel, or per thread for AI providers, models, and system prompts.
+*   **Flexible Configuration:** Customize bot behavior globally, per channel, or per thread for AI providers, models, and system prompts using organized command groups.
 
-The bot is built on the Py-Cord library, using a modular "cog" system for organizing commands and features. State persistence (conversation history, configurations, news feeds, etc.) is handled through a SQLite database, ensuring data survives bot restarts and updates.
+The bot is built on the Py-Cord library, using a modular "cog" system for organizing commands and features. State persistence (conversation history, configurations, etc.) is handled through a SQLite database, ensuring data survives bot restarts and updates.
 
 ## 2. Getting Started (User/Administrator Guide)
 
@@ -233,10 +231,11 @@ Gideon leverages Discord's native threads for focused conversations, allowing pe
 *   `/thread new <name>`: Creates a new public thread with the AI in the current channel. The AI will join the thread and you can chat within it.
 *   `/thread message <thread> <prompt>`: Sends a message to a specific thread by mentioning the thread (e.g., `#thread-name`). Useful if you are not currently viewing that thread.
 *   `/thread list`: Lists all active threads the bot is aware of in the current server, showing their names and IDs.
-*   `/thread delete <thread>`: Deletes a specific thread and its associated history from the bot's database.
+*   `/thread show`: View the current thread's configuration settings (model, system prompt, statistics).
+*   `/thread model [model]`: Sets the AI model for the current thread. Provide the model ID in `provider/model_name` format (e.g., `openrouter/openai/gpt-4o`).
+*   `/thread system [prompt]`: Sets a custom system prompt for the current thread. Provide the desired prompt text.
 *   `/thread rename <thread> <new_name>`: Renames a specific thread in the bot's database.
-*   `/thread setmodel <thread> [model]`: Sets a specific AI model for a thread, overriding the channel or global default. Provide the model ID in `provider/model_name` format (e.g., `openai/gpt-4o`). Omit `[model]` to reset the thread to use the channel's configured model.
-*   `/thread setsystem <thread> [prompt]`: Sets a custom system prompt for a thread, overriding the channel or global default. Provide the desired prompt text. Omit `[prompt]` to reset the thread to use the channel's configured system prompt.
+*   `/thread delete <thread>`: Deletes a specific thread and its associated history from the bot's database.
 
 ### Image Generation Commands
 
@@ -269,49 +268,51 @@ The `/dream` command provides a unified interface for generating images using di
         *   `quality`: (Optional, DALL-E 3 only) Image quality (`standard` or `hd`).
         *   `style`: (Optional, DALL-E 3 only) Image style (`vivid` or `natural`).
 
-### News Feeds Commands
+### Settings Commands (Administrator)
 
-Fetch, summarize, and distribute news articles from configured RSS/Atom feeds. Summarization is performed using the currently configured AI model.
+Manage global bot configuration settings. All commands in this group require administrator permissions.
 
-*   `/addfeed <url> [name] [category]`: (Admin) Adds a new RSS feed URL to monitor. Provide a unique URL. Optionally provide a `name` and `category` for organization.
-*   `/removefeed <feed_id>`: (Admin) Removes a configured RSS feed using its unique ID (usually the URL).
-*   `/listfeeds`: Lists all currently configured server-wide RSS feeds, grouped by category.
-*   `/subscribechannel <channel> <category>`: (Admin) Subscribes a specific text channel to receive automatic updates from a news category. Use `all` for all categories.
-*   `/unsubscribechannel <channel>`: (Admin) Unsubscribes a specific channel from all news updates.
-*   `/feedupdate [force_refresh]`: (Admin) Manually triggers a check for new articles across all configured feeds and posts updates to subscribed channels. Use `force_refresh: True` to ignore the last checked time and fetch all recent articles.
-*   `/getnews [category] [force_refresh]`: Fetches and displays recent news articles (up to 5 per feed by default) directly in the current channel. Optionally filter by `category`. Use `force_refresh: True` to ignore the last checked time.
-*   `/setfeedfrequency <hours>`: (Admin) Sets how often (in hours) the bot automatically checks for new articles in the background (minimum 1 hour).
-*   `/feedstatus`: Displays the status of configured feeds, including the URL, name, category, last checked time, and subscribed channels.
-*   `/myfeeds list`: (User) Show your saved personal RSS feed URLs.
-*   `/myfeeds add <url> [name]`: (User) Add an RSS feed URL to your personal list. Optionally provide a `name`.
-*   `/myfeeds remove <url>`: (User) Remove an RSS feed URL from your personal list.
-*   `/mynews`: (User) Get a personalized news digest from your saved personal feeds.
+*   `/settings show`: View all current global bot settings (provider, model, memory limits, etc.).
+*   `/settings model <model>`: Set the global default AI model. Use format `provider/model` (e.g., `openrouter/openai/gpt-4o-mini`).
+*   `/settings system <prompt>`: Set the global default system prompt that defines the bot's personality.
+*   `/settings provider <provider>`: Set the global AI provider (`openrouter` or `openai`). Requires corresponding API key in `.env`.
+*   `/settings memory <limit>`: Set the maximum number of messages to remember per channel/thread.
+*   `/settings window <hours>`: Set the time window (in hours) for message history retention.
+*   `/settings restore`: Reset all settings to their default values.
 
-### Adventure System Commands
+### Channel Commands (Administrator)
 
-Engage in tabletop RPG adventures with the AI acting as the Dungeon Master, generating narrative based on your actions.
+Configure channel-specific overrides for AI behavior. All commands in this group require administrator permissions.
 
-*   `/adventure new <setting>`: Start a new adventure in the current channel. Choose a `setting` from `Fantasy`, `Sci-Fi`, `Horror`, `Modern`, or `Custom`.
-*   `/adventure action <description>`: Describe the action you want your character to take in the adventure. The AI will interpret your action and continue the narrative.
-*   `/adventure roll <dice_notation>`: Roll dice using standard RPG notation (e.g., `1d20`, `2d6+3`) with AI narration. The AI will narrate the outcome based on the roll and the current adventure context.
-*   `/adventure status`: Check the current state of the adventure in the channel, including the setting and turn count.
-*   `/adventure end`: Conclude the current adventure in the channel.
-*   `/adventure config_images <frequency>`: (Admin) Configure how often scene images are generated during the adventure (e.g., `frequency: 5` to generate an image every 5 turns). Requires the Cloudflare Worker image provider to be configured and active.
+*   `/channel show`: View the current channel's configuration settings and active overrides.
+*   `/channel model <model>`: Set the AI model for the current channel, overriding the global default.
+*   `/channel system <prompt>`: Set a custom system prompt for the current channel.
+*   `/channel provider <provider>`: Set the AI provider for the current channel.
+*   `/channel reset`: Clear all channel-specific overrides and revert to global settings.
+*   `/channel list`: List all channels that have custom configuration overrides.
 
-*Note: After starting an adventure, you can often interact by simply sending messages in the channel describing your actions, in addition to using the `/adventure action` command.*
+### Admin Commands
 
-### Configuration Commands
+Administrative tools and diagnostics. Most commands require administrator permissions, some require bot owner permissions.
 
-Customize bot settings globally or per channel/thread. These settings are persistent.
+*   `/admin sync`: (Owner Only) Manually sync slash commands with Discord. Use this only if commands are not appearing.
+*   `/admin debug`: Display debug information about the bot's current state.
+*   `/admin state`: Show database state information (message counts, threads, configurations).
+*   `/admin diagnostic`: Run system diagnostics to check connectivity to Discord and AI providers.
+*   `/admin vision_models`: List all available vision-capable AI models from the configured providers.
 
-*   `/setprovider <provider>`: (Admin) Sets the global default AI provider for chat commands (`openrouter`, `openai`, `ai_horde`). Requires the corresponding API key in `.env`. This determines which backend service is used for `/chat` and other text generation tasks unless overridden by a channel-specific setting.
-*   `/setmodel [model]`: Sets the default AI model for the current channel, overriding the global default. Provide the model ID in `provider/model_name` format (e.g., `openai/gpt-4o`). The provider part must match the currently configured provider for the channel (or the global provider if no channel override is set). Omit `[model]` to reset the channel to use the global default model.
-*   `/model`: Views the current effective model and provider being used for the channel (channel override if set, otherwise global default) and shows the current global default model and provider.
-*   `/setsystem [prompt]`: Sets a custom system prompt for the current channel, overriding the global default. Provide the desired prompt text. Omit `[prompt]` to reset the channel to use the global default system prompt.
-*   `/setchannelmodel <channel> [model]`: (Admin) Sets the model for a specific channel by mentioning the channel (e.g., `#general`). Provide the model ID in `provider/model_name` format. Omit `[model]` to reset the channel's model override.
-*   `/setchannelsystem <channel> [prompt]`: (Admin) Sets the system prompt for a specific channel by mentioning the channel. Omit `[prompt]` to reset the channel's system prompt override.
-*   `/setmemory <limit>`: (Admin) Sets the maximum number of messages to remember per channel/thread for conversation history. Older messages beyond this limit are pruned.
-*   `/setwindow <hours>`: (Admin) Sets the time window (in hours) for remembering messages. Messages older than this time window are pruned, regardless of the message limit.
+### Deprecated Configuration Commands
+
+These commands are deprecated and will be removed in a future update. Please use the new grouped commands (`/settings`, `/channel`, `/admin`) instead.
+
+*   `/setprovider` → Use `/settings provider`
+*   `/setmodel` → Use `/channel model` or `/settings model`
+*   `/model` → Use `/settings show` or `/channel show`
+*   `/setsystem` → Use `/channel system` or `/settings system`
+*   `/setchannelmodel` → Use `/channel model`
+*   `/setchannelsystem` → Use `/channel system`
+*   `/setmemory` → Use `/settings memory`
+*   `/setwindow` → Use `/settings window`
 
 ### Troubleshooting Common Issues
 
@@ -325,20 +326,16 @@ Customize bot settings globally or per channel/thread. These settings are persis
     *   Discord may take a few minutes to register new slash commands after the bot starts.
     *   Check the bot's console output for errors when you try to use a command.
 *   **Chat commands failing:**
-    *   Verify that the required API key for the currently configured provider (check `/model`) is present and correct in the `.env` file.
-    *   Check the console logs for API errors from the provider (OpenRouter, OpenAI, AI Horde).
+    *   Verify that the required API key for the currently configured provider (check `/settings show`) is present and correct in the `.env` file.
+    *   Check the console logs for API errors from the provider (OpenRouter, OpenAI).
 *   **Image generation failing:**
     *   Check the bot's console output for specific API errors from AI Horde, Cloudflare, or OpenAI.
     *   Verify the API keys and URLs in your `.env` file for the selected image provider (`/dream manage view_config` shows the active provider).
     *   Ensure the bot has "Attach Files" and "Embed Links" permissions in the channel to send images.
     *   Some providers may have rate limits or require sufficient credits (e.g., AI Horde Kudos).
-*   **News feeds not updating:**
-    *   Check the `/feedstatus` command for the last checked time and configured frequency.
-    *   Ensure the bot process is running and has internet access to fetch feeds.
-    *   Check console logs for errors during feed fetching, parsing, or summarization.
-    *   Verify the feed URL is valid and accessible.
 *   **Commands requiring Admin/Owner permissions fail:**
     *   Ensure your Discord user has the necessary permissions in the server (Administrator role or the bot owner).
+    *   Use `/admin sync` (owner only) if slash commands are not appearing correctly.
 *   **Database Errors:** If you encounter errors related to the database, ensure the `DATA_DIRECTORY` is correctly configured and that the bot process has write permissions to this directory. If using Docker, ensure the volume is correctly mounted.
 
 ## 4. Architecture and Development (Developer Guide)
@@ -359,7 +356,7 @@ graph TD
     F --> G(DatabaseManager);
     E --> H(API Clients);
     H --> I(External AI Services<br/>OpenRouter, OpenAI, AI Horde, Cloudflare);
-    E --> J(Background Tasks<br/>News Checks, Auto-save);
+    E --> J(Background Tasks<br/>Auto-save, Pruning);
     G --> K(SQLite Database);
     B --> L(Configuration<br/>.env, DB Config);
     L --> F;
@@ -370,16 +367,14 @@ graph TD
 *   **Bot Instance:** The main application object (`bot.py`) that manages the connection to Discord, registers event handlers, loads cogs, and controls the bot's lifecycle.
 *   **Event Handlers:** Asynchronous functions decorated with `@bot.event` (in `bot.py`) or `@commands.Cog.listener()` (in cogs) that respond to specific Discord events (e.g., `on_ready`, `on_application_command`).
 *   **Command Dispatcher:** Py-Cord's built-in mechanism that parses incoming slash command interactions and routes them to the appropriate command function within a cog based on the command name and subgroups.
-*   **Cogs:** Modular classes (`src/cogs/`) that inherit from `commands.Cog`. They encapsulate related commands, listeners, and state. Examples include `ChatCommands`, `UnifiedImageCommands`, `NewsFeedsCommands`. Each cog is loaded by the bot instance during startup.
+*   **Cogs:** Modular classes (`src/cogs/`) that inherit from `commands.Cog`. They encapsulate related commands, listeners, and state. Examples include `ChatCommands`, `SettingsCommands`, `ChannelCommands`, `AdminCommands`, `ThreadCommands`, and `UnifiedImageCommands`. Each cog is loaded by the bot instance during startup.
 *   **BotStateManager:** A singleton utility class (`src/utils/state_manager.py`) that acts as a central point of access for the bot's dynamic runtime state. It holds configuration overrides (channel/thread specific), caches some data, and orchestrates persistence by calling methods on the `DatabaseManager`. It also contains pruning logic and manages the selection of the active AI provider and model based on configuration.
 *   **DatabaseManager:** Handles direct interactions with the SQLite database file (`data/gideon_state.db`). It manages the database connection, ensures the schema is initialized and migrated, and provides low-level methods for inserting, querying, updating, and deleting data in the various tables.
 *   **API Clients:** Dedicated utility classes (`src/utils/`) responsible for abstracting the communication details with external AI services. Each client (`openrouter_client.py`, `ai_horde_client.py`, `cloudflare_client.py`, `openai_client.py`) handles request formatting, sending HTTP requests (using `aiohttp`), processing responses, and basic error handling specific to that API. These clients support both chat and/or image generation depending on the service.
 *   **External AI Services:** The third-party APIs that provide the core AI capabilities (language models, image generation).
-*   **Background Tasks:** Asynchronous tasks implemented using `discord.ext.tasks` (e.g., `check_news_feeds` in `news_feeds_commands.py`, auto-save task in `bot.py`) that run periodically or continuously in the background without blocking the main bot loop.
-*   **SQLite Database:** The file-based database (`data/gideon_state.db`) used for persistent storage of conversation history, configurations (including provider/model settings), news feed data, adventure states, and user preferences.
-*   **Configuration:** Settings are loaded from environment variables (`.env`) via `config.py` on startup. Runtime configuration changes (via admin commands) are stored persistently in the `GLOBAL_CONFIG`, `CHANNEL_CONFIG`, and `THREADS` tables in the database.
-
-*Note: The presence of `cloudflare_image_commands.py` and `image_commands.py` alongside `unified_image_commands.py` suggests some older image command implementations might still exist but the unified command is the primary interface now. Developers should focus on `unified_image_commands.py` and the client classes.*
+*   **Background Tasks:** Asynchronous tasks implemented using `discord.ext.tasks` (e.g., auto-save task and data pruning task in `bot.py`) that run periodically in the background without blocking the main bot loop.
+*   **SQLite Database:** The file-based database (`data/gideon_state.db`) used for persistent storage of conversation history, configurations (including provider/model settings), thread data, and channel configurations.
+*   **Configuration:** Settings are loaded from environment variables (`.env`) via `config.py` on startup. Runtime configuration changes (via admin commands using the new grouped command structure) are stored persistently in the `GLOBAL_CONFIG`, `CHANNEL_CONFIG`, and `THREADS` tables in the database.
 
 ### Project Structure
 
@@ -391,17 +386,16 @@ gideon/
 │   ├── __main__.py         # Application entry point
 │   ├── cogs/               # Command modules (Cogs)
 │   │   ├── __init__.py             # Makes cogs directory a Python package
-│   │   ├── chat_commands.py            # AI conversation commands (/chat, /reset, etc.)
-│   │   ├── cloudflare_image_commands.py # (Potentially deprecated/integrated)
-│   │   ├── config_commands.py          # Bot configuration commands (/setmodel, /setsystem, /setprovider etc.)
-│   │   ├── diagnostic_commands.py      # Diagnostic commands (/ping)
-│   │   ├── dungeon_master_commands.py  # RPG adventure system commands (/adventure)
-│   │   ├── image_commands.py           # (Potentially deprecated/integrated)
-│   │   ├── mention_commands.py         # Handles bot mentions
-│   │   ├── news_feeds_commands.py      # RSS News Feed commands (/addfeed, /getnews, etc.)
-│   │   ├── thread_commands.py          # Discord Thread management commands (/thread)
-│   │   ├── unified_image_commands.py   # Unified image generation commands (/dream)
-│   │   └── url_commands.py             # URL handling commands (/summarizeurl)
+│   │   ├── admin_commands.py       # Admin tools (/admin group)
+│   │   ├── channel_commands.py     # Channel settings (/channel group)
+│   │   ├── chat_commands.py        # AI conversation commands (/chat, /reset, etc.)
+│   │   ├── config_commands.py      # Legacy commands (deprecated)
+│   │   ├── diagnostic_commands.py  # Diagnostic utilities
+│   │   ├── mention_commands.py     # Handles bot mentions
+│   │   ├── settings_commands.py    # Global settings (/settings group)
+│   │   ├── thread_commands.py      # Thread management (/thread group)
+│   │   ├── unified_image_commands.py # Image generation (/dream)
+│   │   └── url_commands.py         # URL handling commands (/summarizeurl)
 │   └── utils/              # Utility functions and classes
 │       ├── __init__.py             # Makes utils directory a Python package
 │       ├── ai_horde_client.py    # Client for AI Horde API (Image/Text)
@@ -415,9 +409,9 @@ gideon/
 ├── .env.example            # Template for environment variables
 ├── requirements.txt        # Project dependencies
 ├── documentation.md        # This documentation file
-├── documentation_plan.md   # The plan for this document
 ├── LICENSE                 # Project license
 ├── README.md               # Project README
+├── index.md                # GitHub Pages source file
 ├── _config.yml             # Jekyll config (if using GitHub Pages)
 ├── docker-compose.yml      # Docker Compose file for easy setup
 ├── Dockerfile              # Defines the Docker image
@@ -512,7 +506,7 @@ Configuration in Gideon is managed through a combination of static environment v
 
 Contributions to the Gideon Discord Bot are welcome! If you'd like to contribute, please follow these steps:
 
-1.  Fork the repository on GitHub: `https://github.com/Emperor-Ovaltine/gideon`
+1.  Fork the repository on GitHub: `https://github.com/eoko-dev/gideon`
 2.  Clone your forked repository to your local machine.
 3.  Create a new branch for your feature or bug fix.
 4.  Make your changes, following the project's coding style and guidelines.
