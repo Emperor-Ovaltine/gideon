@@ -21,41 +21,14 @@ class ThreadCommands(commands.Cog):
 
         # Removed: self.state.discord_threads initialization - now handled by DB
 
-        # Create and register the thread group
-        self.thread_group = discord.SlashCommandGroup(
-            "thread",
-            "Thread conversation commands"
-        )
-
-        # Register basic commands with the group
-        self.thread_group.command(name="new", description="Create a new AI conversation thread")(self.thread_slash)
-        self.thread_group.command(name="message", description="Chat within a specific conversation thread")(self.thread_chat_slash)
-        self.thread_group.command(name="list", description="List all active conversation threads in this channel")(self.list_threads_slash)
-        self.thread_group.command(name="delete", description="Delete a conversation thread")(self.delete_thread_slash)
-        self.thread_group.command(name="rename", description="Rename a conversation thread")(self.rename_thread_slash)
-
-        # For the model command, create the option first with the autocomplete callback
-        model_option = discord.Option(
-            str,
-            "Select the AI model to use for this thread",
-            autocomplete=self.model_autocomplete  # Pass the method directly
-        )
-
-        # Create an async wrapper method
-        async def _set_model_command(ctx, model_name=model_option):
-            await self.set_thread_model_slash(ctx, model_name)
-
-        # Register the command with the async wrapper
-        self.thread_group.command(name="setmodel", description="Set the AI model for the current thread")(_set_model_command)
-
-        # Register the system prompt command normally
-        self.thread_group.command(name="setsystem", description="Set a custom system prompt for this thread")(self.set_thread_system_slash)
-
-        # Add the command group to the bot
-        bot.add_application_command(self.thread_group)
+    # Create the thread command group as a class attribute
+    thread = discord.SlashCommandGroup(
+        "thread",
+        "Thread conversation commands"
+    )
 
     async def model_autocomplete(self, ctx):
-        """Dynamic model autocomplete using ModelManager"""
+        """Dynamic model autocomplete using ModelManager with current selection highlighting"""
         current_input = ctx.value.lower() if ctx.value else ""
         # Use the ModelManager instance from the state manager
         if not self.state.model_manager:
@@ -70,22 +43,35 @@ class ThreadCommands(commands.Cog):
             logger.debug(f"Autocomplete using provider '{provider}' for channel {channel_id}")
             all_models = await self.state.model_manager.get_models(provider=provider)
         except Exception as e:
-            logger.error(f"Error getting models for autocomplete in channel {ctx.interaction.channel_id}: {e}", exc_info=True) # Also update here
+            logger.error(f"Error getting models for autocomplete in channel {ctx.interaction.channel_id}: {e}", exc_info=True)
             return [] # Return empty on error
 
-        # Format models with provider prefix for consistency
-        formatted_models = [f"{provider}/{model}" for model in all_models]
+        # Get current thread model for highlighting
+        thread_id = str(ctx.interaction.channel_id) if isinstance(ctx.interaction.channel, discord.Thread) else None
+        current_model = None
+        if thread_id:
+            thread_config = self.state.get_discord_thread_config(thread_id)
+            current_model = thread_config.get("model") if thread_config else None
+
+        # Format models with provider prefix and highlight current selection
+        formatted_models = []
+        for model in all_models:
+            full_model = f"{provider}/{model}"
+            if full_model == current_model:
+                formatted_models.append(f"✓ {full_model} (current)")
+            else:
+                formatted_models.append(full_model)
 
         if not current_input:
             # Return formatted models
             return formatted_models[:25]
-        
+
         # Filter formatted models based on input (which might include the prefix or not)
         matching_models = [
             fm for fm in formatted_models
             if current_input in fm.lower() # Check against the full provider/model string
         ]
-        
+
         # Return matching formatted models, or the first 25 formatted models if no match
         return matching_models[:25] or formatted_models[:25]
 
@@ -93,6 +79,7 @@ class ThreadCommands(commands.Cog):
         """Get the appropriate model for this channel"""
         return self.state.get_effective_model(channel_id)
 
+    @thread.command(name="new", description="Create a new AI conversation thread")
     async def thread_slash(self, ctx,
                           name: str,
                           message: str = None,
@@ -227,7 +214,7 @@ class ThreadCommands(commands.Cog):
             logger.error(f"Error creating thread: {e}", exc_info=True)
             await ctx.respond(f"⚠️ An unexpected error occurred while creating the thread: {str(e)}")
 
-
+    @thread.command(name="message", description="Chat within a specific conversation thread")
     async def thread_chat_slash(self, ctx,
                          id: str,
                          message: str,
@@ -344,6 +331,7 @@ class ThreadCommands(commands.Cog):
             # Restore original model
             self.openrouter_client.model = current_model
 
+    @thread.command(name="list", description="List all active conversation threads in this channel")
     async def list_threads_slash(self, ctx):
         channel_id = str(ctx.channel.id)
 
@@ -366,6 +354,7 @@ class ThreadCommands(commands.Cog):
         await ctx.respond(f"**Active Conversation Threads:**\n\n" + "\n".join(threads_list) +
                           "\n\nUse `/thread message id:<thread_id> message:<your message>` to continue a conversation.")
 
+    @thread.command(name="delete", description="Delete a conversation thread")
     async def delete_thread_slash(self, ctx, id: str):
         # Delete thread from the database
         thread_deleted = self.state.delete_discord_thread(id)
@@ -384,7 +373,7 @@ class ThreadCommands(commands.Cog):
         else:
             await ctx.respond("⚠️ Thread not found in the database. Use `/thread list` to see available threads.")
 
-
+    @thread.command(name="rename", description="Rename a conversation thread")
     async def rename_thread_slash(self, ctx, id: str, name: str):
         # Rename thread in the database
         thread_renamed = self.state.rename_discord_thread(id, name)
@@ -403,52 +392,145 @@ class ThreadCommands(commands.Cog):
         else:
             await ctx.respond("⚠️ Thread not found in the database. Use `/thread list` to see available threads.")
 
-
-    async def set_thread_model_slash(self, ctx, model_name: str):
+    @thread.command(name="show", description="View current thread settings")
+    async def show_thread_slash(self, ctx):
+        """Display thread-specific settings."""
         # Check if we're in a thread
         if not isinstance(ctx.channel, discord.Thread):
             await ctx.respond("⚠️ This command can only be used within a thread.")
             return
 
+        await ctx.defer()
+        thread_id = str(ctx.channel.id)
+
+        # Get thread data
+        thread_data = self.state.get_discord_thread(thread_id)
+        if not thread_data:
+            await ctx.respond("⚠️ This thread is not tracked in the database.")
+            return
+
+        # Get thread configuration
+        thread_config = self.state.get_discord_thread_config(thread_id)
+        thread_model = thread_config.get("model") if thread_config else None
+        thread_system = thread_config.get("system_prompt") if thread_config else None
+
+        # Get channel and global settings for comparison
+        channel_id = thread_data["channel_id"]
+        channel_model = self.state.get_channel_model(channel_id)
+        global_model = self.state.get_global_model()
+        effective_model = thread_model or channel_model or global_model
+
+        embed = discord.Embed(
+            title=f"⚙️ Settings for Thread: {thread_data['name']}",
+            description="Thread-specific configuration",
+            color=discord.Color.blue()
+        )
+
+        # Model info
+        if thread_model:
+            model_text = f"**Override:** `{thread_model}`\n_(Effective: `{effective_model}`)_"
+        elif channel_model:
+            model_text = f"**Using Channel:** `{channel_model}`\n_(Global: `{global_model}`)_"
+        else:
+            model_text = f"**Using Global:** `{global_model}`"
+
+        embed.add_field(
+            name="🤖 AI Model",
+            value=model_text,
+            inline=False
+        )
+
+        # System prompt info
+        if thread_system:
+            prompt_preview = thread_system[:100] + "..." if len(thread_system) > 100 else thread_system
+            prompt_text = f"**Custom:** {prompt_preview}"
+        else:
+            prompt_text = "**Using Channel/Global**"
+
+        embed.add_field(
+            name="📝 System Prompt",
+            value=prompt_text,
+            inline=False
+        )
+
+        # Thread info
+        message_count = self.state.get_thread_message_count(thread_id)
+        created_time = thread_data["created_at"].strftime("%Y-%m-%d %H:%M")
+
+        embed.add_field(
+            name="📊 Thread Statistics",
+            value=f"• Created: {created_time}\n• Messages: {message_count}",
+            inline=False
+        )
+
+        embed.set_footer(text="Use /thread model or /thread system to customize this thread")
+
+        await ctx.respond(embed=embed)
+
+    @thread.command(name="model", description="Set AI model for this thread (format: provider/model)")
+    async def set_thread_model_slash(
+        self,
+        ctx,
+        model_name: discord.Option(str, "Select the AI model to use for this thread", autocomplete=model_autocomplete)
+    ):
+        # Check if we're in a thread
+        if not isinstance(ctx.channel, discord.Thread):
+            await ctx.respond("⚠️ This command can only be used within a thread.")
+            return
+
+        await ctx.defer()
         thread_id = str(ctx.channel.id)
 
         try:
+            # Remove the ✓ prefix if present (from autocomplete selection)
+            if model_name.startswith("✓ "):
+                model_name = model_name[2:].replace(" (current)", "").strip()
+
             # Use the state manager's method which includes validation (synchronous call)
             self.state.set_discord_thread_model(thread_id, model_name)
             await ctx.respond(f"✅ Model for this thread set to `{model_name}`")
 
         except ValueError as e:
-            await ctx.respond(f"⚠️ {e}") # Model validation error
+            error_msg = str(e)
+            # Add helpful hints
+            if "not found" in error_msg and "/" not in model_name:
+                error_msg += "\n\n💡 **Tip:** Use format `provider/model` (e.g., `openrouter/gpt-4`)"
+            elif "not found" in error_msg:
+                error_msg += "\n\n💡 **Tip:** Use autocomplete to see available models"
+            await ctx.respond(f"⚠️ Error: {error_msg}", ephemeral=True)
         except Exception as e:
             logger.error(f"Error setting thread model: {e}", exc_info=True)
-            await ctx.respond(f"⚠️ An unexpected error occurred: {str(e)}")
+            await ctx.respond(
+                f"❌ Unexpected error occurred.\n\n"
+                f"Please contact an administrator or check `/admin diagnostic`.",
+                ephemeral=True
+            )
 
-
+    @thread.command(name="system", description="Set custom system prompt for this thread")
     async def set_thread_system_slash(self, ctx, new_prompt: str):
         # Check if we're in a thread
         if not isinstance(ctx.channel, discord.Thread):
             await ctx.respond("⚠️ This command can only be used within a thread.")
             return
 
+        await ctx.defer()
         thread_id = str(ctx.channel.id)
 
         try:
             # Use the state manager's method
             self.state.set_discord_thread_system_prompt(thread_id, new_prompt)
 
-            # Split system prompt into chunks if very long for display
+            # Handle long prompts by chunking
             max_length = 1950
             chunks = [new_prompt[i:i+max_length] for i in range(0, len(new_prompt), max_length)]
 
-            await ctx.respond(f"System prompt for this thread updated!")
-            if len(chunks) > 1:
-                await ctx.followup.send("System prompt preview (first part):\n```\n" + chunks[0] + "\n```")
-            else:
-                await ctx.followup.send("System prompt set to:\n```\n" + new_prompt + "\n```")
+            await ctx.respond(f"✅ System prompt for this thread updated:\n```\n{chunks[0]}\n```")
+            for chunk in chunks[1:]:
+                await ctx.followup.send(f"```\n{chunk}\n```")
 
         except Exception as e:
             logger.error(f"Error setting thread system prompt: {e}", exc_info=True)
-            await ctx.respond(f"⚠️ An unexpected error occurred: {str(e)}")
+            await ctx.respond(f"❌ Error: {e}", ephemeral=True)
 
 
     @commands.Cog.listener()
@@ -462,12 +544,6 @@ class ThreadCommands(commands.Cog):
         if isinstance(message.channel, discord.Thread):
             thread_id = str(message.channel.id)
             channel_id = str(message.channel.parent_id) # Get parent channel ID
-
-            # Skip if this is an adventure thread (handled by DungeonMasterCommands)
-            if hasattr(self.bot, 'cogs') and 'DungeonMasterCommands' in self.bot.cogs:
-                dnd_cog = self.bot.cogs['DungeonMasterCommands']
-                if hasattr(dnd_cog, 'adventures') and thread_id in dnd_cog.adventures:
-                    return  # Skip processing adventure threads
 
             # Check if this thread is tracked in our database
             thread_data = self.state.get_discord_thread(thread_id)

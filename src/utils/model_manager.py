@@ -179,6 +179,32 @@ class ProviderManager:
         except Exception as e:
             logger.error(f"Error saving models cache: {str(e)}")
 
+    async def get_models_by_capability(self, capability: str, provider: str = None, force_refresh: bool = False) -> List[str]:
+        """Get models that support a specific capability for a given provider."""
+        if not provider:
+            provider = "openrouter"  # Default to openrouter
+
+        if force_refresh or self.models_data is None or self._is_cache_stale():
+            await self._refresh_models(provider)
+
+        if not self.models_data or not self.models_data.get("success", False):
+            return []
+
+        # Return full provider/model format for consistency
+        models = []
+        for model in self.models_data.get("models", []):
+            if model.get(f"supports_{capability}", False):
+                model_id = model.get("id", "")
+                # Ensure provider prefix is included
+                if "/" not in model_id:
+                    model_id = f"{provider}/{model_id}"
+                models.append(model_id)
+        return models
+
+    async def get_vision_models(self, provider: str = None, force_refresh: bool = False) -> List[str]:
+        """Get models that support vision/image analysis."""
+        return await self.get_models_by_capability("vision", provider, force_refresh)
+
 class ModelManager(ProviderManager):
     """Maintains backward compatibility with existing code."""
     def __init__(self, openrouter_client, data_directory: str):

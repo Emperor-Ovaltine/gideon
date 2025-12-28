@@ -117,29 +117,21 @@ async def on_ready():
         # "src.cogs.cloudflare_image_commands", # Replaced by unified_image_commands
         "src.cogs.unified_image_commands", # New unified image cog
         "src.cogs.url_commands",
-        "src.cogs.dungeon_master_commands",
-        "src.cogs.news_feeds_commands"  # Add our new cog here
+        # New grouped command cogs
+        "src.cogs.settings_commands",
+        "src.cogs.channel_commands",
+        "src.cogs.admin_commands"
     ]
 
     for cog in cogs:
         try:
             bot.load_extension(cog)
             print(f"{cog} loaded successfully.")
-
-            # Additional debug info for dungeon master commands
-            if cog == "src.cogs.dungeon_master_commands":
-                print("DND cog commands being registered:")
-                if hasattr(bot.cogs.get("DungeonMasterCommands", {}), "get_commands"):
-                    commands = bot.cogs["DungeonMasterCommands"].get_commands()
-                    for cmd in commands:
-                        print(f"  - {cmd.name}: {type(cmd).__name__}")
         except Exception as e:
             print(f"Error loading {cog}: {e}")
             # Print full traceback for config_commands to debug issues
             if cog == "src.cogs.config_commands":
                 print(f"Detailed error for config commands: {traceback.format_exc()}")
-            if cog == "src.cogs.dungeon_master_commands":
-                print(f"Detailed error for DND cog: {traceback.format_exc()}")
 
     # Skip command clearing and just sync
     try:
@@ -244,169 +236,8 @@ bot.prune_data_task = prune_data_task
 
 
 # --- Bot Commands ---
-
-@bot.slash_command(name="sync", description="Manually sync slash commands (owner only)")
-@commands.is_owner()
-async def sync_command_slash(ctx):
-    await ctx.defer()
-    try:
-        await ctx.respond("Syncing commands...")
-
-        # Clean existing commands first
-        try:
-            await ctx.followup.send("Clearing existing commands...")
-            commands_to_remove = await bot.http.get_global_commands(bot.user.id)
-            for cmd in commands_to_remove:
-                if cmd['name'] != "sync":  # Don't delete the sync command we're using
-                    await bot.http.delete_global_command(bot.user.id, cmd['id'])
-            await ctx.followup.send("Existing commands cleared.")
-        except Exception as e:
-            await ctx.followup.send(f"Warning: Could not clear existing commands: {e}")
-
-        # First to guilds
-        if hasattr(bot, 'debug_guilds') and bot.debug_guilds:
-            for guild_id in bot.debug_guilds:
-                await bot.sync_commands(guild_ids=[guild_id])
-            await ctx.followup.send(f"Commands synced to test guilds: {bot.debug_guilds}")
-
-        # Then globally
-        await bot.sync_commands()
-        await ctx.followup.send("Commands synced globally")
-
-    except Exception as e:
-        await ctx.followup.send(f"Error syncing commands: {str(e)}")
-
-@bot.slash_command(name="debug", description="Show registered commands")
-@commands.is_owner()
-async def debug_commands(ctx):
-    await ctx.defer()
-
-    # Build debug information
-    debug_info = ["**Registered Application Commands:**"]
-
-    # Get global commands
-    try:
-        global_commands = await bot.http.get_global_commands(bot.user.id)
-        debug_info.append(f"\n**Global Commands:** {len(global_commands)}")
-        for cmd in global_commands:
-            debug_info.append(f"- `/{cmd['name']}`: ID={cmd['id']}")
-    except Exception as e:
-        debug_info.append(f"Error fetching global commands: {str(e)}")
-
-    # Get guild commands for the current guild
-    try:
-        guild_commands = await bot.http.get_guild_commands(bot.user.id, ctx.guild.id)
-        debug_info.append(f"\n**Guild Commands ({ctx.guild.name}):** {len(guild_commands)}")
-        for cmd in guild_commands:
-            debug_info.append(f"- `/{cmd['name']}`: ID={cmd['id']}")
-    except Exception as e:
-        debug_info.append(f"Error fetching guild commands: {str(e)}")
-
-    # Send debug info
-    await ctx.respond("\n".join(debug_info))
-
-
-@bot.slash_command(
-    name="stateinfo",
-    description="Show information about the bot's saved state"
-)
-@commands.has_permissions(administrator=True)
-async def state_info_command(ctx):
-    await ctx.defer()
-
-    state = BotStateManager() # Get instance
-    embed = discord.Embed(
-        title="Bot State Information",
-        description="Current database statistics and settings",
-        color=discord.Color.blue()
-    )
-
-    # Get statistics from the database via state manager methods
-    try:
-        total_messages = state.get_message_count()
-        total_threads = state.get_thread_count()
-        total_feeds = state.get_news_feeds_count()
-        total_subscriptions = state.get_news_channel_config_count()
-        # Note: Getting active channel count isn't straightforward without querying messages/config
-        # We can report total messages and threads instead.
-
-        embed.add_field(
-            name="Database Statistics",
-            value=(f"• Stored Messages: {total_messages if total_messages >= 0 else 'Error'}\n"
-                   f"• Stored Threads: {total_threads if total_threads >= 0 else 'Error'}"),
-            inline=False
-        )
-
-        embed.add_field(
-            name="News Feed Statistics",
-            value=(f"• Configured Feeds: {total_feeds if total_feeds >= 0 else 'Error'}\n"
-                   f"• Channel Subscriptions: {total_subscriptions if total_subscriptions >= 0 else 'Error'}"),
-            # Add tracked articles count if needed (requires another DB query)
-            inline=False
-        )
-
-    except Exception as e:
-        logger.error(f"Error fetching stats for /stateinfo: {e}", exc_info=True)
-        embed.add_field(name="Statistics Error", value="Could not retrieve database statistics.", inline=False)
-
-
-    # Add configuration (fetched from state manager's cached values)
-    embed.add_field(
-        name="Current Settings",
-        value=(f"• Global model: `{state.get_global_model()}`\n"
-               f"• Message history limit: {state.get_max_channel_history()}\n"
-               f"• Pruning time window: {state.get_time_window_hours()} hours\n"
-               f"• News Update Frequency: {state.get_news_update_frequency()} hours\n"
-               f"• News Broadcast Channel: {state.get_news_broadcast_channel_id() or 'Not Set'}"),
-        inline=False
-    )
-
-    # Add database file info
-    db_path = state.db_manager.db_path
-    db_size_kb = "N/A"
-    db_mod_time = "N/A"
-    if os.path.exists(db_path):
-        try:
-            db_size_kb = f"{os.path.getsize(db_path) / 1024:.1f} KB"
-            mod_time = datetime.fromtimestamp(os.path.getmtime(db_path))
-            db_mod_time = mod_time.strftime('%Y-%m-%d %H:%M:%S')
-        except Exception as e:
-            logger.warning(f"Could not get DB file info: {e}")
-
-    embed.add_field(
-        name="Storage Information",
-        value=(f"• Database File: `{db_path}`\n"
-               f"• File Size: {db_size_kb}\n"
-               f"• Last Modified: {db_mod_time}"),
-        inline=False
-    )
-
-    await ctx.respond(embed=embed)
-
-@bot.slash_command(name="test_dnd_cog", description="Test if the DND cog is loaded properly")
-@commands.is_owner()
-async def test_dnd_cog(ctx):
-    await ctx.defer()
-
-    if "DungeonMasterCommands" in bot.cogs:
-        cog = bot.cogs["DungeonMasterCommands"]
-        commands = []
-        if hasattr(cog, "get_commands"):
-            commands = [cmd.name for cmd in cog.get_commands()]
-
-        # For application commands
-        app_commands = []
-        if hasattr(cog, "get_app_commands"):
-            app_commands = [cmd.name for cmd in cog.get_app_commands()]
-
-        await ctx.respond(
-            f"✅ DungeonMasterCommands cog is loaded.\n"
-            f"Regular commands: {commands}\n"
-            f"App commands: {app_commands}\n"
-            f"SlashCommandGroup: {hasattr(cog, 'adventure_group')}"
-        )
-    else:
-        await ctx.respond("❌ DungeonMasterCommands cog is NOT loaded.")
+# Note: Admin commands (/sync, /debug, /stateinfo) have been moved to admin_commands.py
+# They are now accessed as /admin sync, /admin debug, /admin state
 
 # --- Bot Events ---
 

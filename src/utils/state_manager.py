@@ -111,19 +111,19 @@ class BotStateManager:
         self.time_window_hours = value
         await self._save_config(CONFIG_KEY_TIME_WINDOW, value, 'int')
 
-    def get_news_update_frequency(self) -> int:
-        return self.news_update_frequency
+    # def get_news_update_frequency(self) -> int:
+    #     return self.news_update_frequency
 
-    async def set_news_update_frequency(self, value: int):
-        self.news_update_frequency = value
-        await self._save_config(CONFIG_KEY_NEWS_FREQUENCY, value, 'int')
+    # async def set_news_update_frequency(self, value: int):
+    #     self.news_update_frequency = value
+    #     await self._save_config(CONFIG_KEY_NEWS_FREQUENCY, value, 'int')
 
-    def get_news_broadcast_channel_id(self) -> Optional[str]:
-        return self.news_broadcast_channel_id
+    # def get_news_broadcast_channel_id(self) -> Optional[str]:
+    #     return self.news_broadcast_channel_id
 
-    async def set_news_broadcast_channel_id(self, value: Optional[str]):
-        self.news_broadcast_channel_id = value
-        await self._save_config(CONFIG_KEY_NEWS_BROADCAST, value, 'string') # Store channel ID as string
+    # async def set_news_broadcast_channel_id(self, value: Optional[str]):
+    #     self.news_broadcast_channel_id = value
+    #     await self._save_config(CONFIG_KEY_NEWS_BROADCAST, value, 'string') # Store channel ID as string
 
     def get_summary_retention_days(self) -> int:
         return self.summary_retention_days
@@ -474,10 +474,18 @@ class BotStateManager:
         # Save to DB (synchronous DB call)
         self.db_manager.set_channel_provider(str(channel_id), provider)
 
+    def get_channel_model(self, channel_id: str) -> Optional[str]:
+        """Gets the channel-specific model override (returns None if using global)."""
+        return self.db_manager.get_channel_model(str(channel_id))
+
     def get_channel_provider(self, channel_id: str) -> str:
         """Gets the AI provider for a specific channel."""
         provider = self.db_manager.get_channel_provider(str(channel_id))
         return provider if provider is not None else self.global_provider
+
+    def get_global_provider(self) -> str:
+        """Gets the global AI provider."""
+        return self.global_provider
 
     def get_effective_model(self, channel_id: str) -> str:
         """Gets the effective model (channel override or global default) in provider/model_name format."""
@@ -519,119 +527,125 @@ class BotStateManager:
         """Gets detailed configuration for all threads with overrides."""
         return self.db_manager.get_all_thread_configs()
 
+    def reset_channel_config(self, channel_id: str) -> bool:
+        """Resets channel configuration to use global defaults."""
+        return self.db_manager.reset_channel_config(str(channel_id))
+
     # --- News Feed Methods (Delegation) ---
+    # COMMENTED OUT: News feeds feature removed
+    # Methods preserved for potential future data export
 
-    def get_news_feeds(self) -> List[Dict[str, Any]]:
-        return self.db_manager.get_news_feeds()
+    # def get_news_feeds(self) -> List[Dict[str, Any]]:
+    #     return self.db_manager.get_news_feeds()
 
-    def add_news_feed(self, feed_id: str, url: str, name: Optional[str] = None, category: Optional[str] = None):
-        """Adds or updates a news feed in the database, including URL and category."""
-        # Pass all relevant info to the database manager method
-        self.db_manager.add_news_feed(feed_id, url, name, category)
+    # def add_news_feed(self, feed_id: str, url: str, name: Optional[str] = None, category: Optional[str] = None):
+    #     """Adds or updates a news feed in the database, including URL and category."""
+    #     # Pass all relevant info to the database manager method
+    #     self.db_manager.add_news_feed(feed_id, url, name, category)
 
-    def delete_news_feed(self, feed_id: str) -> bool:
-        return self.db_manager.delete_news_feed(feed_id)
+    # def delete_news_feed(self, feed_id: str) -> bool:
+    #     return self.db_manager.delete_news_feed(feed_id)
 
-    def add_news_subscription(self, channel_id: str, feed_id: str):
-        self.db_manager.add_news_subscription(str(channel_id), feed_id)
+    # def add_news_subscription(self, channel_id: str, feed_id: str):
+    #     self.db_manager.add_news_subscription(str(channel_id), feed_id)
 
-    def remove_news_subscription(self, channel_id: str, feed_id: str) -> bool:
-        return self.db_manager.remove_news_subscription(str(channel_id), feed_id)
+    # def remove_news_subscription(self, channel_id: str, feed_id: str) -> bool:
+    #     return self.db_manager.remove_news_subscription(str(channel_id), feed_id)
 
-    def get_subscribed_channels(self, feed_id: str) -> List[str]:
-        return self.db_manager.get_subscribed_channels(feed_id)
+    # def get_subscribed_channels(self, feed_id: str) -> List[str]:
+    #     return self.db_manager.get_subscribed_channels(feed_id)
 
-    def get_channel_subscriptions(self, channel_id: str) -> List[str]:
-        return self.db_manager.get_channel_subscriptions(str(channel_id))
+    # def get_channel_subscriptions(self, channel_id: str) -> List[str]:
+    #     return self.db_manager.get_channel_subscriptions(str(channel_id))
 
-    def add_article_history(self, article_identifier: str, feed_id: str):
-        self.db_manager.add_article_history(article_identifier, feed_id, datetime.now())
+    # def add_article_history(self, article_identifier: str, feed_id: str):
+    #     self.db_manager.add_article_history(article_identifier, feed_id, datetime.now())
 
-    def check_article_history(self, article_identifier: str, feed_id: str) -> bool:
-        return self.db_manager.check_article_history(article_identifier, feed_id)
+    # def check_article_history(self, article_identifier: str, feed_id: str) -> bool:
+    #     return self.db_manager.check_article_history(article_identifier, feed_id)
 
-    def update_feed_last_checked(self, feed_id: str):
-         # Ensure we store timezone-aware UTC timestamp
-         from datetime import timezone
-         self.db_manager.update_feed_last_checked(feed_id, datetime.now(timezone.utc))
+    # def update_feed_last_checked(self, feed_id: str):
+    #      # Ensure we store timezone-aware UTC timestamp
+    #      from datetime import timezone
+    #      self.db_manager.update_feed_last_checked(feed_id, datetime.now(timezone.utc))
 
-    def get_news_article_history_count(self) -> int:
-        """Gets the total count of news article history records from the database."""
-        return self.db_manager.get_news_article_history_count()
+    # def get_news_article_history_count(self) -> int:
+    #     """Gets the total count of news article history records from the database."""
+    #     return self.db_manager.get_news_article_history_count()
 
-    def set_last_digest_content(self, content: Optional[str]):
-        """Stores the last generated news digest content in the database."""
-        self.db_manager.set_last_digest_content(content)
+    # def set_last_digest_content(self, content: Optional[str]):
+    #     """Stores the last generated news digest content in the database."""
+    #     self.db_manager.set_last_digest_content(content)
 
-    def get_last_digest_content(self) -> Optional[str]:
-        """Retrieves the last generated news digest content from the database."""
-        return self.db_manager.get_last_digest_content()
+    # def get_last_digest_content(self) -> Optional[str]:
+    #     """Retrieves the last generated news digest content from the database."""
+    #     return self.db_manager.get_last_digest_content()
 
-    # --- Article Summary Methods (Delegation) ---
+    # # --- Article Summary Methods (Delegation) ---
 
-    def add_article_summary(self, article_id: str, feed_id: str, title: str, link: str,
-                            published_date: Optional[datetime], summary_text: str,
-                            feed_name: Optional[str], feed_category: Optional[str]):
-        """Adds or replaces an article summary in the database."""
-        # Pass data to the database manager method
-        self.db_manager.add_article_summary(
-            article_id=article_id,
-            feed_id=feed_id,
-            title=title,
-            link=link,
-            published_date=published_date,
-            summary_text=summary_text,
-            feed_name=feed_name,
-            feed_category=feed_category,
-            timestamp_summarized=datetime.now() # Add timestamp here
-        )
+    # def add_article_summary(self, article_id: str, feed_id: str, title: str, link: str,
+    #                         published_date: Optional[datetime], summary_text: str,
+    #                         feed_name: Optional[str], feed_category: Optional[str]):
+    #     """Adds or replaces an article summary in the database."""
+    #     # Pass data to the database manager method
+    #     self.db_manager.add_article_summary(
+    #         article_id=article_id,
+    #         feed_id=feed_id,
+    #         title=title,
+    #         link=link,
+    #         published_date=published_date,
+    #         summary_text=summary_text,
+    #         feed_name=feed_name,
+    #         feed_category=feed_category,
+    #         timestamp_summarized=datetime.now() # Add timestamp here
+    #     )
 
-    def get_article_summaries(self, feed_ids: Optional[List[str]] = None,
-                              category: Optional[str] = None,
-                              limit: Optional[int] = 50) -> List[Dict[str, Any]]:
-        """
-        Retrieves recent article summaries from the database, optionally filtered.
-        Uses the configured retention period to limit how far back it looks.
-        """
-        since_cutoff = datetime.now() - timedelta(days=self.summary_retention_days)
-        return self.db_manager.get_article_summaries(
-            feed_ids=feed_ids,
-            category=category,
-            since=since_cutoff,
-            limit=limit
-        )
+    # def get_article_summaries(self, feed_ids: Optional[List[str]] = None,
+    #                           category: Optional[str] = None,
+    #                           limit: Optional[int] = 50) -> List[Dict[str, Any]]:
+    #     """
+    #     Retrieves recent article summaries from the database, optionally filtered.
+    #     Uses the configured retention period to limit how far back it looks.
+    #     """
+    #     since_cutoff = datetime.now() - timedelta(days=self.summary_retention_days)
+    #     return self.db_manager.get_article_summaries(
+    #         feed_ids=feed_ids,
+    #         category=category,
+    #         since=since_cutoff,
+    #         limit=limit
+    #     )
 
 
-    # --- User-Specific Article Summary Methods (Delegation) ---
+    # # --- User-Specific Article Summary Methods (Delegation) ---
 
-    def add_user_article_summary(self, user_id: str, article_link: str, feed_url: str,
-                                 title: Optional[str], published_date: Optional[datetime],
-                                 summary_text: str):
-        """Adds or replaces a user-specific article summary."""
-        # Add timestamp here before delegating
-        self.db_manager.add_user_article_summary(
-            user_id=user_id,
-            article_link=article_link,
-            feed_url=feed_url,
-            title=title,
-            published_date=published_date,
-            summary_text=summary_text,
-            timestamp_summarized=datetime.now()
-        )
+    # def add_user_article_summary(self, user_id: str, article_link: str, feed_url: str,
+    #                              title: Optional[str], published_date: Optional[datetime],
+    #                              summary_text: str):
+    #     """Adds or replaces a user-specific article summary."""
+    #     # Add timestamp here before delegating
+    #     self.db_manager.add_user_article_summary(
+    #         user_id=user_id,
+    #         article_link=article_link,
+    #         feed_url=feed_url,
+    #         title=title,
+    #         published_date=published_date,
+    #         summary_text=summary_text,
+    #         timestamp_summarized=datetime.now()
+    #     )
 
-    def get_user_article_summaries(self, user_id: str, limit: Optional[int] = 50) -> List[Dict[str, Any]]:
-        """Retrieves recent article summaries for a specific user."""
-        # Use configured retention period
-        since_cutoff = datetime.now() - timedelta(days=self.summary_retention_days)
-        return self.db_manager.get_user_article_summaries(
-            user_id=user_id,
-            since=since_cutoff,
-            limit=limit
-        )
+    # def get_user_article_summaries(self, user_id: str, limit: Optional[int] = 50) -> List[Dict[str, Any]]:
+    #     """Retrieves recent article summaries for a specific user."""
+    #     # Use configured retention period
+    #     since_cutoff = datetime.now() - timedelta(days=self.summary_retention_days)
+    #     return self.db_manager.get_user_article_summaries(
+    #         user_id=user_id,
+    #         since=since_cutoff,
+    #         limit=limit
+    #     )
 
-    def get_users_with_personal_feeds(self) -> List[str]:
-        """Gets user IDs who have configured personal feeds."""
-        return self.db_manager.get_users_with_personal_feeds()
+    # def get_users_with_personal_feeds(self) -> List[str]:
+    #     """Gets user IDs who have configured personal feeds."""
+    #     return self.db_manager.get_users_with_personal_feeds()
 
 
     # --- Statistics Methods (Example) ---
@@ -660,27 +674,27 @@ class BotStateManager:
             logger.error(f"Error getting thread count: {e}", exc_info=True)
             return -1
 
-    def get_news_feeds_count(self) -> int:
-        """Gets the count of configured news feeds."""
-        # This could be slightly more efficient than fetching all feeds
-        sql = "SELECT COUNT(*) FROM NEWS_FEEDS;"
-        try:
-            cursor = self.db_manager._get_cursor()
-            cursor.execute(sql)
-            row = cursor.fetchone()
-            return row[0] if row else 0
-        except sqlite3.Error as e:
-            logger.error(f"Error getting news feed count: {e}", exc_info=True)
-            return -1
+    # def get_news_feeds_count(self) -> int:
+    #     """Gets the count of configured news feeds."""
+    #     # This could be slightly more efficient than fetching all feeds
+    #     sql = "SELECT COUNT(*) FROM NEWS_FEEDS;"
+    #     try:
+    #         cursor = self.db_manager._get_cursor()
+    #         cursor.execute(sql)
+    #         row = cursor.fetchone()
+    #         return row[0] if row else 0
+    #     except sqlite3.Error as e:
+    #         logger.error(f"Error getting news feed count: {e}", exc_info=True)
+    #         return -1
 
-    def get_news_channel_config_count(self) -> int:
-        """Gets the count of channel subscriptions."""
-        sql = "SELECT COUNT(*) FROM NEWS_CHANNEL_SUBSCRIPTIONS;"
-        try:
-            cursor = self.db_manager._get_cursor()
-            cursor.execute(sql)
-            row = cursor.fetchone()
-            return row[0] if row else 0
-        except sqlite3.Error as e:
-            logger.error(f"Error getting news subscription count: {e}", exc_info=True)
-            return -1
+    # def get_news_channel_config_count(self) -> int:
+    #     """Gets the count of channel subscriptions."""
+    #     sql = "SELECT COUNT(*) FROM NEWS_CHANNEL_SUBSCRIPTIONS;"
+    #     try:
+    #         cursor = self.db_manager._get_cursor()
+    #         cursor.execute(sql)
+    #         row = cursor.fetchone()
+    #         return row[0] if row else 0
+    #     except sqlite3.Error as e:
+    #         logger.error(f"Error getting news subscription count: {e}", exc_info=True)
+    #         return -1

@@ -64,23 +64,6 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   <img src="assets/images/imagine-tea-screenshot.png" alt="imagine-queue" width="1200"/>
 </p>
 
-### 📰 News Feed Summaries
-- **RSS Feed Monitoring** - Add and manage RSS feeds by category (tech, world, finance, etc.)
-
-<p align="center">
-  <img src="assets/images/rss-feed1.png" alt="rss-feed-setup" width="1200"/>
-</p>
-
-- **AI Summarization** - Automatically summarize new articles using configured AI models
-
-<p align="center">
-  <img src="assets/images/rss-feed2.png" alt="rss-feed-summary" width="1200"/>
-</p>
-
-- **Channel Subscriptions** - Subscribe channels to specific news categories or all feeds
-- **Scheduled Updates** - Configure how often the bot checks for and posts news updates
-- **Manual Fetching** - Manually trigger news updates or fetch news on demand
-
 ### 🧵 Organization
 - **Conversation Threads** - Create dedicated topics with independent histories using Discord's native threads
 - **Auto-Responses** - Bot automatically responds to all messages in AI threads
@@ -263,28 +246,6 @@ If you want to use OpenAI's DALL-E models for image generation:
 |:-------:|:------------|
 | `/summarizeurl` | Fetch and summarize the content of a given URL |
 
-### News Feed Commands
-| Command | Description | Permissions |
-|:-------:|:------------|:------------|
-| `/addfeed` | Add a new RSS feed to monitor | Admin |
-| `/removefeed` | Remove an RSS feed | Admin |
-| `/listfeeds` | List all configured RSS feeds | All Users |
-| `/subscribechannel` | Subscribe the current channel to news categories | Admin |
-| `/unsubscribechannel` | Unsubscribe the current channel from news updates | Admin |
-| `/feedupdate` | Manually trigger an update for all feeds | Admin |
-| `/getnews` | Fetch and display the latest news in the current channel | All Users |
-| `/setfeedfrequency` | Set how often the bot checks for news (in hours) | Admin |
-| `/feedstatus` | Show the status of news feeds and subscriptions | All Users |
-| `/newsdigest` | Display the most recently generated AI news digest | All Users |
-
-### User Feed Commands
-| Command | Description | Permissions |
-|:-------:|:------------|:------------|
-| `/myfeeds list` | Show your saved personal RSS feeds | All Users |
-| `/myfeeds add` | Add an RSS feed URL to your personal list | All Users |
-| `/myfeeds remove` | Remove an RSS feed URL from your personal list | All Users |
-| `/mynews` | Get a personalized news digest from your saved feeds | All Users |
-
 ### Thread Commands
 Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
 | Command | Description |
@@ -318,16 +279,6 @@ Gideon now uses a unified command for image generation with support for multiple
 | `/dream manage set_provider provider:<Choice>` | Set the active image generation provider (AI Horde, Cloudflare, OpenAI). | Admin |
 | `/dream manage configure <provider> [options...]` | Configure default settings for a specific provider (e.g., model, size, steps). | Admin |
 | `/dream manage view_config` | View the current active provider and configuration for all providers. | Admin |
-
-### Adventure Commands
-| Command | Description |
-|:-------:|:------------|
-| `/adventure new` | Start a new tabletop RPG adventure (Fantasy, Sci-Fi, Horror, Modern, or Custom) |
-| `/adventure action` | Describe the action you want to take in the adventure |
-| `/adventure roll` | Roll dice (e.g., 1d20, 2d6, 3d8+2) with narrated results |
-| `/adventure status` | Check the status of the current adventure |
-| `/adventure end` | End the current adventure with summary |
-| `/adventure config_images` | Configure frequency of scene image generation (requires Cloudflare Worker) | Admin |
 
 ## 📚 Supported Models
 
@@ -385,28 +336,6 @@ gideon/
 └── index.md                # GitHub Pages source file
 ```
 
-## 🎲 Adventure System
-
-The Adventure System transforms Gideon into an AI Game Master for immersive tabletop roleplaying experiences:
-
-### Features
-- **AI-Powered Storytelling**: Dynamic narratives adapt to player actions
-- **Multiple Settings**: Fantasy worlds, sci-fi universes, horror scenarios, and more
-- **Persistent State**: Adventure progress is saved between sessions
-- **Integrated Dice System**: Roll dice with standard RPG notation (1d20, 2d6+3, etc.)
-- **Campaign Management**: Check status and track adventure progress
-- **Scene Visualization**: Automatically generate images of key moments (requires Cloudflare Worker)
-
-### Using the Adventure System
-1. Start an adventure with `/adventure new` (select a setting).
-2. Interact with the adventure by sending messages in the channel or using `/adventure action [your action]`.
-3. Roll dice when needed with `/adventure roll [dice notation]`.
-4. Check your progress with `/adventure status`.
-5. End your adventure when complete with `/adventure end`.
-6. Adjust image generation frequency with `/adventure config_images [frequency]` (0 to disable, requires Admin perms and Cloudflare Worker setup).
-
-Each adventure is channel-specific and uses the channel's configured AI model unless overridden.
-
 ## ❓ Troubleshooting
 
 *   **Bot Offline/Unresponsive:**
@@ -425,13 +354,6 @@ Each adventure is channel-specific and uses the channel's configured AI model un
     *   Try simpler prompts, different models, or smaller dimensions/fewer steps via `/dream configure`.
     *   Check AI Horde status/kudos if using that provider.
     *   If using Cloudflare, ensure your worker is deployed and running correctly.
-*   **News Feed Issues:**
-    *   Check `/feedstatus`. Use `/feedupdate force_refresh:True` (Admin) to test fetching.
-    *   Verify feed URLs are valid and accessible.
-    *   Check logs for parsing or summarization errors (often related to API key issues for the summarization model).
-*   **Adventure System Issues:**
-    *   If stuck, try `/adventure end` and start a new one.
-    *   Check logs for errors during narrative generation or image generation (if enabled).
 *   **Database/State Issues:**
     *   Ensure the `DATA_DIRECTORY` path (Python) or Docker volume mount (`./gideon_data:/app/data` in `docker-compose.yml`) is correct and writable by the bot process.
     *   Check logs for SQLite errors (e.g., "database is locked", "unable to open database file").
@@ -441,5 +363,5 @@ Each adventure is channel-specific and uses the channel's configured AI model un
 For detailed technical information about Gideon's architecture, implementation details, and advanced setup instructions, please refer to the [Technical Documentation](documentation.md).
 
 <div align="center">
-Made with ❤️ by <a href="https://github.com/Emperor-Ovaltine">Emperor-Ovaltine</a>
+Made with ❤️ by <a href="https://github.com/eoko-dev">eoko</a>
 </div>
