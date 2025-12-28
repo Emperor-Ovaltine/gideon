@@ -120,7 +120,7 @@ There are two ways to install and run Gideon: using Docker (recommended for ease
 
 1.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/Emperor-Ovaltine/gideon
+    git clone https://github.com/eoko-dev/gideon
     cd gideon
     ```
 
