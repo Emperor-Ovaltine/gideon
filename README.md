@@ -91,13 +91,6 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 </p>
 
 
-### 🎲 Adventure System
-- **Interactive Adventures** - Create and explore AI-driven tabletop RPG campaigns
-- **Multiple Settings** - Choose from Fantasy, Sci-Fi, Horror, Modern, or Custom worlds
-- **Dice Rolling** - Integrated dice mechanics with automatic result narration
-- **Campaign State Tracking** - Track progress and character actions throughout your adventure
-- **Automatic Scene Visualization** - Generate images of key moments in your adventure (requires Cloudflare Worker)
-
 ### 🛠️ Customization
 - **Model Switching** - Change AI models on-the-fly with simple commands
 - **Channel Personalities** - Set different system prompts per channel
