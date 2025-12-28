@@ -132,7 +132,7 @@ class OpenRouterClient:
                 headers = {
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com/Emperor-Ovaltine/gideon",
+                    "HTTP-Referer": "https://github.com/eoko-dev/gideon",
                     "X-Title": "Gideon Discord Bot",
                     "X-Client": "openrouter-python"
                 }
@@ -185,7 +185,7 @@ class OpenRouterClient:
             async with aiohttp.ClientSession() as session:
                 headers = {
                     "Authorization": f"Bearer {self.api_key}",
-                    "HTTP-Referer": "https://github.com/Emperor-Ovaltine/gideon",
+                    "HTTP-Referer": "https://github.com/eoko-dev/gideon",
                     "X-Title": "Gideon Discord Bot"
                 }
                 

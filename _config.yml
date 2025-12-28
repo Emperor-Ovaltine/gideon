@@ -12,9 +12,9 @@ plugins:
 # Customization
 show_downloads: true
 github:
-  repository_url: https://github.com/Emperor-Ovaltine/gideon
-  zip_url: https://github.com/Emperor-Ovaltine/gideon/archive/refs/heads/Production.zip
-  tar_url: https://github.com/Emperor-Ovaltine/gideon/archive/refs/heads/Production.tar.gz
+  repository_url: https://github.com/eoko-dev/gideon
+  zip_url: https://github.com/eoko-dev/gideon/archive/refs/heads/Production.zip
+  tar_url: https://github.com/eoko-dev/gideon/archive/refs/heads/Production.tar.gz
 
 # Navigation
 header_pages:

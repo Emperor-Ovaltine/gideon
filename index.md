@@ -175,7 +175,7 @@ There are two ways to install and run Gideon: using Docker (recommended for ease
 
 ```bash
 # Clone and enter repository (if not already done)
-# git clone https://github.com/Emperor-Ovaltine/gideon
+# git clone https://github.com/eoko-dev/gideon
 # cd gideon
 
 # Set up environment and dependencies
@@ -216,7 +216,7 @@ If you want to use the `/dream` command for generating images or enable scene vi
 3. Set the `CLOUDFLARE_WORKER_URL` in your `.env` file to your worker's URL.
 4. Optionally set `CLOUDFLARE_API_KEY` if your worker requires authentication (e.g., via a header like `Authorization: Bearer YOUR_KEY`).
 
-An example Cloudflare worker that has been tested with Gideon can be found here: [flux1-cloudflare-worker](https://github.com/Emperor-Ovaltine/flux1-cloudflare-worker)
+An example Cloudflare worker that has been tested with Gideon can be found here: [flux1-cloudflare-worker](https://github.com/eoko-dev/flux1-cloudflare-worker)
 
 **Example /dream output**
 

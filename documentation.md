@@ -74,7 +74,7 @@ You can install and run Gideon using either a direct Python environment or Docke
 
 1.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/Emperor-Ovaltine/gideon
+    git clone https://github.com/eoko-dev/gideon
     cd gideon
     ```
 2.  **Install Dependencies:**
@@ -87,7 +87,7 @@ You can install and run Gideon using either a direct Python environment or Docke
 1.  **Ensure Docker is Installed:** Download and install Docker Desktop or Docker Engine for your operating system if you haven't already.
 2.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/Emperor-Ovaltine/gideon
+    git clone https://github.com/eoko-dev/gideon
     cd gideon
     ```
 3.  **Build the Docker Image:**
