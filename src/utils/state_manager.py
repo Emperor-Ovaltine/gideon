@@ -14,15 +14,10 @@ logger = logging.getLogger('state_manager')
 # --- Constants for DB keys ---
 # These help avoid typos when accessing global config in the DB
 CONFIG_KEY_MAX_HISTORY = "max_channel_history"
-CONFIG_KEY_MAX_THREADS = "max_threads_per_channel" # Note: Not directly used by DB logic, maybe remove?
 CONFIG_KEY_TIME_WINDOW = "time_window_hours"
 CONFIG_KEY_GLOBAL_MODEL = "global_model"
 CONFIG_KEY_GLOBAL_PROVIDER = "global_provider"
-CONFIG_KEY_NEWS_FREQUENCY = "news_update_frequency"
-CONFIG_KEY_NEWS_BROADCAST = "news_broadcast_channel_id"
-CONFIG_KEY_SUMMARY_RETENTION_DAYS = "summary_retention_days" # New
-CONFIG_KEY_PRUNE_FREQUENCY_HOURS = "prune_frequency_hours"   # New
-CONFIG_KEY_PERSONAL_FEED_FREQUENCY_HOURS = "personal_feed_frequency_hours" # New
+CONFIG_KEY_PRUNE_FREQUENCY_HOURS = "prune_frequency_hours"
 
 class BotStateManager:
     """Singleton class to manage shared state via DatabaseManager."""
@@ -49,17 +44,11 @@ class BotStateManager:
         self.model_manager = None # Placeholder for ModelManager instance
 
         # Load configuration from DB or set defaults
-        # Using await here in case get/set config becomes async later
         self.max_channel_history = await self._load_or_set_config(CONFIG_KEY_MAX_HISTORY, 35, 'int')
-        # self.max_threads_per_channel = await self._load_or_set_config(CONFIG_KEY_MAX_THREADS, 10, 'int') # Keep or remove?
         self.time_window_hours = await self._load_or_set_config(CONFIG_KEY_TIME_WINDOW, 48, 'int')
         self.global_model = await self._load_or_set_config(CONFIG_KEY_GLOBAL_MODEL, CONFIG_DEFAULT_MODEL, 'string')
         self.global_provider = await self._load_or_set_config(CONFIG_KEY_GLOBAL_PROVIDER, "openrouter", 'string')
-        self.news_update_frequency = await self._load_or_set_config(CONFIG_KEY_NEWS_FREQUENCY, 6, 'int')
-        self.news_broadcast_channel_id = await self._load_or_set_config(CONFIG_KEY_NEWS_BROADCAST, None, 'string') # Stored as string
-        self.summary_retention_days = await self._load_or_set_config(CONFIG_KEY_SUMMARY_RETENTION_DAYS, 7, 'int') # New
-        self.prune_frequency_hours = await self._load_or_set_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, 24, 'int') # New
-        self.personal_feed_frequency_hours = await self._load_or_set_config(CONFIG_KEY_PERSONAL_FEED_FREQUENCY_HOURS, 12, 'int') # New
+        self.prune_frequency_hours = await self._load_or_set_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, 24, 'int')
 
         self._initialized = True
         logger.info("BotStateManager initialized successfully.")
@@ -111,29 +100,6 @@ class BotStateManager:
         self.time_window_hours = value
         await self._save_config(CONFIG_KEY_TIME_WINDOW, value, 'int')
 
-    # def get_news_update_frequency(self) -> int:
-    #     return self.news_update_frequency
-
-    # async def set_news_update_frequency(self, value: int):
-    #     self.news_update_frequency = value
-    #     await self._save_config(CONFIG_KEY_NEWS_FREQUENCY, value, 'int')
-
-    # def get_news_broadcast_channel_id(self) -> Optional[str]:
-    #     return self.news_broadcast_channel_id
-
-    # async def set_news_broadcast_channel_id(self, value: Optional[str]):
-    #     self.news_broadcast_channel_id = value
-    #     await self._save_config(CONFIG_KEY_NEWS_BROADCAST, value, 'string') # Store channel ID as string
-
-    def get_summary_retention_days(self) -> int:
-        return self.summary_retention_days
-
-    async def set_summary_retention_days(self, value: int):
-        if value < 1:
-            raise ValueError("Summary retention must be at least 1 day.")
-        self.summary_retention_days = value
-        await self._save_config(CONFIG_KEY_SUMMARY_RETENTION_DAYS, value, 'int')
-
     def get_prune_frequency_hours(self) -> int:
         return self.prune_frequency_hours
 
@@ -142,18 +108,6 @@ class BotStateManager:
             raise ValueError("Pruning frequency must be at least 1 hour.")
         self.prune_frequency_hours = value
         await self._save_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, value, 'int')
-
-
-    def get_personal_feed_frequency(self) -> int:
-        """Gets how often personal feeds are checked (in hours)."""
-        return self.personal_feed_frequency_hours
-
-    async def set_personal_feed_frequency(self, value: int):
-        """Sets how often personal feeds are checked (in hours)."""
-        if value < 1:
-            raise ValueError("Personal feed frequency must be at least 1 hour.")
-        self.personal_feed_frequency_hours = value
-        await self._save_config(CONFIG_KEY_PERSONAL_FEED_FREQUENCY_HOURS, value, 'int')
 
 
     async def _save_config(self, key: str, value: Any, value_type: str):
@@ -284,43 +238,27 @@ class BotStateManager:
     # --- Pruning Method ---
 
     def prune_old_data(self) -> Dict[str, int]:
-        """Prunes old messages, threads, and article history from the database."""
+        """Prunes old messages and threads from the database."""
         logger.info("Starting data pruning...")
         message_cutoff = datetime.now() - timedelta(hours=self.time_window_hours)
-        # Keep threads longer? Let's use 14 days as before.
         thread_cutoff = datetime.now() - timedelta(days=14)
-        # Keep article history for 7 days (or make configurable later if needed)
-        article_cutoff = datetime.now() - timedelta(days=7)
-        # Use configurable retention for summaries
-        summary_cutoff = datetime.now() - timedelta(days=self.summary_retention_days)
-
 
         try:
             messages_pruned = self.db_manager.prune_old_messages(message_cutoff)
-            threads_pruned = self.db_manager.prune_old_threads(thread_cutoff) # Assumes thread creation time is the criterion
-            articles_pruned = self.db_manager.prune_old_articles(article_cutoff)
-            summaries_pruned = self.db_manager.prune_old_summaries(summary_cutoff) # System summaries
-            user_summaries_pruned = self.db_manager.prune_old_user_summaries(summary_cutoff) # Personal summaries
+            threads_pruned = self.db_manager.prune_old_threads(thread_cutoff)
 
             prune_stats = {
                 "messages_pruned": messages_pruned,
                 "threads_pruned": threads_pruned,
-                "news_article_history_pruned": articles_pruned,
-                "news_summaries_pruned": summaries_pruned, # System summaries
-                "user_news_summaries_pruned": user_summaries_pruned, # Personal summaries
-                "channels_pruned": 0 # Channels aren't pruned automatically here
+                "channels_pruned": 0
             }
             logger.info(f"Pruning complete: {prune_stats}")
             return prune_stats
         except Exception as e:
             logger.error(f"Error during data pruning: {e}", exc_info=True)
-            # Return dict with all keys, including the new one
             return {
                 "messages_pruned": 0,
                 "threads_pruned": 0,
-                "news_article_history_pruned": 0,
-                "news_summaries_pruned": 0, # System summaries
-                "user_news_summaries_pruned": 0, # Personal summaries
                 "channels_pruned": 0
             }
 
