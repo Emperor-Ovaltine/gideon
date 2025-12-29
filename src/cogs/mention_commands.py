@@ -12,6 +12,16 @@ import pytz
 import os
 import json
 from typing import Optional, Dict, Any
+from ..utils.intent_handlers import (
+    handle_calculation,
+    handle_translation,
+    handle_definition,
+    handle_poll_creation,
+    handle_timezone_conversion,
+    handle_unit_conversion,
+    handle_dice_roll,
+    handle_event_scheduling
+)
 
 # Set up logging
 logger = logging.getLogger('mention_commands') # Added logger
@@ -144,11 +154,173 @@ INTENTS:
    - "what is..." (definition/explanation)
    - "how do I..." (instruction/tutorial)
 
-4. "conversation" - General chat, questions, casual interaction
-   - Everything that doesn't fit other intents
+4. "calculation" - User wants to perform mathematical calculations
+   Indicators:
+   - Direct: "calculate...", "what's [math]...", "what is [math]...", "compute...", "how much is..."
+   - Implicit: percentages, arithmetic operations, square roots, powers
 
-5. "unknown" - Ambiguous or unclear intent
-   - Use when genuinely uncertain
+   Extract:
+   - expression: The mathematical expression to evaluate (required)
+
+   Examples of valid calculations:
+   - "what's 15% of 250" → expression: "15% of 250"
+   - "calculate the square root of 144" → expression: "square root of 144"
+   - "how much is 45 * 89" → expression: "45 * 89"
+   - "what is 2^8" → expression: "2^8"
+
+   NOT calculation:
+   - "what is Python" (definition, not math)
+   - "calculate my taxes" (too vague, needs context)
+   - "how to calculate..." (asking for method, not result)
+
+5. "translation" - User wants to translate text between languages
+   Indicators:
+   - Direct: "translate...", "how do you say...", "what does X mean in..."
+   - Keywords: language names (French, Spanish, Japanese, etc.)
+
+   Extract:
+   - text: Text to translate (required)
+   - source_language: Source language (optional, can be empty string if not specified)
+   - target_language: Target language (required)
+
+   Examples:
+   - "translate 'hello' to French" → text: "hello", source_language: "English", target_language: "French"
+   - "how do you say 'thank you' in Japanese" → text: "thank you", source_language: "English", target_language: "Japanese"
+   - "what does 'bonjour' mean" → text: "bonjour", source_language: "French", target_language: "English"
+
+   NOT translation:
+   - "translate this document" (no specific text provided)
+   - "learn French" (asking for resources, not translation)
+
+6. "definition" - User wants a factual definition or explanation (timeless knowledge)
+   Indicators:
+   - Direct: "define...", "what is...", "who is...", "explain...", "tell me about..."
+   - Must be: NOT time-sensitive, NOT current events
+
+   Extract:
+   - term: The term/concept to define (required)
+   - depth: "brief" or "detailed" (optional, default: "brief")
+
+   Distinction from search:
+   - DEFINITION: Timeless facts, general knowledge
+     Examples: "what is Python", "who is Alan Turing", "define quantum entanglement"
+   - SEARCH: Current/recent information, time-sensitive
+     Examples: "what's the latest Python version", "current Python trends"
+
+   NOT definition:
+   - If the query implies "current", "latest", "recent", "today", "now" → use search instead
+
+7. "poll_creation" - User wants to create a poll/vote
+   Indicators:
+   - Direct: "create a poll...", "poll:", "start a vote...", "make a poll..."
+   - Format: Question followed by options (often with comma or colon separators)
+
+   Extract:
+   - question: The poll question (required)
+   - options: List of poll options (required, 2-10 options)
+   - duration: Poll duration in hours (optional, default: 24)
+
+   Examples:
+   - "create a poll: Pizza or Tacos?" → question: "Pizza or Tacos?", options: ["Pizza", "Tacos"]
+   - "poll: What's for dinner? Pizza, Tacos, Pasta" → question: "What's for dinner?", options: ["Pizza", "Tacos", "Pasta"]
+
+   NOT poll_creation:
+   - "show me the poll results" (querying existing polls)
+   - "vote for option 1" (voting on existing poll)
+
+8. "timezone_conversion" - User wants to convert time between timezones
+   Indicators:
+   - Direct: "what time is... in...", "convert [time] to [timezone]", "when is... in..."
+   - Keywords: timezone names/abbreviations (EST, PST, UTC, Tokyo, London, etc.)
+
+   Extract:
+   - time: The time to convert (required)
+   - source_timezone: Source timezone (required)
+   - target_timezone: Target timezone (required)
+
+   Examples:
+   - "what time is 3pm EST in Tokyo" → time: "3pm", source_timezone: "EST", target_timezone: "Tokyo"
+   - "convert 14:00 UTC to PST" → time: "14:00", source_timezone: "UTC", target_timezone: "PST"
+
+   NOT timezone_conversion:
+   - "what time is it" (asking for current time, not conversion)
+   - "time zones" (asking for general information)
+
+9. "unit_conversion" - User wants to convert units (distance, temperature, currency, etc.)
+   Indicators:
+   - Direct: "convert [value] [unit] to [unit]", "how many [unit] in [value] [unit]"
+   - Keywords: unit names (miles, km, celsius, fahrenheit, USD, EUR, etc.)
+
+   Extract:
+   - value: Numeric value to convert (required)
+   - source_unit: Source unit (required)
+   - target_unit: Target unit (required)
+   - category: Unit category hint (optional: "distance", "temperature", "currency", etc.)
+
+   Examples:
+   - "convert 5 miles to km" → value: 5, source_unit: "miles", target_unit: "km", category: "distance"
+   - "32F to celsius" → value: 32, source_unit: "F", target_unit: "celsius", category: "temperature"
+   - "100 USD to EUR" → value: 100, source_unit: "USD", target_unit: "EUR", category: "currency"
+
+   NOT unit_conversion:
+   - "convert file format" (not unit conversion)
+   - "what is a kilometer" (asking for definition)
+
+10. "dice_roll" - User wants random number generation, dice rolling, or random selection
+    Indicators:
+    - Direct: "roll...", "flip a coin", "pick one...", "random...", "choose..."
+    - Keywords: dice notation (2d20, 1d6, etc.), "random number"
+
+    Extract:
+    - dice_notation: Standard dice notation (optional, e.g., "2d20", "1d6")
+    - options: List of options to choose from (optional, for "pick one")
+    - range_min: Minimum value for random number (optional)
+    - range_max: Maximum value for random number (optional)
+
+    Examples:
+    - "roll 2d20" → dice_notation: "2d20", options: [], range_min: null, range_max: null
+    - "flip a coin" → dice_notation: "1d2", options: ["Heads", "Tails"], range_min: null, range_max: null
+    - "pick one: pizza, tacos, burgers" → dice_notation: "", options: ["pizza", "tacos", "burgers"], range_min: null, range_max: null
+    - "random number between 1 and 100" → dice_notation: "", options: [], range_min: 1, range_max: 100
+
+    NOT dice_roll:
+    - "roll out a new feature" (not about dice/random)
+    - "choose a plan" (asking for advice, not random selection)
+
+11. "event_scheduling" - User wants to create a scheduled event or calendar entry
+    CRITICAL: If message contains BOTH an activity/event name AND a specific time/date, this is LIKELY event_scheduling!
+
+    Indicators:
+    - Direct: "schedule", "create event", "plan", "set up", "make an event", "make a discord event", "make event"
+    - Indirect: "can you schedule", "can you create event", "can you make an event", "can you make a"
+    - Strong pattern: ANY request to create/make/schedule something WITH a specific time = event_scheduling
+    - Keywords: event names (gaming, meeting, party, hangout, session, etc.) + future times/dates
+    - If user says "make [activity] [time]" → ALWAYS event_scheduling (NOT conversation)
+
+    Extract:
+    - event_name: Name of the event (required, extract the activity/event being scheduled)
+    - date_time: When the event occurs (required, extract ONLY the time/date portion)
+    - duration: Event duration in minutes (optional, default: 60)
+    - description: Event details (optional)
+
+    Examples:
+    - "schedule movie night Friday 8pm" → event_name: "movie night", date_time: "Friday 8pm", duration: 60, description: ""
+    - "create event: Team meeting tomorrow at 2pm" → event_name: "Team meeting", date_time: "tomorrow at 2pm", duration: 60, description: ""
+    - "can you make a discord event for gaming today at 3:30pm" → event_name: "gaming", date_time: "today at 3:30pm", duration: 60, description: ""
+    - "make an event for gaming at 3:33pm today" → event_name: "gaming", date_time: "3:33pm today", duration: 60, description: ""
+    - "plan game night Saturday 7pm for 2 hours" → event_name: "game night", date_time: "Saturday 7pm", duration: 120, description: ""
+
+    NOT event_scheduling:
+    - "when is the event" (querying existing events, use conversation)
+    - "remind me about the event" (that's a reminder intent, not event creation)
+    - "schedule a reminder" (use reminder intent instead)
+    - "make dinner" without a time (just conversation about making something)
+
+12. "conversation" - General chat, questions, casual interaction
+    - Everything that doesn't fit other intents
+
+13. "unknown" - Ambiguous or unclear intent
+    - Use when genuinely uncertain
 
 CONFIDENCE LEVELS:
 - 0.9-1.0: Very clear intent (explicit keywords)
@@ -158,7 +330,7 @@ CONFIDENCE LEVELS:
 
 Return ONLY valid JSON:
 {
-  "intent": "reminder|image_generation|search|conversation|unknown",
+  "intent": "reminder|image_generation|search|calculation|translation|definition|poll_creation|timezone_conversion|unit_conversion|dice_roll|event_scheduling|conversation|unknown",
   "confidence": 0.85,
   "data": {...}
 }
@@ -202,7 +374,34 @@ Input: "latest AI news"
 Output: {"intent": "search", "confidence": 0.9, "data": {"query": "latest AI news"}}
 
 Input: "tell me about Python"
-Output: {"intent": "conversation", "confidence": 0.85, "data": {}}"""
+Output: {"intent": "conversation", "confidence": 0.85, "data": {}}
+
+Input: "what's 15% of 250"
+Output: {"intent": "calculation", "confidence": 0.95, "data": {"expression": "15% of 250"}}
+
+Input: "translate hello to Spanish"
+Output: {"intent": "translation", "confidence": 0.95, "data": {"text": "hello", "source_language": "English", "target_language": "Spanish"}}
+
+Input: "what is quantum computing"
+Output: {"intent": "definition", "confidence": 0.9, "data": {"term": "quantum computing", "depth": "brief"}}
+
+Input: "create a poll: Pizza or Tacos?"
+Output: {"intent": "poll_creation", "confidence": 0.95, "data": {"question": "Pizza or Tacos?", "options": ["Pizza", "Tacos"], "duration": 24}}
+
+Input: "what time is 3pm EST in Tokyo"
+Output: {"intent": "timezone_conversion", "confidence": 0.9, "data": {"time": "3pm", "source_timezone": "EST", "target_timezone": "Tokyo"}}
+
+Input: "convert 5 miles to km"
+Output: {"intent": "unit_conversion", "confidence": 0.95, "data": {"value": 5, "source_unit": "miles", "target_unit": "km", "category": "distance"}}
+
+Input: "roll 2d20"
+Output: {"intent": "dice_roll", "confidence": 0.95, "data": {"dice_notation": "2d20", "options": [], "range_min": null, "range_max": null}}
+
+Input: "schedule movie night Friday 8pm"
+Output: {"intent": "event_scheduling", "confidence": 0.9, "data": {"event_name": "movie night", "date_time": "Friday 8pm", "duration": 60, "description": ""}}
+
+Input: "can you make a discord event for gaming today at 3:30pm"
+Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name": "gaming", "date_time": "today at 3:30pm", "duration": 60, "description": ""}}"""
 
         try:
             # Prepare message for AI
@@ -881,10 +1080,30 @@ Output: {"intent": "conversation", "confidence": 0.85, "data": {}}"""
             for mention in message.mentions:
                 if mention.id == self.bot.user.id:
                     is_mentioned = True
+                    logger.debug(f"[Mention] Bot mentioned via message.mentions by {message.author.id}")
                     break
 
-        if not is_mentioned and f'<@{self.bot.user.id}>' in message.content or f'<@!{self.bot.user.id}>' in message.content:
-            is_mentioned = True
+        # Fallback: check raw content for mention string (fixed operator precedence)
+        if not is_mentioned:
+            if f'<@{self.bot.user.id}>' in message.content or f'<@!{self.bot.user.id}>' in message.content:
+                is_mentioned = True
+                logger.debug(f"[Mention] Bot mentioned via raw content by {message.author.id}")
+
+        # Also check for role mentions that match the bot's name (common confusion)
+        # This allows users to mention a role with the same name as the bot
+        if not is_mentioned and message.role_mentions:
+            bot_name_lower = self.bot.user.name.lower() if self.bot.user.name else ""
+            for role in message.role_mentions:
+                if role.name.lower() == bot_name_lower:
+                    is_mentioned = True
+                    logger.info(f"[Mention] Bot triggered via role mention '{role.name}' by {message.author.id}")
+                    break
+
+        # Log when not mentioned (for debugging silent failures)
+        if not is_mentioned:
+            # Only log if message contains any mentions at all (to avoid spam)
+            if message.mentions or message.role_mentions or '@' in message.content:
+                logger.debug(f"[Mention] Message from {message.author.id} has mentions but bot NOT mentioned. user_mentions={[m.id for m in message.mentions]}, role_mentions={[r.name for r in message.role_mentions]}, bot_id={self.bot.user.id}, bot_name={self.bot.user.name}")
 
         if is_mentioned and not message.mention_everyone:
             # Ensure state manager is available before proceeding
@@ -962,6 +1181,118 @@ Output: {"intent": "conversation", "confidence": 0.85, "data": {}}"""
                                         message, channel_id,
                                         data.get("query", "")
                                     )
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "calculation":
+                                    # Route to calculation handler
+                                    try:
+                                        await handle_calculation(
+                                            self, message, channel_id,
+                                            data.get("expression", "")
+                                        )
+                                    except Exception as handler_error:
+                                        logger.exception(f"[Intent] Error in calculation handler: {handler_error}")
+                                        await message.channel.send(f"❌ Failed to process calculation: {str(handler_error)}")
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "translation":
+                                    # Route to translation handler
+                                    try:
+                                        await handle_translation(
+                                            self, message, channel_id,
+                                            data.get("text", ""),
+                                            data.get("source_language", ""),
+                                            data.get("target_language", "")
+                                        )
+                                    except Exception as handler_error:
+                                        logger.exception(f"[Intent] Error in translation handler: {handler_error}")
+                                        await message.channel.send(f"❌ Failed to process translation: {str(handler_error)}")
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "definition":
+                                    # Route to definition handler
+                                    try:
+                                        await handle_definition(
+                                            self, message, channel_id,
+                                            data.get("term", ""),
+                                            data.get("depth", "brief")
+                                        )
+                                    except Exception as handler_error:
+                                        logger.exception(f"[Intent] Error in definition handler: {handler_error}")
+                                        await message.channel.send(f"❌ Failed to look up definition: {str(handler_error)}")
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "poll_creation":
+                                    # Route to poll creation handler
+                                    try:
+                                        await handle_poll_creation(
+                                            self, message, channel_id,
+                                            data.get("question", ""),
+                                            data.get("options", []),
+                                            data.get("duration", 24)
+                                        )
+                                    except Exception as handler_error:
+                                        logger.exception(f"[Intent] Error in poll_creation handler: {handler_error}")
+                                        await message.channel.send(f"❌ Failed to create poll: {str(handler_error)}")
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "timezone_conversion":
+                                    # Route to timezone conversion handler
+                                    try:
+                                        await handle_timezone_conversion(
+                                            self, message, channel_id,
+                                            data.get("time", ""),
+                                            data.get("source_timezone", ""),
+                                            data.get("target_timezone", "")
+                                        )
+                                    except Exception as handler_error:
+                                        logger.exception(f"[Intent] Error in timezone_conversion handler: {handler_error}")
+                                        await message.channel.send(f"❌ Failed to convert timezone: {str(handler_error)}")
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "unit_conversion":
+                                    # Route to unit conversion handler
+                                    try:
+                                        await handle_unit_conversion(
+                                            self, message, channel_id,
+                                            data.get("value", ""),
+                                            data.get("source_unit", ""),
+                                            data.get("target_unit", ""),
+                                            data.get("category", "")
+                                        )
+                                    except Exception as handler_error:
+                                        logger.exception(f"[Intent] Error in unit_conversion handler: {handler_error}")
+                                        await message.channel.send(f"❌ Failed to convert units: {str(handler_error)}")
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "dice_roll":
+                                    # Route to dice roll handler
+                                    try:
+                                        await handle_dice_roll(
+                                            self, message, channel_id,
+                                            data.get("dice_notation", ""),
+                                            data.get("options", []),
+                                            data.get("range_min"),
+                                            data.get("range_max")
+                                        )
+                                    except Exception as handler_error:
+                                        logger.exception(f"[Intent] Error in dice_roll handler: {handler_error}")
+                                        await message.channel.send(f"❌ Failed to roll dice: {str(handler_error)}")
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "event_scheduling":
+                                    # Route to event scheduling handler
+                                    try:
+                                        await handle_event_scheduling(
+                                            self, message, channel_id,
+                                            data.get("event_name", ""),
+                                            data.get("date_time", ""),
+                                            data.get("duration", 60),
+                                            data.get("description", "")
+                                        )
+                                    except Exception as handler_error:
+                                        logger.exception(f"[Intent] Error in event_scheduling handler: {handler_error}")
+                                        await message.channel.send(f"❌ Failed to process event scheduling request: {str(handler_error)}")
                                     return  # Exit early, skip normal AI flow
 
                                 # Future intents can be added here:
