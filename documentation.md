@@ -1,6 +1,6 @@
 # Gideon Discord Bot - Documentation
 
-Gideon is a feature-rich Discord bot that leverages AI capabilities to provide conversation, image generation, thread management, and tabletop RPG features. It integrates with multiple AI services and providers (like OpenRouter, OpenAI, AI Horde, Cloudflare Workers) to deliver a comprehensive AI assistant experience within Discord.
+Gideon is a feature-rich Discord bot that leverages AI capabilities to provide conversation, image generation, thread management, trivia games, and more. It integrates with multiple AI services and providers (like OpenRouter, OpenAI, AI Horde, Cloudflare Workers) to deliver a comprehensive AI assistant experience within Discord.
 
 The bot follows a modular architecture using Py-Cord's cogs system, with state management via a singleton pattern that provides persistence across restarts using a SQLite database. It supports multiple AI models from various providers and maintains conversation context for natural interactions.
 
@@ -22,8 +22,7 @@ The bot follows a modular architecture using Py-Cord's cogs system, with state m
     *   [AI Chat Commands](#ai-chat-commands)
     *   [Thread Management Commands](#thread-management-commands)
     *   [Image Generation Commands](#image-generation-commands)
-    *   [News Feeds Commands](#news-feeds-commands)
-    *   [Adventure System Commands](#adventure-system-commands)
+    *   [Trivia Commands](#trivia-commands)
     *   [Configuration Commands](#configuration-commands)
     *   [Diagnostic Commands](#diagnostic-commands)
     *   [Troubleshooting Common Issues](#troubleshooting-common-issues)
@@ -48,6 +47,7 @@ Gideon is a versatile Discord bot designed to enhance server interactions with a
 *   **AI Conversation:** Engage in natural language conversations with the bot, powered by various AI models from multiple providers (e.g., OpenRouter, OpenAI).
 *   **Thread Management:** Utilize Discord's native threads for focused AI conversations with per-thread configuration overrides for models and system prompts.
 *   **Image Generation:** Create images using different AI backends (AI Horde, Cloudflare Worker, OpenAI DALL-E) via a unified command interface.
+*   **Trivia Games:** Play interactive trivia with AI-generated questions on any topic, featuring solo and competitive modes, scoring, achievements, and leaderboards.
 *   **Flexible Configuration:** Customize bot behavior globally, per channel, or per thread for AI providers, models, and system prompts using organized command groups.
 
 The bot is built on the Py-Cord library, using a modular "cog" system for organizing commands and features. State persistence (conversation history, configurations, etc.) is handled through a SQLite database, ensuring data survives bot restarts and updates.
@@ -404,6 +404,69 @@ The `/dream` command provides a unified interface for generating images using di
         *   `model`: The default OpenAI model (`dall-e-2` or `dall-e-3`).
         *   `quality`: (Optional, DALL-E 3 only) Image quality (`standard` or `hd`).
         *   `style`: (Optional, DALL-E 3 only) Image style (`vivid` or `natural`).
+
+### Trivia Commands
+
+Play interactive trivia games powered by AI-generated questions on any topic. The trivia system creates dedicated thread-based games where players simply type their answers naturally.
+
+**Game Modes:**
+*   **Solo Mode**: Personal trivia session where you test your knowledge
+*   **Competitive Mode**: Race against other players - first correct answer wins each round
+
+**Available Commands:**
+
+*   `/trivia start [mode] [category] [difficulty] [questions]`: Start a new trivia game
+    *   `mode`: Choose `solo` (personal session) or `competitive` (multiplayer race)
+    *   `category`: Any topic you want - the AI generates questions dynamically (e.g., "science", "80s movies", "pokemon", "cooking")
+    *   `difficulty`: Choose `easy`, `medium`, or `hard` (default: medium)
+    *   `questions`: Number of questions (1-50, default: 10)
+    *   Creates a dedicated Discord thread where the game takes place
+
+*   `/trivia stop`: End the current trivia game early (use in a trivia thread)
+    *   Only the game host can stop a solo game
+    *   Anyone can stop a competitive game
+
+*   `/trivia stats [user]`: View trivia statistics
+    *   Shows total games played, accuracy, points earned, streaks, and achievements
+    *   Omit the user parameter to view your own stats
+
+*   `/trivia leaderboard [timeframe]`: View server rankings
+    *   `timeframe`: Choose `daily`, `weekly`, `monthly`, or `all_time` (default: all_time)
+    *   Shows top 10 players with their stats
+
+*   `/trivia achievements`: Display all your earned achievement badges
+    *   Shows achievement names, descriptions, and unlock dates
+
+**How to Play:**
+
+1.  **Start a Game**: Use `/trivia start` and select your mode, category, and difficulty
+2.  **Join the Thread**: The bot creates a dedicated thread and posts the first question
+3.  **Answer Questions**: Simply type your answer in the thread:
+    *   Type the letter (A, B, C, or D)
+    *   Or type the full answer text
+    *   The bot validates answers with fuzzy matching for spelling variations
+4.  **Earn Points**: Score is based on:
+    *   **Difficulty**: Easy (100), Medium (200), Hard (300) base points
+    *   **Speed Bonus**: Answer faster for up to +50% bonus points
+    *   **Streak Multiplier**: Consecutive correct answers multiply your score (up to 2x)
+5.  **Track Progress**: View your stats and compete on leaderboards
+6.  **Unlock Achievements**: Earn badges for milestones like perfect games, speed records, and win streaks
+
+**Scoring System:**
+
+*   Base points: 100 (easy), 200 (medium), 300 (hard)
+*   Speed bonus: < 5s (+50%), < 10s (+30%), < 20s (+10%)
+*   Streak multiplier: 3-4 correct (1.1x), 5-9 (1.25x), 10-19 (1.5x), 20+ (2.0x)
+
+**Example Achievements:**
+
+*   🎯 First Blood - Answer your first question correctly
+*   🔥 On Fire - Get 5 correct answers in a row
+*   ⚡ Unstoppable - Get 10 correct answers in a row
+*   💯 Perfectionist - Complete a game with 100% accuracy
+*   💨 Speed Demon - Answer 10 questions in under 3 seconds each
+*   🏆 Champion - Win 25 competitive rounds
+*   And many more!
 
 ### Settings Commands (Administrator)
 

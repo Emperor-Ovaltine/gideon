@@ -21,7 +21,7 @@
 
 ## 🌟 Overview
 
-Gideon transforms your Discord server into an AI-powered hub, connecting members to state-of-the-art language and image models. With Gideon, users can have intelligent conversations, generate creative images, analyze visual content, summarize news feeds, manage URLs, create fantasy adventures, and organize discussions through an intuitive thread system.
+Gideon transforms your Discord server into an AI-powered hub, connecting members to state-of-the-art language and image models. With Gideon, users can have intelligent conversations, generate creative images, analyze visual content, manage URLs, play AI-powered trivia games, and organize discussions through an intuitive thread system.
 
 ## ✨ Features
 
@@ -69,6 +69,16 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 <p align="center">
   <img src="assets/images/imagine-tea-screenshot.png" alt="imagine-queue" width="1200"/>
 </p>
+
+### 🎮 Entertainment
+- **AI-Powered Trivia** - Play interactive trivia games with questions generated dynamically by AI
+  - **Solo Mode**: Test your knowledge in a personal trivia session
+  - **Competitive Mode**: Race against other players for the highest score
+  - **Dynamic Categories**: Ask questions about ANY topic - the AI generates questions on-demand
+  - **Smart Scoring**: Earn points based on difficulty, speed, and answer streaks
+  - **Achievements**: Unlock badges for milestones like perfect games, speed records, and win streaks
+  - **Leaderboards**: Compete on daily, weekly, monthly, and all-time rankings
+  - **Natural Gameplay**: Just type your answer directly in the thread - no complex commands needed!
 
 ### 🧵 Organization
 - **Conversation Threads** - Create dedicated topics with independent histories using Discord's native threads
@@ -305,6 +315,24 @@ Gideon leverages Discord's native thread system to organize conversations and cr
 | `/thread rename` | Change the name of an AI thread |
 | `/thread delete` | Remove an AI thread and its history |
 
+### Trivia Commands
+Play AI-generated trivia games with dynamic questions on any topic you choose.
+
+| Command | Description |
+|:-------:|:------------|
+| `/trivia start` | Start a new trivia game (solo or competitive mode) |
+| `/trivia stop` | End the current trivia game |
+| `/trivia stats [user]` | View your trivia statistics or another player's stats |
+| `/trivia leaderboard [timeframe]` | View server rankings (daily/weekly/monthly/all-time) |
+| `/trivia achievements` | Display your earned achievement badges |
+
+**How to Play:**
+1. Use `/trivia start` and choose your mode (solo/competitive), category, and difficulty
+2. The bot creates a dedicated thread and posts questions
+3. Simply type your answer in the thread (A, B, C, D, or the full answer text)
+4. Earn points based on speed and accuracy - build streaks for bonus multipliers!
+5. Complete all questions to see final results and unlock achievements
+
 ### Admin Commands
 Administrative tools and diagnostics (Admin/Owner only).
 
@@ -360,19 +388,28 @@ gideon/
 │   │   ├── config_commands.py       # Legacy commands (deprecated)
 │   │   ├── diagnostic_commands.py   # Diagnostic utilities
 │   │   ├── mention_commands.py      # Bot mention handling
+│   │   ├── reminder_commands.py     # Reminder management
 │   │   ├── settings_commands.py     # Global settings (/settings group)
 │   │   ├── thread_commands.py       # Thread management (/thread group)
+│   │   ├── trivia_commands.py       # Trivia game system (/trivia group)
 │   │   ├── unified_image_commands.py # Image generation (/dream)
 │   │   └── url_commands.py          # URL summarization
 │   └── utils/              # Utility classes and functions
 │       ├── ai_horde_client.py    # API client for AI Horde
 │       ├── cloudflare_client.py  # API client for Cloudflare Worker
-│       ├── database.py           # SQLite database interactions
+│       ├── game_session.py       # In-memory trivia game state
 │       ├── model_manager.py      # AI model management
 │       ├── openai_client.py      # API client for OpenAI
 │       ├── openrouter_client.py  # API client for OpenRouter
 │       ├── permissions.py        # Permission checks
 │       ├── state_manager.py      # Centralized state management
+│       ├── trivia_ai.py          # AI question generation & validation
+│       ├── trivia_config.py      # Trivia scoring & achievements
+│       ├── database/             # Modular database managers
+│       │   ├── core.py           # Database manager initialization
+│       │   ├── schema.py         # Table definitions
+│       │   ├── trivia_manager.py # Trivia data persistence
+│       │   └── ...
 │       └── ...
 ├── .env.example            # Environment variables template
 ├── Dockerfile              # For building the Docker image

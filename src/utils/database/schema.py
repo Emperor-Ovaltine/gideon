@@ -71,6 +71,49 @@ class SchemaManager:
             sent BOOLEAN NOT NULL DEFAULT 0,
             FOREIGN KEY (channel_id) REFERENCES CHANNELS(channel_id) ON DELETE CASCADE
         );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS TRIVIA_GAME_SESSIONS (
+            session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            thread_id TEXT NOT NULL UNIQUE,
+            channel_id TEXT NOT NULL,
+            user_id TEXT,
+            game_mode TEXT NOT NULL CHECK(game_mode IN ('solo', 'competitive')),
+            category TEXT,
+            difficulty TEXT NOT NULL CHECK(difficulty IN ('easy', 'medium', 'hard')),
+            questions_total INTEGER NOT NULL DEFAULT 10,
+            questions_answered INTEGER NOT NULL DEFAULT 0,
+            started_at DATETIME NOT NULL,
+            ended_at DATETIME,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            FOREIGN KEY (channel_id) REFERENCES CHANNELS(channel_id) ON DELETE CASCADE
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS TRIVIA_LEADERBOARD (
+            user_id TEXT NOT NULL,
+            server_id TEXT NOT NULL,
+            total_games INTEGER NOT NULL DEFAULT 0,
+            total_questions INTEGER NOT NULL DEFAULT 0,
+            total_correct INTEGER NOT NULL DEFAULT 0,
+            total_points INTEGER NOT NULL DEFAULT 0,
+            current_streak INTEGER NOT NULL DEFAULT 0,
+            best_streak INTEGER NOT NULL DEFAULT 0,
+            average_response_time REAL NOT NULL DEFAULT 0.0,
+            last_played DATETIME,
+            PRIMARY KEY (user_id, server_id)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS TRIVIA_ACHIEVEMENTS (
+            achievement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            server_id TEXT NOT NULL,
+            achievement_type TEXT NOT NULL,
+            achievement_name TEXT NOT NULL,
+            earned_at DATETIME NOT NULL,
+            metadata_json TEXT
+        );
         """
     ]
 
@@ -81,7 +124,11 @@ class SchemaManager:
         """CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON MESSAGES (timestamp);""",
         """CREATE INDEX IF NOT EXISTS idx_reminders_due_timestamp ON REMINDERS (due_timestamp);""",
         """CREATE INDEX IF NOT EXISTS idx_reminders_sent ON REMINDERS (sent);""",
-        """CREATE INDEX IF NOT EXISTS idx_reminders_user_id ON REMINDERS (user_id);"""
+        """CREATE INDEX IF NOT EXISTS idx_reminders_user_id ON REMINDERS (user_id);""",
+        """CREATE INDEX IF NOT EXISTS idx_trivia_sessions_thread_id ON TRIVIA_GAME_SESSIONS (thread_id);""",
+        """CREATE INDEX IF NOT EXISTS idx_trivia_sessions_is_active ON TRIVIA_GAME_SESSIONS (is_active);""",
+        """CREATE INDEX IF NOT EXISTS idx_trivia_leaderboard_server_id ON TRIVIA_LEADERBOARD (server_id);""",
+        """CREATE INDEX IF NOT EXISTS idx_trivia_achievements_user_server ON TRIVIA_ACHIEVEMENTS (user_id, server_id);"""
     ]
 
     @staticmethod

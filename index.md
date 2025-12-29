@@ -28,7 +28,7 @@ title: Gideon - AI Assistant for Discord
 
 ## 🌟 Overview
 
-Gideon transforms your Discord server into an AI-powered hub, connecting members to state-of-the-art language and image models. With Gideon, users can have intelligent conversations, generate creative images, analyze visual content, summarize news feeds, manage URLs, create fantasy adventures, and organize discussions through an intuitive thread system.
+Gideon transforms your Discord server into an AI-powered hub, connecting members to state-of-the-art language and image models. With Gideon, users can have intelligent conversations, generate creative images, analyze visual content, summarize news feeds, manage URLs, play AI-powered trivia games, and organize discussions through an intuitive thread system.
 
 ## ✨ Features
 
@@ -82,6 +82,16 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 <p align="center">
   <img src="assets/images/imagine-tea-screenshot.png" alt="imagine-queue" width="1200"/>
 </p>
+
+### 🎮 Entertainment
+- **AI-Powered Trivia** - Play interactive trivia games with questions generated dynamically by AI
+  - **Solo Mode**: Test your knowledge in a personal trivia session
+  - **Competitive Mode**: Race against other players for the highest score
+  - **Dynamic Categories**: Ask questions about ANY topic - the AI generates questions on-demand
+  - **Smart Scoring**: Earn points based on difficulty, speed, and answer streaks
+  - **Achievements**: Unlock badges for milestones like perfect games, speed records, and win streaks
+  - **Leaderboards**: Compete on daily, weekly, monthly, and all-time rankings
+  - **Natural Gameplay**: Just type your answer directly in the thread - no complex commands needed!
 
 ### 🧵 Organization
 - **Conversation Threads** - Create dedicated topics with independent histories using Discord's native threads
@@ -330,6 +340,47 @@ Gideon leverages Discord's native thread system to organize conversations and cr
     </tr>
   </tbody>
 </table>
+
+### Trivia Commands
+Play AI-generated trivia games with dynamic questions on any topic you choose.
+
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>/trivia start</code></td>
+      <td>Start a new trivia game (solo or competitive mode)</td>
+    </tr>
+    <tr>
+      <td><code>/trivia stop</code></td>
+      <td>End the current trivia game</td>
+    </tr>
+    <tr>
+      <td><code>/trivia stats [user]</code></td>
+      <td>View your trivia statistics or another player's stats</td>
+    </tr>
+    <tr>
+      <td><code>/trivia leaderboard [timeframe]</code></td>
+      <td>View server rankings (daily/weekly/monthly/all-time)</td>
+    </tr>
+    <tr>
+      <td><code>/trivia achievements</code></td>
+      <td>Display your earned achievement badges</td>
+    </tr>
+  </tbody>
+</table>
+
+**How to Play:**
+1. Use `/trivia start` and choose your mode (solo/competitive), category, and difficulty
+2. The bot creates a dedicated thread and posts questions
+3. Simply type your answer in the thread (A, B, C, D, or the full answer text)
+4. Earn points based on speed and accuracy - build streaks for bonus multipliers!
+5. Complete all questions to see final results and unlock achievements
 
 ### Settings Commands (Admin)
 Manage global bot configuration settings.

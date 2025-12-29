@@ -545,6 +545,13 @@ class ThreadCommands(commands.Cog):
             thread_id = str(message.channel.id)
             channel_id = str(message.channel.parent_id) # Get parent channel ID
 
+            # Check if this is an active trivia thread - if so, skip it
+            # The trivia cog will handle all messages in trivia threads
+            trivia_session = self.state.get_active_trivia_session(thread_id)
+            if trivia_session:
+                logger.debug(f"Skipping message in active trivia thread {thread_id}")
+                return
+
             # Check if this thread is tracked in our database
             thread_data = self.state.get_discord_thread(thread_id)
 

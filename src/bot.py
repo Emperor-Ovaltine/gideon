@@ -122,7 +122,8 @@ async def on_ready():
         "src.cogs.settings_commands",
         "src.cogs.channel_commands",
         "src.cogs.admin_commands",
-        "src.cogs.reminder_commands"
+        "src.cogs.reminder_commands",
+        "src.cogs.trivia_commands"
     ]
 
     for cog in cogs:

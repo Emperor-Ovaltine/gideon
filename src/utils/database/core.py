@@ -12,6 +12,7 @@ from .thread_manager import ThreadManager
 from .message_manager import MessageManager
 from .user_manager import UserManager
 from .reminder_manager import ReminderManager
+from .trivia_manager import TriviaManager
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class DatabaseManager:
             self._messages = MessageManager(self._conn)
             self._users = UserManager(self._conn)
             self._reminders = ReminderManager(self._conn)
+            self._trivia = TriviaManager(self._conn)
 
         except sqlite3.Error as e:
             logger.error(f"Database connection error to {self.db_path}: {e}", exc_info=True)
@@ -247,6 +249,65 @@ class DatabaseManager:
     def prune_old_reminders(self, cutoff_timestamp: datetime) -> int:
         """Deletes sent reminders older than cutoff."""
         return self._reminders.prune_old_reminders(cutoff_timestamp)
+
+    # --- Trivia Methods (delegate to TriviaManager) ---
+
+    def create_trivia_session(self, thread_id: str, channel_id: str, user_id: Optional[str],
+                             game_mode: str, category: Optional[str], difficulty: str,
+                             questions_total: int = 10) -> int:
+        """Creates a new trivia game session."""
+        self._ensure_channel_exists(channel_id)
+        return self._trivia.create_session(thread_id, channel_id, user_id, game_mode,
+                                          category, difficulty, questions_total)
+
+    def get_active_trivia_session(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """Gets the active trivia session for a thread."""
+        return self._trivia.get_active_session_by_thread(thread_id)
+
+    def update_trivia_questions_answered(self, thread_id: str) -> bool:
+        """Increments the questions_answered counter."""
+        return self._trivia.update_questions_answered(thread_id)
+
+    def end_trivia_session(self, thread_id: str) -> bool:
+        """Ends a trivia session."""
+        return self._trivia.end_session(thread_id)
+
+    def update_trivia_leaderboard(self, user_id: str, server_id: str,
+                                  questions_answered: int, correct_answers: int,
+                                  points_earned: int, current_streak: int,
+                                  response_time: float) -> bool:
+        """Updates leaderboard stats for a user."""
+        return self._trivia.update_leaderboard(user_id, server_id, questions_answered,
+                                              correct_answers, points_earned,
+                                              current_streak, response_time)
+
+    def get_trivia_leaderboard(self, server_id: str, timeframe: str = 'all_time',
+                              limit: int = 10) -> List[Dict[str, Any]]:
+        """Gets the leaderboard rankings for a server."""
+        return self._trivia.get_leaderboard(server_id, timeframe, limit)
+
+    def get_trivia_user_stats(self, user_id: str, server_id: str) -> Optional[Dict[str, Any]]:
+        """Gets trivia stats for a specific user."""
+        return self._trivia.get_user_stats(user_id, server_id)
+
+    def add_trivia_achievement(self, user_id: str, server_id: str,
+                              achievement_type: str, achievement_name: str,
+                              metadata_json: Optional[str] = None) -> int:
+        """Adds an achievement for a user."""
+        return self._trivia.add_achievement(user_id, server_id, achievement_type,
+                                           achievement_name, metadata_json)
+
+    def get_trivia_user_achievements(self, user_id: str, server_id: str) -> List[Dict[str, Any]]:
+        """Gets all achievements for a user."""
+        return self._trivia.get_user_achievements(user_id, server_id)
+
+    def has_trivia_achievement(self, user_id: str, server_id: str, achievement_type: str) -> bool:
+        """Checks if user has a specific achievement."""
+        return self._trivia.has_achievement(user_id, server_id, achievement_type)
+
+    def prune_old_trivia_sessions(self, days_old: int = 30) -> int:
+        """Deletes inactive trivia sessions older than specified days."""
+        return self._trivia.prune_old_sessions(days_old)
 
     # Note: The following methods were removed as they were part of the news feed system:
     # - All news feed management methods

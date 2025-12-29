@@ -115,6 +115,14 @@ class BotStateManager:
         # This can remain synchronous if db_manager methods are sync
         self.db_manager.set_global_config(key, value, value_type)
 
+    def get_global_config(self, key: str, default: Any = None) -> Any:
+        """Gets a global configuration value from the database."""
+        return self.db_manager.get_global_config(key, default)
+
+    def set_global_config(self, key: str, value: Any, value_type: str):
+        """Sets a global configuration value in the database."""
+        self.db_manager.set_global_config(key, value, value_type)
+
     # --- Channel History Methods ---
 
     def get_channel_history(self, channel_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -238,21 +246,24 @@ class BotStateManager:
     # --- Pruning Method ---
 
     def prune_old_data(self) -> Dict[str, int]:
-        """Prunes old messages, threads, and sent reminders from the database."""
+        """Prunes old messages, threads, sent reminders, and trivia sessions from the database."""
         logger.info("Starting data pruning...")
         message_cutoff = datetime.now() - timedelta(hours=self.time_window_hours)
         thread_cutoff = datetime.now() - timedelta(days=14)
         reminder_cutoff = datetime.now() - timedelta(days=30)
+        trivia_session_days = 30  # Keep trivia sessions for 30 days
 
         try:
             messages_pruned = self.db_manager.prune_old_messages(message_cutoff)
             threads_pruned = self.db_manager.prune_old_threads(thread_cutoff)
             reminders_pruned = self.db_manager.prune_old_reminders(reminder_cutoff)
+            trivia_sessions_pruned = self.db_manager.prune_old_trivia_sessions(trivia_session_days)
 
             prune_stats = {
                 "messages_pruned": messages_pruned,
                 "threads_pruned": threads_pruned,
                 "reminders_pruned": reminders_pruned,
+                "trivia_sessions_pruned": trivia_sessions_pruned,
                 "channels_pruned": 0
             }
             logger.info(f"Pruning complete: {prune_stats}")
@@ -263,6 +274,7 @@ class BotStateManager:
                 "messages_pruned": 0,
                 "threads_pruned": 0,
                 "reminders_pruned": 0,
+                "trivia_sessions_pruned": 0,
                 "channels_pruned": 0
             }
 
@@ -643,6 +655,78 @@ class BotStateManager:
     def delete_reminder(self, reminder_id: int, user_id: str) -> bool:
         """Deletes a reminder by ID."""
         return self.db_manager.delete_reminder(reminder_id, str(user_id))
+
+    # ===== Trivia Methods =====
+
+    def create_trivia_session(self, thread_id: str, channel_id: str, user_id: Optional[str],
+                             game_mode: str, category: Optional[str], difficulty: str,
+                             questions_total: int = 10) -> int:
+        """Creates a new trivia game session."""
+        return self.db_manager.create_trivia_session(
+            thread_id=str(thread_id),
+            channel_id=str(channel_id),
+            user_id=str(user_id) if user_id else None,
+            game_mode=game_mode,
+            category=category,
+            difficulty=difficulty,
+            questions_total=questions_total
+        )
+
+    def get_active_trivia_session(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """Gets the active trivia session for a thread."""
+        return self.db_manager.get_active_trivia_session(str(thread_id))
+
+    def update_trivia_questions_answered(self, thread_id: str) -> bool:
+        """Increments questions_answered counter for a trivia session."""
+        return self.db_manager.update_trivia_questions_answered(str(thread_id))
+
+    def end_trivia_session(self, thread_id: str) -> bool:
+        """Ends a trivia session."""
+        return self.db_manager.end_trivia_session(str(thread_id))
+
+    def update_trivia_leaderboard(self, user_id: str, server_id: str,
+                                  questions_answered: int, correct_answers: int,
+                                  points_earned: int, current_streak: int,
+                                  response_time: float) -> bool:
+        """Updates trivia leaderboard stats for a user."""
+        return self.db_manager.update_trivia_leaderboard(
+            user_id=str(user_id),
+            server_id=str(server_id),
+            questions_answered=questions_answered,
+            correct_answers=correct_answers,
+            points_earned=points_earned,
+            current_streak=current_streak,
+            response_time=response_time
+        )
+
+    def get_trivia_leaderboard(self, server_id: str, timeframe: str = 'all_time',
+                              limit: int = 10) -> List[Dict[str, Any]]:
+        """Gets trivia leaderboard rankings for a server."""
+        return self.db_manager.get_trivia_leaderboard(str(server_id), timeframe, limit)
+
+    def get_trivia_user_stats(self, user_id: str, server_id: str) -> Optional[Dict[str, Any]]:
+        """Gets trivia stats for a specific user."""
+        return self.db_manager.get_trivia_user_stats(str(user_id), str(server_id))
+
+    def add_trivia_achievement(self, user_id: str, server_id: str,
+                              achievement_type: str, achievement_name: str,
+                              metadata_json: Optional[str] = None) -> int:
+        """Adds a trivia achievement for a user."""
+        return self.db_manager.add_trivia_achievement(
+            user_id=str(user_id),
+            server_id=str(server_id),
+            achievement_type=achievement_type,
+            achievement_name=achievement_name,
+            metadata_json=metadata_json
+        )
+
+    def get_trivia_user_achievements(self, user_id: str, server_id: str) -> List[Dict[str, Any]]:
+        """Gets all trivia achievements for a user."""
+        return self.db_manager.get_trivia_user_achievements(str(user_id), str(server_id))
+
+    def has_trivia_achievement(self, user_id: str, server_id: str, achievement_type: str) -> bool:
+        """Checks if user has a specific trivia achievement."""
+        return self.db_manager.has_trivia_achievement(str(user_id), str(server_id), achievement_type)
 
     # def get_news_feeds_count(self) -> int:
     #     """Gets the count of configured news feeds."""
