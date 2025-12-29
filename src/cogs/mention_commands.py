@@ -91,10 +91,42 @@ INTENTS:
    - "what's my reminder" (querying existing reminders)
    - "can you remind me of..." (asking for explanation)
 
-2. "conversation" - General chat, questions, casual interaction
+2. "image_generation" - User wants to generate an AI image
+   Indicators:
+   - Direct: "draw...", "generate an image...", "create a picture...", "make an image..."
+   - Keywords: "draw", "generate", "create", "paint", "illustrate", "sketch", "render", "show me" (visual)
+   - Implicit: "I want to see...", "can you make..." (when referring to visual content)
+
+   Extract:
+   - prompt: The main description of what to generate (required)
+   - negative_prompt: What to exclude (optional, look for "no", "without", "avoid", "but not")
+   - size: Dimensions if specified (optional, e.g., "512x512", "1024x1024", "landscape", "portrait")
+   - quality: Quality setting (optional, "hd", "high quality", "standard")
+   - style: Style preference (optional, "vivid", "natural", "realistic", "artistic")
+
+   Examples of size extraction:
+   - "512x512" or "512 x 512" → size: "512x512"
+   - "1024 by 1024" → size: "1024x1024"
+   - "landscape" or "wide" → size: "1024x768"
+   - "portrait" or "tall" → size: "768x1024"
+   - Not specified → size: "" (empty string)
+
+   Examples of negative_prompt extraction:
+   - "no clouds" → negative_prompt: "clouds"
+   - "without people" → negative_prompt: "people"
+   - "avoid red colors" → negative_prompt: "red colors"
+   - "but not scary" → negative_prompt: "scary"
+   - Not specified → negative_prompt: "" (empty string)
+
+   NOT image generation:
+   - "show me my images" (querying existing images)
+   - "explain this image" (image analysis, needs attachment)
+   - "what does this picture show" (asking about existing image)
+
+3. "conversation" - General chat, questions, casual interaction
    - Everything that doesn't fit other intents
 
-3. "unknown" - Ambiguous or unclear intent
+4. "unknown" - Ambiguous or unclear intent
    - Use when genuinely uncertain
 
 CONFIDENCE LEVELS:
@@ -105,7 +137,7 @@ CONFIDENCE LEVELS:
 
 Return ONLY valid JSON:
 {
-  "intent": "reminder|conversation|unknown",
+  "intent": "reminder|image_generation|conversation|unknown",
   "confidence": 0.85,
   "data": {...}
 }
@@ -125,7 +157,19 @@ Input: "remind me later"
 Output: {"intent": "unknown", "confidence": 0.4, "data": {"reminder_message": "", "time_expression": "later"}}
 
 Input: "in 30 minutes tell me to call mom"
-Output: {"intent": "reminder", "confidence": 0.9, "data": {"reminder_message": "call mom", "time_expression": "in 30 minutes"}}"""
+Output: {"intent": "reminder", "confidence": 0.9, "data": {"reminder_message": "call mom", "time_expression": "in 30 minutes"}}
+
+Input: "draw a sunset over mountains"
+Output: {"intent": "image_generation", "confidence": 0.95, "data": {"prompt": "a sunset over mountains", "negative_prompt": "", "size": "", "quality": "", "style": ""}}
+
+Input: "generate a cat 512x512, no dogs"
+Output: {"intent": "image_generation", "confidence": 0.95, "data": {"prompt": "a cat", "negative_prompt": "dogs", "size": "512x512", "quality": "", "style": ""}}
+
+Input: "create a landscape painting, high quality, vivid style, without people"
+Output: {"intent": "image_generation", "confidence": 0.9, "data": {"prompt": "a landscape painting", "negative_prompt": "people", "size": "", "quality": "hd", "style": "vivid"}}
+
+Input: "make me a picture of a robot, portrait size"
+Output: {"intent": "image_generation", "confidence": 0.85, "data": {"prompt": "a robot", "negative_prompt": "", "size": "768x1024", "quality": "", "style": ""}}"""
 
         try:
             # Prepare message for AI
@@ -284,6 +328,324 @@ Output: {"intent": "reminder", "confidence": 0.9, "data": {"reminder_message": "
             logger.exception(f"[Intent] Error setting reminder: {e}")
             await message.channel.send(f"❌ Failed to save reminder: {str(e)}")
 
+    async def handle_image_generation_request(
+        self,
+        message: discord.Message,
+        channel_id: str,
+        prompt: str,
+        negative_prompt: str = "",
+        size: str = "",
+        quality: str = "",
+        style: str = ""
+    ):
+        """
+        Handle an image generation request detected from a mention.
+
+        Args:
+            message: Original Discord message object
+            channel_id: Channel ID as string
+            prompt: Image description/prompt
+            negative_prompt: What to exclude from the image
+            size: Requested size (e.g., "512x512")
+            quality: Quality setting for OpenAI ("hd" or "standard")
+            style: Style setting for OpenAI ("vivid" or "natural")
+        """
+        # Validate prompt
+        if not prompt or not prompt.strip():
+            await message.channel.send(
+                "❌ I detected you want to generate an image, but I'm not sure what to create. "
+                "Please try something like: '@Gideon draw a sunset over mountains'"
+            )
+            logger.warning(f"[Intent] Missing image prompt for user {message.author.id}")
+            return
+
+        # Get UnifiedImageCommands cog
+        image_cog = self.bot.get_cog('UnifiedImageCommands')
+        if not image_cog:
+            await self._handle_image_generation_fallback(
+                message, channel_id,
+                "Image generation failed. The image generation system is not available. "
+            )
+            logger.error("[Intent] UnifiedImageCommands cog not found")
+            return
+
+        # Get active provider and config from database
+        try:
+            from ..cogs.unified_image_commands import DEFAULT_CONFIGS
+
+            active_provider = image_cog.db.get_global_config("image_active_provider", "ai_horde")
+            config_key = f"image_config_{active_provider}"
+            config_json = image_cog.db.get_global_config(config_key)
+
+            # Parse provider config
+            if config_json:
+                try:
+                    provider_config = json.loads(config_json)
+                except json.JSONDecodeError:
+                    logger.warning(f"[Intent] Failed to parse config for {active_provider}, using defaults")
+                    provider_config = DEFAULT_CONFIGS.get(active_provider, {})
+            else:
+                provider_config = DEFAULT_CONFIGS.get(active_provider, {})
+
+        except Exception as e:
+            await self._handle_image_generation_fallback(
+                message, channel_id,
+                "Image generation failed. Could not retrieve image provider configuration. "
+            )
+            logger.error(f"[Intent] Error getting image provider config: {e}")
+            return
+
+        # Select and validate client
+        client = None
+        provider_display_name = "Unknown"
+        params = {"prompt": prompt}
+
+        if active_provider == 'ai_horde':
+            client = image_cog.horde_client
+            provider_display_name = "AI Horde"
+            if client:
+                # Parse size or use default
+                target_size = size if size else provider_config.get("size", "512x512")
+                try:
+                    width, height = map(int, target_size.split('x'))
+                    width = round(width / 64) * 64  # Ensure multiple of 64
+                    height = round(height / 64) * 64
+                except (ValueError, AttributeError):
+                    width, height = 512, 512
+                    logger.warning(f"[Intent] Invalid size '{target_size}', using 512x512")
+
+                params.update({
+                    "negative_prompt": negative_prompt,
+                    "width": width,
+                    "height": height,
+                    "steps": provider_config.get("steps", 30),
+                    "model": provider_config.get("model", "stable_diffusion_xl")
+                })
+
+        elif active_provider == 'cloudflare':
+            client = image_cog.cf_client
+            provider_display_name = "Cloudflare"
+            if client:
+                target_size = size if size else provider_config.get("size", "768x768")
+                try:
+                    width, height = map(int, target_size.split('x'))
+                except (ValueError, AttributeError):
+                    width, height = 768, 768
+                    logger.warning(f"[Intent] Invalid size '{target_size}', using 768x768")
+
+                params.update({
+                    "negative_prompt": negative_prompt,
+                    "width": width,
+                    "height": height,
+                    "steps": provider_config.get("steps", 25),
+                    "seed": provider_config.get("seed")
+                })
+
+        elif active_provider == 'openai':
+            client = image_cog.openai_client
+            provider_display_name = "OpenAI"
+            if client:
+                # Map quality variations to OpenAI values
+                openai_quality = None
+                if quality:
+                    quality_lower = quality.lower()
+                    if "hd" in quality_lower or "high" in quality_lower:
+                        openai_quality = "hd"
+                    else:
+                        openai_quality = "standard"
+                else:
+                    openai_quality = provider_config.get("quality", "standard")
+
+                # Map style to OpenAI values
+                openai_style = None
+                if style:
+                    style_lower = style.lower()
+                    if "vivid" in style_lower:
+                        openai_style = "vivid"
+                    elif "natural" in style_lower:
+                        openai_style = "natural"
+                else:
+                    openai_style = provider_config.get("style", "vivid")
+
+                params.update({
+                    "model": provider_config.get("model", "dall-e-3"),
+                    "size": "1024x1024",  # Fixed for OpenAI
+                    "quality": openai_quality if provider_config.get("model", "dall-e-3") == "dall-e-3" else None,
+                    "style": openai_style if provider_config.get("model", "dall-e-3") == "dall-e-3" else None
+                })
+                # Note: OpenAI doesn't support negative_prompt, so we ignore it
+
+        if not client:
+            await self._handle_image_generation_fallback(
+                message, channel_id,
+                f"Image generation failed. The {provider_display_name} client is not configured. "
+            )
+            logger.error(f"[Intent] {provider_display_name} client not available")
+            return
+
+        # Send "generating" message with typing indicator
+        async with message.channel.typing():
+            thinking_msg = await message.channel.send(
+                f"🎨 Generating image with **{provider_display_name}**: `{prompt}`\n*Please wait...*"
+            )
+
+        # Call generate_image
+        try:
+            result = await client.generate_image(**params)
+        except Exception as e:
+            logger.exception(f"[Intent] Exception during image generation with {active_provider}: {e}")
+            await thinking_msg.delete()
+            await self._handle_image_generation_fallback(
+                message, channel_id,
+                f"Image generation failed. An unexpected error occurred: {str(e)}. "
+            )
+            return
+
+        # Handle result
+        if result.get("success"):
+            # Build embed
+            embed = discord.Embed(
+                title="Generated Image",
+                description=f"**Prompt:** {prompt}",
+                color=discord.Color.blue()
+            )
+
+            if negative_prompt and active_provider != 'openai':
+                embed.add_field(name="Negative Prompt", value=negative_prompt, inline=False)
+
+            # Footer with metadata
+            footer_parts = [f"Provider: {provider_display_name}"]
+            if result.get("model_used"):
+                footer_parts.append(f"Model: {result.get('model_used')}")
+            if result.get("seed"):
+                footer_parts.append(f"Seed: {result.get('seed')}")
+            if params.get("steps"):
+                footer_parts.append(f"Steps: {params.get('steps')}")
+            if params.get("size"):
+                footer_parts.append(f"Size: {params.get('size')}")
+            elif params.get("width"):
+                footer_parts.append(f"Size: {params.get('width')}x{params.get('height')}")
+
+            embed.set_footer(text=" | ".join(footer_parts))
+
+            if result.get("revised_prompt"):
+                embed.add_field(name="Revised Prompt (DALL-E 3)", value=result["revised_prompt"], inline=False)
+
+            # Send image
+            if "image_url" in result:
+                embed.set_image(url=result["image_url"])
+                await thinking_msg.edit(content=None, embed=embed)
+            elif "local_path" in result:
+                file = discord.File(result["local_path"], filename="generated_image.png")
+                embed.set_image(url="attachment://generated_image.png")
+                await thinking_msg.delete()
+                await message.channel.send(embed=embed, file=file)
+            else:
+                await thinking_msg.delete()
+                await self._handle_image_generation_fallback(
+                    message, channel_id,
+                    "Image generation failed. No image data returned. "
+                )
+                return
+
+            # Add to conversation history (assistant response)
+            await self.state.add_to_channel_history(channel_id, {
+                "role": "assistant",
+                "content": f"[Generated image: {prompt}]",
+                "timestamp": datetime.now()
+            })
+
+            logger.info(f"[Intent] User {message.author.id} generated image via mention: '{prompt}' using {provider_display_name}")
+
+        else:
+            # Generation failed
+            error_msg = result.get("error", "Unknown error")
+            await thinking_msg.delete()
+            await self._handle_image_generation_fallback(
+                message, channel_id,
+                f"Image generation failed. {error_msg}. "
+            )
+            logger.warning(f"[Intent] Image generation failed for user {message.author.id}: {error_msg}")
+
+    async def _handle_image_generation_fallback(
+        self,
+        message: discord.Message,
+        channel_id: str,
+        error_prefix: str
+    ):
+        """
+        Handle failed image generation by falling back to conversation with error prefix.
+
+        Args:
+            message: Original Discord message object
+            channel_id: Channel ID as string
+            error_prefix: Error message to prefix (e.g., "Image generation failed. API error. ")
+        """
+        # Get the user's original message content
+        content = message.content
+        content = content.replace(f'<@{self.bot.user.id}>', '').replace(f'<@!{self.bot.user.id}>', '')
+        content = content.strip()
+        if not content:
+            content = "Hello!"
+
+        # Get model and client for conversation
+        model_id_full = self.get_model_for_channel(channel_id)
+        try:
+            provider, model_name = model_id_full.split('/', 1)
+        except ValueError:
+            provider = self.state.global_provider if self.state else "openrouter"
+            model_name = model_id_full
+
+        client_to_use = self.clients.get(provider)
+
+        if not client_to_use or not hasattr(client_to_use, 'send_message_with_history'):
+            # Can't even do conversation fallback
+            await message.channel.send(
+                f"{error_prefix}Additionally, the conversation system is unavailable."
+            )
+            return
+
+        # Get conversation context
+        channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+        conversation_context = self.state.get_channel_history(channel_id)
+
+        # Add current message to context
+        conversation_context.append({
+            "role": "user",
+            "content": f"{message.author.display_name}: {content}"
+        })
+
+        # Get AI response
+        try:
+            async with message.channel.typing():
+                response = await client_to_use.send_message_with_history(
+                    messages=conversation_context,
+                    model=model_name,
+                    system_prompt=channel_system_prompt
+                )
+
+            # Prefix response with error
+            full_response = f"{error_prefix}{response}"
+
+            # Add to history
+            await self.state.add_to_channel_history(channel_id, {
+                "role": "assistant",
+                "content": full_response,
+                "timestamp": datetime.now()
+            })
+
+            # Send in chunks
+            max_length = 2000
+            chunks = [full_response[i:i+max_length] for i in range(0, len(full_response), max_length)]
+            for chunk in chunks:
+                await message.channel.send(chunk)
+
+        except Exception as e:
+            logger.exception(f"[Intent] Error in fallback conversation: {e}")
+            await message.channel.send(
+                f"{error_prefix}Additionally, failed to generate a conversation response."
+            )
+
     @commands.Cog.listener()
     async def on_message(self, message):
         """Listen for messages in channels and respond to @mentions."""
@@ -376,6 +738,18 @@ Output: {"intent": "reminder", "confidence": 0.9, "data": {"reminder_message": "
                                         message, channel_id,
                                         data.get("reminder_message", ""),
                                         data.get("time_expression", "")
+                                    )
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "image_generation":
+                                    # Route to image generation handler
+                                    await self.handle_image_generation_request(
+                                        message, channel_id,
+                                        data.get("prompt", ""),
+                                        data.get("negative_prompt", ""),
+                                        data.get("size", ""),
+                                        data.get("quality", ""),
+                                        data.get("style", "")
                                     )
                                     return  # Exit early, skip normal AI flow
 
