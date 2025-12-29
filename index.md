@@ -563,12 +563,12 @@ Gideon now uses a unified command for image generation with support for multiple
       <td>All Users</td>
     </tr>
     <tr>
-      <td><code>/dream manage set_provider provider:<Choice></code></td>
+      <td><code>/dream manage set_provider provider:&lt;Choice&gt;</code></td>
       <td>Set the active image generation provider (AI Horde, Cloudflare, OpenAI).</td>
       <td>Admin</td>
     </tr>
     <tr>
-      <td><code>/dream manage configure <provider> [options...]</code></td>
+      <td><code>/dream manage configure &lt;provider&gt; [options...]</code></td>
       <td>Configure default settings for a specific provider (e.g., model, size, steps).</td>
       <td>Admin</td>
     </tr>
