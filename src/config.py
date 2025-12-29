@@ -43,3 +43,27 @@ CLOUDFLARE_API_KEY = os.getenv('CLOUDFLARE_API_KEY', '')
 
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+
+# Intent Discovery - Enable AI-powered intent detection for @mentions (opt-in feature)
+# When enabled, adds AI call on every mention to detect intents (reminders, etc.)
+# Default: FALSE (users must opt-in due to additional API calls)
+INTENT_DISCOVERY = os.getenv('INTENT_DISCOVERY', 'FALSE').upper() == 'TRUE'
+
+# Intent Detection Model (fast, lightweight model for intent classification)
+# Only used when INTENT_DISCOVERY=TRUE
+# Format: "provider/model_name" - should be a fast, cheap model
+INTENT_DETECTION_MODEL = os.getenv('INTENT_DETECTION_MODEL', 'openai/gpt-4o-mini')
+
+# Intent Confidence Threshold (minimum confidence to execute intent handlers)
+# Only used when INTENT_DISCOVERY=TRUE
+# Range: 0.0-1.0, Default: 0.7
+# Lower = more aggressive (more false positives), Higher = more conservative (more false negatives)
+try:
+    INTENT_CONFIDENCE_THRESHOLD = float(os.getenv('INTENT_CONFIDENCE_THRESHOLD', '0.7'))
+    # Clamp to valid range
+    if INTENT_CONFIDENCE_THRESHOLD < 0.0:
+        INTENT_CONFIDENCE_THRESHOLD = 0.0
+    elif INTENT_CONFIDENCE_THRESHOLD > 1.0:
+        INTENT_CONFIDENCE_THRESHOLD = 1.0
+except ValueError:
+    INTENT_CONFIDENCE_THRESHOLD = 0.7

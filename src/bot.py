@@ -8,6 +8,7 @@ from datetime import datetime
 import signal
 import sys
 import traceback
+import pytz
 
 # Import configuration
 from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY, OPENAI_API_KEY, AI_HORDE_API_KEY
@@ -254,7 +255,19 @@ async def check_reminders_task():
     logger.debug("Checking for due reminders...")
     try:
         state = bot.state_manager
-        current_time = datetime.now()
+
+        # Get current time in the same timezone as reminders are stored (EST)
+        # Reminders are stored as naive datetimes in EST timezone
+        tz_str = os.environ.get('TZ', 'America/New_York')
+        try:
+            local_tz = pytz.timezone(tz_str)
+        except pytz.exceptions.UnknownTimeZoneError:
+            logger.warning(f"Unknown timezone '{tz_str}', defaulting to America/New_York")
+            local_tz = pytz.timezone('America/New_York')
+
+        # Get current time in local timezone, then convert to naive for comparison
+        current_time_aware = datetime.now(local_tz)
+        current_time = current_time_aware.replace(tzinfo=None)
 
         due_reminders = state.get_due_reminders(current_time)
 
