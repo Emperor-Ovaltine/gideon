@@ -34,7 +34,13 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 
 - **Conversation Memory** - Natural conversations with context across messages
 
-- **Web Search** - Search the web for current information through conversational AI responses
+- **Natural Language Intent Detection** - Simply @mention Gideon with natural language to automatically execute commands without needing to remember slash command syntax. The AI understands your intent and routes to the appropriate feature:
+  - **Reminders**: "@Gideon remind me to check the server logs tomorrow at 3pm"
+  - **Image Generation**: "@Gideon draw a sunset over mountains with vibrant colors"
+  - **Web Search**: "@Gideon what are the current best games on Xbox Game Pass"
+  - **Conversation**: Any other @mention automatically engages in natural conversation
+
+- **Web Search** - Search the web for current information through conversational AI responses or natural language (@mention)
 
 <img src="assets/images/web-search1.png" alt="web-search-demo" width="800"/>
 <img src="assets/images/web-search2.png" alt="web-search-demo" width="800"/>
@@ -50,7 +56,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   <img src="assets/images/replys-to-at-tags.png" alt="analyze-demo" width="1200"/>
 </p>
 
-- **Image Generation** - Create stunning visuals using a unified command (`/dream`) with support for multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E). Admins can configure the active provider and its default settings.
+- **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions (e.g., "@Gideon draw a futuristic cityscape"). Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E). Admins can configure the active provider and its default settings.
 
 <p align="center">
   <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="1200"/>
@@ -191,6 +197,27 @@ python3 -m src
 3. Generate invite URL in "OAuth2 > URL Generator":
    - Scopes: `bot`, `applications.commands`
    - Permissions: Send Messages, Read Message History, Embed Links, Use Slash Commands, Manage Threads (for `/thread` commands)
+
+### Intent Detection Configuration (Optional)
+
+Gideon's intent detection feature allows users to interact naturally with the bot through @mentions instead of slash commands. This feature is enabled by default.
+
+**Environment Variables (in `.env`):**
+- `INTENT_DISCOVERY=true` - Enable/disable intent detection (default: true)
+- `INTENT_DETECTION_MODEL=anthropic/claude-3.5-haiku` - Model used for intent classification (default: Claude 3.5 Haiku)
+- `INTENT_CONFIDENCE_THRESHOLD=0.7` - Minimum confidence score (0.0-1.0) to trigger intent routing (default: 0.7)
+
+**How It Works:**
+When you @mention Gideon, the bot uses AI to analyze your message and determine your intent:
+- **High confidence (≥0.7)**: Routes to the appropriate handler (reminder, image generation, or search)
+- **Low confidence (<0.7)**: Falls back to normal conversation
+- **Search intent**: Requires OpenRouter provider. If another provider is active, falls back to conversation with a notification
+
+**Supported Intents:**
+1. **Reminder**: Schedule notifications for future events
+2. **Image Generation**: Create images from text descriptions
+3. **Search**: Fetch current information from the web (OpenRouter only)
+4. **Conversation**: General chat and questions
 
 ### Image Generation Provider Configuration (Optional)
 

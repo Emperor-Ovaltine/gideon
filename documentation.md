@@ -120,6 +120,9 @@ Gideon is configured primarily through environment variables, typically stored i
         *   `DATA_DIRECTORY`: The directory where the SQLite database (`gideon_state.db`) and other data (like temporary image files) will be stored.
             *   If using **Python**: Set this to a local path, e.g., `./data`.
             *   If using **Docker**: The default `/app/data` is recommended as it aligns with the `Dockerfile` and `docker-compose.yml`. You will typically map a local directory to this path when running the container to persist data.
+        *   `INTENT_DISCOVERY`: Enable or disable natural language intent detection for @mentions (default: `true`). Set to `false` to disable.
+        *   `INTENT_DETECTION_MODEL`: The AI model used for intent classification (default: `anthropic/claude-3.5-haiku`). Must be in `provider/model` format.
+        *   `INTENT_CONFIDENCE_THRESHOLD`: Minimum confidence score (0.0-1.0) required to route to specialized handlers (default: `0.7`).
 
     **Example `.env`:**
 
@@ -150,6 +153,14 @@ Gideon is configured primarily through environment variables, typically stored i
 
     # Data directory path. ONLY CHANGE THIS PATH IF YOU KNOW WHAT YOU ARE DOING! IT IS SET TO FUNCTION WITH DOCKER BY DEFAULT
     DATA_DIRECTORY=./data # Or /app/data if using Docker
+
+    # --- Intent Detection Settings ---
+    # Enable natural language intent detection (default: true)
+    INTENT_DISCOVERY=true
+    # Model for intent classification (default: anthropic/claude-3.5-haiku)
+    INTENT_DETECTION_MODEL=anthropic/claude-3.5-haiku
+    # Confidence threshold for intent routing (default: 0.7)
+    INTENT_CONFIDENCE_THRESHOLD=0.7
     ```
 
 ### Running the Bot
@@ -223,6 +234,132 @@ These commands are for general conversation and interaction with the AI using th
 *   `/reset`: Clears the conversation history for the current channel or thread. This is useful if the conversation goes off track or you want to start fresh.
 *   `/summarize`: Generates a summary of the recent conversation history in the current channel or thread.
 *   `/memory`: Shows statistics about the conversation history being stored for the current channel or thread, including message count and time window.
+
+### Natural Language Intent Detection
+
+Gideon features an AI-powered intent detection system that allows users to interact with the bot through natural language @mentions instead of remembering specific slash command syntax. When you @mention Gideon, the bot analyzes your message using AI to determine what you want to do and automatically routes to the appropriate feature.
+
+#### How It Works
+
+1. **Detection Process**: When you @mention the bot (e.g., "@Gideon remind me to check the server tomorrow"), the message is sent to an AI model configured for intent detection.
+2. **Intent Classification**: The AI analyzes your message and returns:
+   - **Intent Type**: The category of action you want (reminder, image_generation, search, conversation, or unknown)
+   - **Confidence Score**: A value from 0.0 to 1.0 indicating how certain the AI is about the classification
+   - **Extracted Data**: Structured parameters extracted from your natural language (e.g., reminder time, image prompt, search query)
+3. **Routing Decision**:
+   - If confidence ≥ threshold (default 0.7), routes to the specialized handler
+   - If confidence < threshold, falls back to normal conversation
+4. **Execution**: The appropriate handler executes with the extracted parameters
+
+#### Supported Intents
+
+**1. Reminder Intent**
+- **Purpose**: Schedule notifications for future events
+- **Indicators**: "remind me", "set a reminder", "notification", time expressions
+- **Examples**:
+  - "@Gideon remind me to check the server logs tomorrow at 3pm"
+  - "@Gideon set a reminder for the meeting on Friday at 2pm"
+  - "@Gideon notification to restart the bot in 2 hours"
+- **Extracted Data**:
+  - `reminder_text`: What to be reminded about
+  - `reminder_time`: When the reminder should trigger (natural language or timestamp)
+
+**2. Image Generation Intent**
+- **Purpose**: Create AI-generated images from text descriptions
+- **Indicators**: "draw", "generate an image", "create a picture", "make an image", "paint", "illustrate", "sketch", "render"
+- **Examples**:
+  - "@Gideon draw a sunset over mountains with vibrant colors"
+  - "@Gideon generate an image of a futuristic cityscape"
+  - "@Gideon create a picture of a cat wearing a top hat, but no background"
+- **Extracted Data**:
+  - `prompt`: Main description of what to generate (required)
+  - `negative_prompt`: What to exclude (optional, detected from "no", "without", "avoid", "but not")
+  - `size`: Dimensions if specified (e.g., "1024x1024", "landscape", "portrait")
+  - `quality`: Quality setting ("hd", "high quality", "standard")
+  - `style`: Style preference ("vivid", "natural", "realistic", "artistic")
+- **Provider Behavior**: Uses the currently active image generation provider from the database (configured via `/dream manage set_provider`)
+- **Error Handling**: If image generation fails, the bot prefixes the response with "Image generation failed." and then continues with a conversational response about the request
+
+**3. Search Intent**
+- **Purpose**: Fetch current, real-time information from the web
+- **Indicators**:
+  - Direct keywords: "search for", "look up", "find information about", "google"
+  - Time-sensitive language: "what's the latest", "current", "today's", "recent", "now"
+  - Real-time data requests: "weather", "news", "stock price", "live scores", "breaking"
+- **Examples**:
+  - "@Gideon what are the current best games on Xbox Game Pass"
+  - "@Gideon what's the weather in Seattle today"
+  - "@Gideon latest AI news"
+  - "@Gideon current stock price of NVIDIA"
+- **Extracted Data**:
+  - `query`: The search query/question (required)
+- **Provider Requirement**: Search ONLY works with the OpenRouter provider (uses web search plugin)
+- **Provider Fallback**: If the current provider is not OpenRouter, the bot will:
+  1. Inform you that web search requires OpenRouter
+  2. Automatically fall back to conversation mode
+  3. Attempt to answer your question using the AI's knowledge (without web search)
+- **Distinguishing from Conversation**:
+  - **Search**: Time-sensitive queries, current events, real-time data
+    - Examples: "latest Python release", "current weather in NYC", "today's news"
+  - **Conversation**: General knowledge, explanations, opinions, timeless topics
+    - Examples: "what is Python", "explain photosynthesis", "tell me about history"
+
+**4. Conversation Intent**
+- **Purpose**: General chat and Q&A
+- **Indicators**: Questions, statements, or requests that don't fit other intents
+- **Examples**:
+  - "@Gideon what is machine learning?"
+  - "@Gideon tell me a joke"
+  - "@Gideon help me understand this code"
+- **Behavior**: Uses the configured provider and model for the channel to generate a conversational response
+
+**5. Unknown Intent**
+- **Purpose**: Fallback when the AI cannot determine intent
+- **Behavior**: Defaults to conversation mode
+
+#### Configuration
+
+Intent detection is configured through environment variables in your `.env` file:
+
+```dotenv
+# Enable or disable intent detection (default: true)
+INTENT_DISCOVERY=true
+
+# AI model used for intent classification (default: anthropic/claude-3.5-haiku)
+INTENT_DETECTION_MODEL=anthropic/claude-3.5-haiku
+
+# Minimum confidence threshold (0.0-1.0) to trigger intent routing (default: 0.7)
+INTENT_CONFIDENCE_THRESHOLD=0.7
+```
+
+**Configuration Details**:
+- **`INTENT_DISCOVERY`**: Set to `false` to completely disable intent detection. All @mentions will be treated as conversation.
+- **`INTENT_DETECTION_MODEL`**: The AI model used for analyzing intent. Must be in `provider/model` format. Claude 3.5 Haiku is recommended for its speed and accuracy at this task.
+- **`INTENT_CONFIDENCE_THRESHOLD`**: Controls how certain the AI must be before routing to a specialized handler. Lower values (0.5-0.6) will route more aggressively but may misclassify. Higher values (0.8-0.9) will be more conservative but may miss valid intents.
+
+#### Implementation Details (for Developers)
+
+The intent detection system is implemented in [`src/cogs/mention_commands.py`](src/cogs/mention_commands.py):
+
+1. **System Prompt Engineering** (lines 94-151): A detailed system prompt instructs the AI on how to classify messages, what indicators to look for, and what data to extract for each intent type.
+
+2. **Structured JSON Output** (line 161): The AI returns a JSON object with `intent`, `confidence`, and `data` fields:
+   ```json
+   {
+     "intent": "search",
+     "confidence": 0.9,
+     "data": {"query": "what are the current best games on Xbox Game Pass"}
+   }
+   ```
+
+3. **Intent Handlers**: Each intent has a dedicated handler method:
+   - `handle_reminder_request()` (existing)
+   - `handle_image_generation_request()` (lines 287-524)
+   - `handle_search_request()` (lines 605-773)
+
+4. **Routing Logic** (lines 947-965): After intent detection, the appropriate handler is called based on the intent type, or falls back to conversation.
+
+5. **Conversation History**: All intent-triggered actions (reminders, images, searches) are added to the channel's conversation history, enabling contextual follow-up questions.
 
 ### Thread Management Commands
 
@@ -367,7 +504,7 @@ graph TD
 *   **Bot Instance:** The main application object (`bot.py`) that manages the connection to Discord, registers event handlers, loads cogs, and controls the bot's lifecycle.
 *   **Event Handlers:** Asynchronous functions decorated with `@bot.event` (in `bot.py`) or `@commands.Cog.listener()` (in cogs) that respond to specific Discord events (e.g., `on_ready`, `on_application_command`).
 *   **Command Dispatcher:** Py-Cord's built-in mechanism that parses incoming slash command interactions and routes them to the appropriate command function within a cog based on the command name and subgroups.
-*   **Cogs:** Modular classes (`src/cogs/`) that inherit from `commands.Cog`. They encapsulate related commands, listeners, and state. Examples include `ChatCommands`, `SettingsCommands`, `ChannelCommands`, `AdminCommands`, `ThreadCommands`, and `UnifiedImageCommands`. Each cog is loaded by the bot instance during startup.
+*   **Cogs:** Modular classes (`src/cogs/`) that inherit from `commands.Cog`. They encapsulate related commands, listeners, and state. Examples include `ChatCommands`, `SettingsCommands`, `ChannelCommands`, `AdminCommands`, `ThreadCommands`, `UnifiedImageCommands`, and `MentionCommands`. Each cog is loaded by the bot instance during startup. The `MentionCommands` cog specifically handles @mentions and implements the AI-powered intent detection system.
 *   **BotStateManager:** A singleton utility class (`src/utils/state_manager.py`) that acts as a central point of access for the bot's dynamic runtime state. It holds configuration overrides (channel/thread specific), caches some data, and orchestrates persistence by calling methods on the `DatabaseManager`. It also contains pruning logic and manages the selection of the active AI provider and model based on configuration.
 *   **DatabaseManager:** Handles direct interactions with the SQLite database file (`data/gideon_state.db`). It manages the database connection, ensures the schema is initialized and migrated, and provides low-level methods for inserting, querying, updating, and deleting data in the various tables.
 *   **API Clients:** Dedicated utility classes (`src/utils/`) responsible for abstracting the communication details with external AI services. Each client (`openrouter_client.py`, `ai_horde_client.py`, `cloudflare_client.py`, `openai_client.py`) handles request formatting, sending HTTP requests (using `aiohttp`), processing responses, and basic error handling specific to that API. These clients support both chat and/or image generation depending on the service.
