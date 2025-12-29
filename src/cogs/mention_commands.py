@@ -123,10 +123,31 @@ INTENTS:
    - "explain this image" (image analysis, needs attachment)
    - "what does this picture show" (asking about existing image)
 
-3. "conversation" - General chat, questions, casual interaction
+3. "search" - User wants current/real-time information via web search
+   Indicators:
+   - Direct: "search for...", "look up...", "find information about...", "google..."
+   - Time-sensitive: "what's the latest...", "current...", "today's...", "recent...", "now..."
+   - Real-time data: "weather", "news", "stock price", "live scores", "breaking..."
+   - Updates: "what's happening with...", "updates on...", "status of..."
+
+   Extract:
+   - query: The search query/question (required)
+
+   Distinguish from conversation:
+   - SEARCH: Time-sensitive, current events, real-time data
+     Examples: "latest Python release", "current weather in NYC", "today's news"
+   - CONVERSATION: General knowledge, explanations, opinions, timeless topics
+     Examples: "what is Python", "explain photosynthesis", "tell me about history"
+
+   NOT search:
+   - "tell me about..." (general discussion, unless time-sensitive)
+   - "what is..." (definition/explanation)
+   - "how do I..." (instruction/tutorial)
+
+4. "conversation" - General chat, questions, casual interaction
    - Everything that doesn't fit other intents
 
-4. "unknown" - Ambiguous or unclear intent
+5. "unknown" - Ambiguous or unclear intent
    - Use when genuinely uncertain
 
 CONFIDENCE LEVELS:
@@ -137,7 +158,7 @@ CONFIDENCE LEVELS:
 
 Return ONLY valid JSON:
 {
-  "intent": "reminder|image_generation|conversation|unknown",
+  "intent": "reminder|image_generation|search|conversation|unknown",
   "confidence": 0.85,
   "data": {...}
 }
@@ -169,7 +190,19 @@ Input: "create a landscape painting, high quality, vivid style, without people"
 Output: {"intent": "image_generation", "confidence": 0.9, "data": {"prompt": "a landscape painting", "negative_prompt": "people", "size": "", "quality": "hd", "style": "vivid"}}
 
 Input: "make me a picture of a robot, portrait size"
-Output: {"intent": "image_generation", "confidence": 0.85, "data": {"prompt": "a robot", "negative_prompt": "", "size": "768x1024", "quality": "", "style": ""}}"""
+Output: {"intent": "image_generation", "confidence": 0.85, "data": {"prompt": "a robot", "negative_prompt": "", "size": "768x1024", "quality": "", "style": ""}}
+
+Input: "what are the current best games on Xbox Game Pass"
+Output: {"intent": "search", "confidence": 0.9, "data": {"query": "what are the current best games on Xbox Game Pass"}}
+
+Input: "what's the weather in Seattle today"
+Output: {"intent": "search", "confidence": 0.95, "data": {"query": "what's the weather in Seattle today"}}
+
+Input: "latest AI news"
+Output: {"intent": "search", "confidence": 0.9, "data": {"query": "latest AI news"}}
+
+Input: "tell me about Python"
+Output: {"intent": "conversation", "confidence": 0.85, "data": {}}"""
 
         try:
             # Prepare message for AI
@@ -646,6 +679,176 @@ Output: {"intent": "image_generation", "confidence": 0.85, "data": {"prompt": "a
                 f"{error_prefix}Additionally, failed to generate a conversation response."
             )
 
+    async def handle_search_request(
+        self,
+        message: discord.Message,
+        channel_id: str,
+        query: str
+    ):
+        """
+        Handle a web search request detected from a mention.
+
+        Args:
+            message: Original Discord message object
+            channel_id: Channel ID as string
+            query: The search query
+        """
+        # Validate query
+        if not query or not query.strip():
+            await message.channel.send(
+                "❌ I detected you want to search, but I'm not sure what to search for. "
+                "Please try something like: '@Gideon what's the latest AI news'"
+            )
+            logger.warning(f"[Intent] Missing search query for user {message.author.id}")
+            return
+
+        # Get current provider and model
+        model_id_full = self.get_model_for_channel(channel_id)
+        try:
+            provider, model_name = model_id_full.split('/', 1)
+        except ValueError:
+            provider = self.state.global_provider if self.state else "openrouter"
+            model_name = model_id_full
+            model_id_full = f"{provider}/{model_name}"
+
+        # Check if provider supports web search (OpenRouter only)
+        if provider != "openrouter":
+            # Inform user and fall back to conversation
+            fallback_message = (
+                f"ℹ️ Web search requires OpenRouter (currently using {provider}). "
+                f"Answering without web search...\n\n"
+            )
+
+            # Get client for conversation fallback
+            client_to_use = self.clients.get(provider)
+            if not client_to_use or not hasattr(client_to_use, 'send_message_with_history'):
+                await message.channel.send(
+                    f"{fallback_message}Additionally, the conversation system is unavailable."
+                )
+                return
+
+            # Get conversation context
+            channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+            conversation_context = self.state.get_channel_history(channel_id)
+            conversation_context.append({
+                "role": "user",
+                "content": f"{message.author.display_name}: {query}"
+            })
+
+            # Get AI response (without web search)
+            try:
+                async with message.channel.typing():
+                    response = await client_to_use.send_message_with_history(
+                        messages=conversation_context,
+                        model=model_name,
+                        system_prompt=channel_system_prompt
+                    )
+
+                full_response = f"{fallback_message}{response}"
+
+                # Add to history
+                await self.state.add_to_channel_history(channel_id, {
+                    "role": "assistant",
+                    "content": full_response,
+                    "timestamp": datetime.now()
+                })
+
+                # Send response in chunks
+                max_length = 2000
+                chunks = [full_response[i:i+max_length] for i in range(0, len(full_response), max_length)]
+                for chunk in chunks:
+                    await message.channel.send(chunk)
+
+                logger.info(f"[Intent] Search intent detected but provider {provider} doesn't support search, used conversation fallback")
+                return
+
+            except Exception as e:
+                logger.exception(f"[Intent] Error in search fallback conversation: {e}")
+                await message.channel.send(
+                    f"{fallback_message}Additionally, failed to generate a response."
+                )
+                return
+
+        # Provider is OpenRouter, proceed with web search
+        client_to_use = self.clients.get("openrouter")
+        if not client_to_use:
+            await message.channel.send("⚠️ OpenRouter client not available.")
+            logger.error("[Intent] OpenRouter client not found")
+            return
+
+        # Enhance system prompt for search
+        channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+        if channel_system_prompt:
+            search_system_prompt = channel_system_prompt + "\n\nYou have access to web search. When answering, use the most current information available from searching the web."
+        else:
+            search_system_prompt = "You are a helpful AI assistant with access to web search. When answering questions, use the most current information available from searching the web. Always cite your sources."
+
+        # Get conversation context
+        conversation_context = self.state.get_channel_history(channel_id)
+        conversation_context.append({
+            "role": "user",
+            "content": f"{message.author.display_name}: {query}"
+        })
+
+        # Send searching message
+        async with message.channel.typing():
+            search_msg = await message.channel.send(
+                f"🔍 Searching for information about: **{query}**..."
+            )
+
+        # Perform search
+        try:
+            response = await client_to_use.send_message_with_history(
+                messages=conversation_context,
+                model=model_name,
+                system_prompt=search_system_prompt,
+                web_search=True
+            )
+        except Exception as e:
+            logger.exception(f"[Intent] Error during web search: {e}")
+            await search_msg.delete()
+            await message.channel.send(f"❌ Web search failed: {str(e)}")
+            return
+
+        # Delete searching message
+        await search_msg.delete()
+
+        # Format and send response (following /search command pattern from chat_commands.py:494-518)
+        chat_cog = self.bot.get_cog('ChatCommands')
+        if chat_cog and hasattr(chat_cog, 'should_format_citations') and chat_cog.should_format_citations(model_id_full, response):
+            # Use citation-based formatting (models like Sonar, Perplexity, Claude)
+            logger.info(f"[Intent] Formatting search response from {model_id_full} with citations")
+            embeds = chat_cog.format_perplexity_response(response)
+
+            if embeds:
+                # Customize first embed
+                embeds[0].title = f"🔍 Search Results: {query}"
+                embeds[0].set_footer(text=f"Using {model_id_full} • Web search enabled")
+                await message.channel.send(embed=embeds[0])
+
+                # Send additional embeds if any
+                for embed in embeds[1:]:
+                    embed.set_footer(text=f"Using {model_id_full} • Web search enabled")
+                    await message.channel.send(embed=embed)
+        else:
+            # Use simple embed format for non-citation models
+            embed = discord.Embed(
+                title=f"🔍 Search Results: {query}",
+                description=response,
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text=f"Using {model_id_full} • Web search enabled")
+            await message.channel.send(embed=embed)
+
+        # Add to conversation history
+        await self.state.add_to_channel_history(channel_id, {
+            "role": "assistant",
+            "content": response,
+            "timestamp": datetime.now()
+        })
+
+        logger.info(f"[Intent] User {message.author.id} performed web search via mention: '{query}'")
+
     @commands.Cog.listener()
     async def on_message(self, message):
         """Listen for messages in channels and respond to @mentions."""
@@ -750,6 +953,14 @@ Output: {"intent": "image_generation", "confidence": 0.85, "data": {"prompt": "a
                                         data.get("size", ""),
                                         data.get("quality", ""),
                                         data.get("style", "")
+                                    )
+                                    return  # Exit early, skip normal AI flow
+
+                                elif intent_type == "search":
+                                    # Route to search handler
+                                    await self.handle_search_request(
+                                        message, channel_id,
+                                        data.get("query", "")
                                     )
                                     return  # Exit early, skip normal AI flow
 
