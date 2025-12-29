@@ -6,7 +6,7 @@ from discord.ext import commands
 from ..utils.state_manager import BotStateManager
 # Removed import for conversation, now handled by state_manager
 # Removed OpenRouterClient import as we use clients dict
-from ..config import SYSTEM_PROMPT, DEFAULT_MODEL, INTENT_DISCOVERY, INTENT_DETECTION_MODEL, INTENT_CONFIDENCE_THRESHOLD
+from ..config import SYSTEM_PROMPT, DEFAULT_MODEL
 from datetime import datetime, timedelta
 import pytz
 import os
@@ -68,11 +68,12 @@ class MentionCommands(commands.Cog):
             }
             Or None if detection fails
         """
-        # Parse the INTENT_DETECTION_MODEL (provider/model format)
+        # Get intent model from state manager (provider/model format)
+        intent_model = self.state.get_intent_model()
         try:
-            provider, model_name = INTENT_DETECTION_MODEL.split('/', 1)
+            provider, model_name = intent_model.split('/', 1)
         except ValueError:
-            logger.error(f"[Intent] Invalid INTENT_DETECTION_MODEL format: {INTENT_DETECTION_MODEL}")
+            logger.error(f"[Intent] Invalid intent model format: {intent_model}")
             return None
 
         # Get the appropriate client for this provider
@@ -1141,7 +1142,9 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                     content = "Hello!"
 
                 # Intent-based routing (if intent discovery is enabled)
-                if INTENT_DISCOVERY:
+                intent_enabled = self.state.get_intent_enabled()
+                intent_threshold = self.state.get_intent_threshold()
+                if intent_enabled:
                     try:
                         intent_result = await self.detect_user_intent(content, channel_id)
 
@@ -1150,10 +1153,10 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                             confidence = intent_result.get("confidence", 0.0)
                             data = intent_result.get("data", {})
 
-                            logger.info(f"[Intent] Detected intent='{intent_type}' confidence={confidence:.2f} (threshold={INTENT_CONFIDENCE_THRESHOLD})")
+                            logger.info(f"[Intent] Detected intent='{intent_type}' confidence={confidence:.2f} (threshold={intent_threshold})")
 
                             # Only act on high-confidence intents (>= configured threshold)
-                            if confidence >= INTENT_CONFIDENCE_THRESHOLD:
+                            if confidence >= intent_threshold:
                                 if intent_type == "reminder":
                                     # Route to reminder handler
                                     await self.handle_reminder_request(
@@ -1300,7 +1303,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                                 #     await self.handle_channel_settings(message, channel_id, data)
                                 #     return
                             else:
-                                logger.info(f"[Intent] Low confidence ({confidence:.2f} < {INTENT_CONFIDENCE_THRESHOLD}), falling back to conversation")
+                                logger.info(f"[Intent] Low confidence ({confidence:.2f} < {intent_threshold}), falling back to conversation")
 
                     except Exception as e:
                         logger.error(f"[Intent] Error in intent detection: {e}", exc_info=True)

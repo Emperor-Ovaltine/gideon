@@ -7,7 +7,12 @@ import asyncio # Keep for potential async operations like model validation
 # Import the new DatabaseManager
 from .database import DatabaseManager
 # Keep config import for default values if DB is empty
-from ..config import DEFAULT_MODEL as CONFIG_DEFAULT_MODEL
+from ..config import (
+    DEFAULT_MODEL as CONFIG_DEFAULT_MODEL,
+    INTENT_DISCOVERY as CONFIG_INTENT_DISCOVERY,
+    INTENT_DETECTION_MODEL as CONFIG_INTENT_MODEL,
+    INTENT_CONFIDENCE_THRESHOLD as CONFIG_INTENT_THRESHOLD
+)
 
 logger = logging.getLogger('state_manager')
 
@@ -18,6 +23,9 @@ CONFIG_KEY_TIME_WINDOW = "time_window_hours"
 CONFIG_KEY_GLOBAL_MODEL = "global_model"
 CONFIG_KEY_GLOBAL_PROVIDER = "global_provider"
 CONFIG_KEY_PRUNE_FREQUENCY_HOURS = "prune_frequency_hours"
+CONFIG_KEY_INTENT_ENABLED = "intent_enabled"
+CONFIG_KEY_INTENT_MODEL = "intent_model"
+CONFIG_KEY_INTENT_THRESHOLD = "intent_threshold"
 
 class BotStateManager:
     """Singleton class to manage shared state via DatabaseManager."""
@@ -49,6 +57,11 @@ class BotStateManager:
         self.global_model = await self._load_or_set_config(CONFIG_KEY_GLOBAL_MODEL, CONFIG_DEFAULT_MODEL, 'string')
         self.global_provider = await self._load_or_set_config(CONFIG_KEY_GLOBAL_PROVIDER, "openrouter", 'string')
         self.prune_frequency_hours = await self._load_or_set_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, 24, 'int')
+
+        # Intent detection settings - load from DB or use .env defaults
+        self.intent_enabled = await self._load_or_set_config(CONFIG_KEY_INTENT_ENABLED, CONFIG_INTENT_DISCOVERY, 'bool')
+        self.intent_model = await self._load_or_set_config(CONFIG_KEY_INTENT_MODEL, CONFIG_INTENT_MODEL, 'string')
+        self.intent_threshold = await self._load_or_set_config(CONFIG_KEY_INTENT_THRESHOLD, CONFIG_INTENT_THRESHOLD, 'float')
 
         self._initialized = True
         logger.info("BotStateManager initialized successfully.")
@@ -108,6 +121,117 @@ class BotStateManager:
             raise ValueError("Pruning frequency must be at least 1 hour.")
         self.prune_frequency_hours = value
         await self._save_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, value, 'int')
+
+    # --- Intent Detection Methods ---
+
+    def get_intent_enabled(self) -> bool:
+        """Gets whether intent detection is enabled."""
+        return self.intent_enabled
+
+    async def set_intent_enabled(self, value: bool):
+        """Sets whether intent detection is enabled."""
+        self.intent_enabled = value
+        await self._save_config(CONFIG_KEY_INTENT_ENABLED, value, 'bool')
+        logger.info(f"Intent detection {'enabled' if value else 'disabled'}")
+
+    def get_intent_model(self) -> str:
+        """Gets the intent detection model."""
+        return self.intent_model
+
+    async def set_intent_model(self, model: str):
+        """Sets the intent detection model after validation."""
+        if not self.model_manager:
+            raise RuntimeError("ModelManager not set in BotStateManager")
+
+        # Parse and validate the model ID format
+        provider, model_name = self.model_manager.parse_model_id(model)
+        canonical_model_id = f"{provider}/{model_name}"
+
+        # Force refresh models for the parsed provider before validation
+        await self.model_manager.get_models(provider, force_refresh=True)
+
+        # Validate the canonical model ID
+        is_valid = await self.model_manager.is_valid_model(canonical_model_id)
+        if not is_valid:
+            # Fetch models for the specific provider for the error message
+            provider_models = []
+            try:
+                models = await self.model_manager.get_models(provider, force_refresh=False)
+                provider_models = [f"{provider}/{m}" for m in models]
+            except Exception as ex:
+                logger.warning(f"Could not fetch models for provider {provider} for error message: {ex}")
+
+            allowed_str = ', '.join(provider_models[:10]) + ('...' if len(provider_models) > 10 else '')
+            raise ValueError(f"Model '{canonical_model_id}' not found for provider '{provider}'. Allowed: {allowed_str}")
+
+        self.intent_model = canonical_model_id
+        await self._save_config(CONFIG_KEY_INTENT_MODEL, canonical_model_id, 'string')
+        logger.info(f"Intent detection model set to: {canonical_model_id}")
+
+    def get_intent_threshold(self) -> float:
+        """Gets the intent confidence threshold."""
+        return self.intent_threshold
+
+    async def set_intent_threshold(self, value: float):
+        """Sets the intent confidence threshold (0.0-1.0)."""
+        if value < 0.0 or value > 1.0:
+            raise ValueError("Intent threshold must be between 0.0 and 1.0")
+        self.intent_threshold = value
+        await self._save_config(CONFIG_KEY_INTENT_THRESHOLD, value, 'float')
+        logger.info(f"Intent confidence threshold set to: {value}")
+
+    async def reload_intent_from_env(self):
+        """Reloads intent settings from environment variables."""
+        self.intent_enabled = CONFIG_INTENT_DISCOVERY
+        self.intent_model = CONFIG_INTENT_MODEL
+        self.intent_threshold = CONFIG_INTENT_THRESHOLD
+        # Save to DB
+        await self._save_config(CONFIG_KEY_INTENT_ENABLED, self.intent_enabled, 'bool')
+        await self._save_config(CONFIG_KEY_INTENT_MODEL, self.intent_model, 'string')
+        await self._save_config(CONFIG_KEY_INTENT_THRESHOLD, self.intent_threshold, 'float')
+        logger.info(f"Intent settings reloaded from .env: enabled={self.intent_enabled}, model={self.intent_model}, threshold={self.intent_threshold}")
+
+    async def reload_all_from_env(self, system_prompt: str) -> dict:
+        """Reloads all settings from environment variables. Returns dict of reloaded values."""
+        # Reimport config to get fresh values (in case .env was modified)
+        from ..config import (
+            DEFAULT_MODEL,
+            INTENT_DISCOVERY,
+            INTENT_DETECTION_MODEL,
+            INTENT_CONFIDENCE_THRESHOLD
+        )
+
+        # Reload global model
+        self.global_model = DEFAULT_MODEL
+        await self._save_config(CONFIG_KEY_GLOBAL_MODEL, self.global_model, 'string')
+
+        # Reload memory and time window to defaults from initialization
+        self.max_channel_history = 35
+        self.time_window_hours = 48
+        await self._save_config(CONFIG_KEY_MAX_HISTORY, self.max_channel_history, 'int')
+        await self._save_config(CONFIG_KEY_TIME_WINDOW, self.time_window_hours, 'int')
+
+        # Reload system prompt (passed in since it comes from config)
+        await self.set_global_system_prompt(system_prompt)
+
+        # Reload intent settings
+        self.intent_enabled = INTENT_DISCOVERY
+        self.intent_model = INTENT_DETECTION_MODEL
+        self.intent_threshold = INTENT_CONFIDENCE_THRESHOLD
+        await self._save_config(CONFIG_KEY_INTENT_ENABLED, self.intent_enabled, 'bool')
+        await self._save_config(CONFIG_KEY_INTENT_MODEL, self.intent_model, 'string')
+        await self._save_config(CONFIG_KEY_INTENT_THRESHOLD, self.intent_threshold, 'float')
+
+        logger.info(f"All settings reloaded from .env")
+
+        return {
+            "global_model": self.global_model,
+            "max_channel_history": self.max_channel_history,
+            "time_window_hours": self.time_window_hours,
+            "intent_enabled": self.intent_enabled,
+            "intent_model": self.intent_model,
+            "intent_threshold": self.intent_threshold
+        }
 
 
     async def _save_config(self, key: str, value: Any, value_type: str):
