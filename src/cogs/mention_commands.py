@@ -2,6 +2,7 @@
 import discord
 import asyncio # Added for iscoroutinefunction
 import logging # Added
+import io # Added for ComfyUI image data handling
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
 # Removed import for conversation, now handled by state_manager
@@ -708,6 +709,27 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 })
                 # Note: OpenAI doesn't support negative_prompt, so we ignore it
 
+        elif active_provider == 'comfyui':
+            client = image_cog.comfyui_client
+            provider_display_name = "ComfyUI"
+            if client:
+                target_size = size if size else provider_config.get("size", "512x512")
+                try:
+                    width, height = map(int, target_size.split('x'))
+                except (ValueError, AttributeError):
+                    width, height = 512, 512
+                    logger.warning(f"[Intent] Invalid size '{target_size}', using 512x512")
+
+                params.update({
+                    "negative_prompt": negative_prompt or "",
+                    "width": width,
+                    "height": height,
+                    "steps": provider_config.get("steps", 20),
+                    "model": provider_config.get("model"),
+                    "seed": provider_config.get("seed"),
+                    "workflow_json": provider_config.get("workflow")
+                })
+
         if not client:
             await self._handle_image_generation_fallback(
                 message, channel_id,
@@ -768,6 +790,15 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
             if "image_url" in result:
                 embed.set_image(url=result["image_url"])
                 await thinking_msg.edit(content=None, embed=embed)
+            elif "image_data" in result:
+                # ComfyUI returns raw bytes - create Discord file from memory
+                file = discord.File(
+                    io.BytesIO(result["image_data"]),
+                    filename="generated_image.png"
+                )
+                embed.set_image(url="attachment://generated_image.png")
+                await thinking_msg.delete()
+                await message.channel.send(embed=embed, file=file)
             elif "local_path" in result:
                 file = discord.File(result["local_path"], filename="generated_image.png")
                 embed.set_image(url="attachment://generated_image.png")
