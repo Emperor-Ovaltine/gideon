@@ -15,10 +15,11 @@ class ChannelCommands(commands.Cog, name="ChannelCommands"):
         self.bot = bot
         self.state = bot.state_manager
 
-    # Create command group
+    # Create command group with admin-only visibility
     channel = discord.SlashCommandGroup(
         "channel",
-        "Channel-specific settings (admin only)"
+        "Channel-specific settings (admin only)",
+        default_member_permissions=discord.Permissions(administrator=True)
     )
 
     async def model_autocomplete(self, ctx):

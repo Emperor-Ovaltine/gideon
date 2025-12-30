@@ -252,8 +252,8 @@ class UnifiedImageCommands(commands.Cog):
 
     manage = discord.SlashCommandGroup(
         "dream_manage",
-        "Manage image generation backend settings (Admin Only)"
-        # Permissions will be applied to each subcommand individually
+        "Manage image generation backend settings (Admin Only)",
+        default_member_permissions=discord.Permissions(administrator=True)
     )
 
     # Define subcommands attached to the group

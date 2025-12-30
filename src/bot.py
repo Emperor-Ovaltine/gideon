@@ -123,7 +123,8 @@ async def on_ready():
         "src.cogs.channel_commands",
         "src.cogs.admin_commands",
         "src.cogs.reminder_commands",
-        "src.cogs.trivia_commands"
+        "src.cogs.trivia_commands",
+        "src.cogs.help_commands",  # Interactive help system
     ]
 
     for cog in cogs:

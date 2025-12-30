@@ -18,10 +18,11 @@ class SettingsCommands(commands.Cog, name="SettingsCommands"):
         self.bot = bot
         self.state = bot.state_manager
 
-    # Create command group
+    # Create command group with admin-only visibility
     settings = discord.SlashCommandGroup(
         "settings",
-        "Global bot configuration (admin only)"
+        "Global bot configuration (admin only)",
+        default_member_permissions=discord.Permissions(administrator=True)
     )
 
     async def model_autocomplete(self, ctx):

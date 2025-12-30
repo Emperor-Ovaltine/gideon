@@ -16,10 +16,11 @@ class AdminCommands(commands.Cog, name="AdminCommands"):
         self.bot = bot
         self.state = bot.state_manager
 
-    # Create command group
+    # Create command group with admin-only visibility
     admin = discord.SlashCommandGroup(
         "admin",
-        "Administrative tools (admin only)"
+        "Administrative tools (admin only)",
+        default_member_permissions=discord.Permissions(administrator=True)
     )
 
     @admin.command(
