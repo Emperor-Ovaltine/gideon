@@ -287,9 +287,12 @@ For advanced users who want to self-host image generation with full control over
 
 ## 🤖 Commands
 
+> **Tip:** Use `/help` in Discord to browse all commands with an interactive menu. Admin commands are automatically hidden from regular users.
+
 ### General Commands
 | Command | Description |
 |:-------:|:------------|
+| `/help` | View all commands with interactive category navigation |
 | `/chat` | Start a conversation with the AI (supports image uploads for vision models) |
 | `/search` | Search the web for current information using the AI |
 | `/reset` | Clear the conversation history for the current channel |
@@ -370,14 +373,20 @@ Administrative tools and diagnostics (Admin/Owner only).
 | `/admin vision_models` | List all vision-capable AI models |
 
 ### Image Commands
-Gideon now uses a unified command for image generation with support for multiple backend providers.
+Gideon uses a unified command for image generation with support for multiple backend providers (AI Horde, Cloudflare, OpenAI, ComfyUI).
 
 | Command | Description | Permissions |
 |:-------:|:------------|:------------|
 | `/dream prompt:... [negative_prompt:...]` | Generate an image using the currently configured AI backend. | All Users |
-| `/dream manage set_provider provider:<Choice>` | Set the active image generation provider (AI Horde, Cloudflare, OpenAI). | Admin |
-| `/dream manage configure <provider> [options...]` | Configure default settings for a specific provider (e.g., model, size, steps). | Admin |
-| `/dream manage view_config` | View the current active provider and configuration for all providers. | Admin |
+| `/dream_manage set_provider` | Set the active image generation provider. | Admin |
+| `/dream_manage view_config` | View the current active provider and configuration. | Admin |
+| `/dream_manage configure ai_horde` | Configure AI Horde defaults (model, size, steps). | Admin |
+| `/dream_manage configure cloudflare` | Configure Cloudflare defaults (size, steps, seed). | Admin |
+| `/dream_manage configure openai` | Configure OpenAI/DALL-E defaults (model, quality, style). | Admin |
+| `/dream_manage configure comfyui` | Configure ComfyUI defaults (model, size, steps). | Admin |
+| `/dream_manage comfyui_models` | List available ComfyUI checkpoint models. | Admin |
+| `/dream_manage comfyui_test` | Test ComfyUI server connection. | Admin |
+| `/dream_manage comfyui_workflow` | Set a custom ComfyUI workflow (JSON). | Admin |
 
 ## 📚 Supported Models
 

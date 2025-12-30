@@ -226,9 +226,23 @@ Gideon uses Discord's slash commands (`/`) for all interactions.
 
 ### General Concepts
 
-*   **Slash Commands:** Type `/` in the chat bar to see a list of available commands. Commands are organized into logical groups (e.g., `/dream manage`).
+*   **Slash Commands:** Type `/` in the chat bar to see a list of available commands. Commands are organized into logical groups (e.g., `/dream_manage`).
+*   **Interactive Help:** Use `/help` to access an interactive menu that lets you browse commands by category. The help system is role-aware and shows admin commands only to administrators.
+*   **Command Visibility:** Admin commands (`/settings`, `/channel`, `/admin`, `/dream_manage`) are hidden from regular users in Discord's command picker. Administrators will see all commands.
 *   **Permissions:** Some commands are restricted to server administrators or the bot owner. If a command doesn't appear or doesn't work, you may lack the necessary permissions.
-*   **Providers:** Gideon can use different backend services (providers) for AI tasks like chat (OpenRouter, OpenAI, AI Horde) and image generation (AI Horde, Cloudflare, OpenAI). Administrators can configure which provider is used globally or per channel.
+*   **Providers:** Gideon can use different backend services (providers) for AI tasks like chat (OpenRouter, OpenAI, AI Horde) and image generation (AI Horde, Cloudflare, OpenAI, ComfyUI). Administrators can configure which provider is used globally or per channel.
+
+### Help Command
+
+*   `/help`: Opens an interactive help menu with category-based navigation. Categories include:
+    *   💬 **Chat & AI** - Conversation commands (`/chat`, `/search`, `/reset`, `/summarize`, `/memory`)
+    *   🔗 **URL Tools** - URL summarization (`/summarizeurl`)
+    *   🧵 **Threads** - Thread management (`/thread *`)
+    *   🎮 **Trivia** - Trivia games (`/trivia *`)
+    *   🎨 **Images** - Image generation (`/dream`, plus admin management commands)
+    *   ⏰ **Reminders** - Reminder management (`/remind *`)
+    *   ⚙️ **Settings** - Global and channel configuration (Admin only)
+    *   🔐 **Admin** - Administrative tools (Admin only)
 
 ### AI Chat Commands
 
@@ -392,30 +406,30 @@ The `/dream` command provides a unified interface for generating images using di
     *   **OpenAI:** Uses OpenAI's DALL-E models (DALL-E 2, DALL-E 3). Requires `OPENAI_API_KEY` in `.env`.
     *   **ComfyUI:** Powerful node-based UI for advanced image generation workflows. Requires `COMFYUI_URL` in `.env` pointing to a running ComfyUI server (local or remote). Supports custom workflows, multiple checkpoint models, and advanced features like LoRA.
 
-*   **Admin Management Subcommands (`/dream manage`)**: (Administrator Only)
-    *   `/dream manage set_provider <provider>`: Set the active image generation provider for the bot (`ai_horde`, `cloudflare`, `openai`, `comfyui`). The bot will use this provider for all `/dream` commands until changed.
-    *   `/dream manage view_config`: View the current active provider and its default configuration settings (model, size, steps, etc.) as stored in the database.
-    *   `/dream manage comfyui_test`: Test connection to ComfyUI server and view system stats (ComfyUI only).
-    *   `/dream manage comfyui_models`: List available checkpoint models from ComfyUI server (ComfyUI only).
-    *   `/dream manage comfyui_workflow <workflow_json>`: Set a custom ComfyUI workflow JSON or use 'reset' to restore default (ComfyUI only).
+*   **Admin Management Commands (`/dream_manage`)**: (Administrator Only)
+    *   `/dream_manage set_provider <provider>`: Set the active image generation provider for the bot (`ai_horde`, `cloudflare`, `openai`, `comfyui`). The bot will use this provider for all `/dream` commands until changed.
+    *   `/dream_manage view_config`: View the current active provider and its default configuration settings (model, size, steps, etc.) as stored in the database.
+    *   `/dream_manage comfyui_test`: Test connection to ComfyUI server and view system stats (ComfyUI only).
+    *   `/dream_manage comfyui_models`: List available checkpoint models from ComfyUI server (ComfyUI only).
+    *   `/dream_manage comfyui_workflow <workflow_json>`: Set a custom ComfyUI workflow JSON or use 'reset' to restore default (ComfyUI only).
 
-*   **Admin Configuration Subcommands (`/dream configure`)**: (Administrator Only)
-    *   `/dream configure ai_horde <model> <size> <steps>`: Configure default settings for the AI Horde provider.
+*   **Admin Configuration Commands (`/dream_manage configure`)**: (Administrator Only)
+    *   `/dream_manage configure ai_horde <model> <size> <steps>`: Configure default settings for the AI Horde provider.
         *   `model`: The default AI Horde model name (e.g., `stable_diffusion_xl`).
         *   `size`: The default image resolution (e.g., `1024x1024`). Must be a multiple of 64.
         *   `steps`: The default number of generation steps (e.g., `30`). Higher steps can increase detail but take longer.
-    *   `/dream configure cloudflare <size> <steps> [seed]`: Configure default settings for the Cloudflare Worker provider.
+    *   `/dream_manage configure cloudflare <size> <steps> [seed]`: Configure default settings for the Cloudflare Worker provider.
         *   `size`: The default image resolution (e.g., `768x768`).
         *   `steps`: The default number of generation steps (e.g., `25`).
         *   `seed`: (Optional) A default random seed for reproducibility. Leave blank for a random seed each time.
-    *   `/dream configure openai <model> [quality] [style]`: Configure default settings for the OpenAI (DALL-E) provider.
+    *   `/dream_manage configure openai <model> [quality] [style]`: Configure default settings for the OpenAI (DALL-E) provider.
         *   `model`: The default OpenAI model (`dall-e-2` or `dall-e-3`).
         *   `quality`: (Optional, DALL-E 3 only) Image quality (`standard` or `hd`).
         *   `style`: (Optional, DALL-E 3 only) Image style (`vivid` or `natural`).
-    *   `/dream configure comfyui <size> <steps> [model]`: Configure default settings for the ComfyUI provider.
+    *   `/dream_manage configure comfyui <size> <steps> [model]`: Configure default settings for the ComfyUI provider.
         *   `size`: The default image resolution (e.g., `512x512`, `1024x1024`, `768x512`).
         *   `steps`: The default number of generation steps (10-150).
-        *   `model`: (Optional) Default checkpoint model name. Use `/dream manage comfyui_models` to list available models.
+        *   `model`: (Optional) Default checkpoint model name. Use `/dream_manage comfyui_models` to list available models.
 
 ### Trivia Commands
 
@@ -603,10 +617,11 @@ gideon/
 │   │   ├── chat_commands.py        # AI conversation commands (/chat, /reset, etc.)
 │   │   ├── config_commands.py      # Legacy commands (deprecated)
 │   │   ├── diagnostic_commands.py  # Diagnostic utilities
+│   │   ├── help_commands.py        # Interactive help system (/help)
 │   │   ├── mention_commands.py     # Handles bot mentions
 │   │   ├── settings_commands.py    # Global settings (/settings group)
 │   │   ├── thread_commands.py      # Thread management (/thread group)
-│   │   ├── unified_image_commands.py # Image generation (/dream)
+│   │   ├── unified_image_commands.py # Image generation (/dream, /dream_manage)
 │   │   └── url_commands.py         # URL handling commands (/summarizeurl)
 │   └── utils/              # Utility functions and classes
 │       ├── __init__.py             # Makes utils directory a Python package

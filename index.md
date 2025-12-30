@@ -320,6 +320,8 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
 
 ## 🤖 Commands
 
+> **Tip:** Use `/help` in Discord to browse all commands with an interactive menu. Admin commands are automatically hidden from regular users.
+
 ### General Commands
 <table>
   <thead>
@@ -329,6 +331,10 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td><code>/help</code></td>
+      <td>View all commands with interactive category navigation</td>
+    </tr>
     <tr>
       <td><code>/chat</code></td>
       <td>Start a conversation with the AI (supports image uploads for vision models)</td>
@@ -602,7 +608,7 @@ These commands are deprecated and will be removed in a future update. Please use
 </table>
 
 ### Image Commands
-Gideon now uses a unified command for image generation with support for multiple backend providers.
+Gideon uses a unified command for image generation with support for multiple backend providers (AI Horde, Cloudflare, OpenAI, ComfyUI).
 
 <table>
   <thead>
@@ -614,23 +620,53 @@ Gideon now uses a unified command for image generation with support for multiple
   </thead>
   <tbody>
     <tr>
-      <td><code>/dream prompt:... [negative_prompt:...]</code></td>
+      <td><code>/dream</code></td>
       <td>Generate an image using the currently configured AI backend.</td>
       <td>All Users</td>
     </tr>
     <tr>
-      <td><code>/dream manage set_provider provider:&lt;Choice&gt;</code></td>
-      <td>Set the active image generation provider (AI Horde, Cloudflare, OpenAI, ComfyUI).</td>
+      <td><code>/dream_manage set_provider</code></td>
+      <td>Set the active image generation provider.</td>
       <td>Admin</td>
     </tr>
     <tr>
-      <td><code>/dream manage configure &lt;provider&gt; [options...]</code></td>
-      <td>Configure default settings for a specific provider (e.g., model, size, steps).</td>
+      <td><code>/dream_manage view_config</code></td>
+      <td>View the current active provider and configuration.</td>
       <td>Admin</td>
     </tr>
     <tr>
-      <td><code>/dream manage view_config</code></td>
-      <td>View the current active provider and configuration for all providers.</td>
+      <td><code>/dream_manage configure ai_horde</code></td>
+      <td>Configure AI Horde defaults (model, size, steps).</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/dream_manage configure cloudflare</code></td>
+      <td>Configure Cloudflare defaults (size, steps, seed).</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/dream_manage configure openai</code></td>
+      <td>Configure OpenAI/DALL-E defaults (model, quality, style).</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/dream_manage configure comfyui</code></td>
+      <td>Configure ComfyUI defaults (model, size, steps).</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/dream_manage comfyui_models</code></td>
+      <td>List available ComfyUI checkpoint models.</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/dream_manage comfyui_test</code></td>
+      <td>Test ComfyUI server connection.</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
+      <td><code>/dream_manage comfyui_workflow</code></td>
+      <td>Set a custom ComfyUI workflow (JSON).</td>
       <td>Admin</td>
     </tr>
   </tbody>
