@@ -114,6 +114,7 @@ Gideon is configured primarily through environment variables, typically stored i
         *   `AI_HORDE_API_KEY`: Your API key for AI Horde (optional, for image generation and potentially text models).
         *   `CLOUDFLARE_WORKER_URL`: The URL of your Cloudflare Worker for image generation (optional).
         *   `CLOUDFLARE_API_KEY`: API key for your Cloudflare Worker (optional, if your worker requires authentication).
+        *   `COMFYUI_URL`: URL of your ComfyUI server for image generation (optional, e.g., `http://127.0.0.1:8188`).
     *   **Optional Variables:**
         *   `SYSTEM_PROMPT`: Customize the bot's default personality. This prompt is sent to the AI model at the beginning of conversations.
         *   `DEFAULT_MODEL`: Set the default AI model to use (e.g., `openrouter/openai/gpt-4o-mini`). Use the format `provider/model_name`. The provider part must match the keys used internally (e.g., `openrouter`, `openai`, `ai_horde`).
@@ -143,6 +144,9 @@ Gideon is configured primarily through environment variables, typically stored i
     # Cloudflare Worker (optional, for image generation)
     CLOUDFLARE_WORKER_URL=https://your-worker-url.workers.dev/
     CLOUDFLARE_API_KEY=your_cloudflare_api_key_here  # Optional
+
+    # ComfyUI (optional, for image generation)
+    COMFYUI_URL=http://127.0.0.1:8188
 
     # --- Optional Settings ---
     # System prompt for the AI assistant
@@ -386,10 +390,14 @@ The `/dream` command provides a unified interface for generating images using di
     *   **AI Horde:** A decentralized, crowdsourced image generation service. Requires `AI_HORDE_API_KEY` in `.env`. Offers various Stable Diffusion models.
     *   **Cloudflare Worker:** Allows using a custom image generation backend hosted on Cloudflare Workers. Requires `CLOUDFLARE_WORKER_URL` and optionally `CLOUDFLARE_API_KEY` in `.env`. The specific models and parameters supported depend on the worker implementation.
     *   **OpenAI:** Uses OpenAI's DALL-E models (DALL-E 2, DALL-E 3). Requires `OPENAI_API_KEY` in `.env`.
+    *   **ComfyUI:** Powerful node-based UI for advanced image generation workflows. Requires `COMFYUI_URL` in `.env` pointing to a running ComfyUI server (local or remote). Supports custom workflows, multiple checkpoint models, and advanced features like LoRA.
 
 *   **Admin Management Subcommands (`/dream manage`)**: (Administrator Only)
-    *   `/dream manage set_provider <provider>`: Set the active image generation provider for the bot (`ai_horde`, `cloudflare`, `openai`). The bot will use this provider for all `/dream` commands until changed.
+    *   `/dream manage set_provider <provider>`: Set the active image generation provider for the bot (`ai_horde`, `cloudflare`, `openai`, `comfyui`). The bot will use this provider for all `/dream` commands until changed.
     *   `/dream manage view_config`: View the current active provider and its default configuration settings (model, size, steps, etc.) as stored in the database.
+    *   `/dream manage comfyui_test`: Test connection to ComfyUI server and view system stats (ComfyUI only).
+    *   `/dream manage comfyui_models`: List available checkpoint models from ComfyUI server (ComfyUI only).
+    *   `/dream manage comfyui_workflow <workflow_json>`: Set a custom ComfyUI workflow JSON or use 'reset' to restore default (ComfyUI only).
 
 *   **Admin Configuration Subcommands (`/dream configure`)**: (Administrator Only)
     *   `/dream configure ai_horde <model> <size> <steps>`: Configure default settings for the AI Horde provider.
@@ -404,6 +412,10 @@ The `/dream` command provides a unified interface for generating images using di
         *   `model`: The default OpenAI model (`dall-e-2` or `dall-e-3`).
         *   `quality`: (Optional, DALL-E 3 only) Image quality (`standard` or `hd`).
         *   `style`: (Optional, DALL-E 3 only) Image style (`vivid` or `natural`).
+    *   `/dream configure comfyui <size> <steps> [model]`: Configure default settings for the ComfyUI provider.
+        *   `size`: The default image resolution (e.g., `512x512`, `1024x1024`, `768x512`).
+        *   `steps`: The default number of generation steps (10-150).
+        *   `model`: (Optional) Default checkpoint model name. Use `/dream manage comfyui_models` to list available models.
 
 ### Trivia Commands
 
@@ -600,6 +612,7 @@ gideon/
 │       ├── __init__.py             # Makes utils directory a Python package
 │       ├── ai_horde_client.py    # Client for AI Horde API (Image/Text)
 │       ├── cloudflare_client.py  # Client for Cloudflare Worker API (Image)
+│       ├── comfyui_client.py     # Client for ComfyUI API (Advanced Image Generation)
 │       ├── database.py           # Handles SQLite database interactions and schema
 │       ├── model_manager.py      # Manages available AI models (fetches from providers)
 │       ├── openai_client.py      # Client for OpenAI API (DALL-E, Chat/Vision)
@@ -655,6 +668,7 @@ The bot interacts with external AI services through dedicated client classes in 
 *   **`AIHordeClient` (`ai_horde_client.py`):** Interacts with the AI Horde API. Used for image generation and can also be used for text generation if configured as the provider.
 *   **`CloudflareWorkerClient` (`cloudflare_client.py`):** Communicates with a custom image generation API hosted on Cloudflare Workers.
 *   **`OpenAIClient` (`openai_client.py`):** Interacts directly with the OpenAI API. Used for DALL-E image generation and can also be used directly for chat completions (including vision models).
+*   **`ComfyUIClient` (`comfyui_client.py`):** Communicates with a ComfyUI server for advanced image generation. Supports custom workflows, model selection, and polling-based generation. Handles workflow parameter injection and image retrieval.
 
 The `ChatCommands` cog determines the effective provider and model for the current context (channel/thread/global) via `BotStateManager` and then uses the corresponding client's `send_message_with_history` method. Similarly, `UnifiedImageCommands` selects the appropriate image generation client based on its separate configuration.
 

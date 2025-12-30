@@ -7,15 +7,18 @@ import logging
 from typing import Optional, Literal, Dict, Any
 
 # Import clients and config
+import io
 from ..utils.ai_horde_client import AIHordeClient
 from ..utils.cloudflare_client import CloudflareWorkerClient
 from ..utils.openai_client import OpenAIClient
+from ..utils.comfyui_client import ComfyUIClient
 from ..utils.database import DatabaseManager
 from ..config import (
     AI_HORDE_API_KEY,
     CLOUDFLARE_WORKER_URL,
     CLOUDFLARE_API_KEY,
     OPENAI_API_KEY,
+    COMFYUI_URL,
     DATA_DIRECTORY # Needed for DatabaseManager default path
 )
 
@@ -23,7 +26,7 @@ from ..config import (
 logger = logging.getLogger('unified_image_commands')
 
 # Define provider types for clarity
-ProviderType = Literal['ai_horde', 'cloudflare', 'openai']
+ProviderType = Literal['ai_horde', 'cloudflare', 'openai', 'comfyui']
 
 # Database keys
 DB_KEY_ACTIVE_PROVIDER = "image_active_provider"
@@ -47,6 +50,13 @@ DEFAULT_CONFIGS: Dict[ProviderType, Dict[str, Any]] = {
         "size": "1024x1024", # Fixed for OpenAI in this implementation
         "quality": "standard",
         "style": "vivid"
+    },
+    'comfyui': {
+        "model": None,  # Use server default
+        "size": "512x512",
+        "steps": 20,
+        "seed": None,
+        "workflow": None  # Use default workflow
     }
 }
 
@@ -61,11 +71,13 @@ class UnifiedImageCommands(commands.Cog):
         self.horde_client = AIHordeClient(AI_HORDE_API_KEY) if AI_HORDE_API_KEY else None
         self.cf_client = CloudflareWorkerClient(CLOUDFLARE_WORKER_URL, CLOUDFLARE_API_KEY) if CLOUDFLARE_WORKER_URL else None
         self.openai_client = OpenAIClient(OPENAI_API_KEY) if OPENAI_API_KEY else None
+        self.comfyui_client = ComfyUIClient(COMFYUI_URL) if COMFYUI_URL else None
 
         # Log which clients are available
         if not self.horde_client: logger.warning("AI Horde client not initialized (API key missing).")
         if not self.cf_client: logger.warning("Cloudflare client not initialized (Worker URL missing).")
         if not self.openai_client: logger.warning("OpenAI client not initialized (API key missing).")
+        if not self.comfyui_client: logger.warning("ComfyUI client not initialized (URL missing).")
 
     # --- User Command ---
 
@@ -158,6 +170,24 @@ class UnifiedImageCommands(commands.Cog):
                 await ctx.respond("⚠️ OpenAI client is not configured (missing API key). Please contact an admin.", ephemeral=True)
                 return
 
+        elif active_provider == 'comfyui':
+            client = self.comfyui_client
+            provider_display_name = "ComfyUI"
+            if client:
+                width, height = map(int, provider_config.get("size", "512x512").split('x'))
+                params.update({
+                    "negative_prompt": negative_prompt or "",
+                    "width": width,
+                    "height": height,
+                    "steps": provider_config.get("steps", 20),
+                    "model": provider_config.get("model"),
+                    "seed": provider_config.get("seed"),
+                    "workflow_json": provider_config.get("workflow")
+                })
+            else:
+                await ctx.respond("⚠️ ComfyUI client is not configured (missing URL). Please contact an admin.", ephemeral=True)
+                return
+
         else:
             await ctx.respond(f"⚠️ Unknown or unsupported image provider configured: '{active_provider}'. Please contact an admin.", ephemeral=True)
             return
@@ -193,9 +223,17 @@ class UnifiedImageCommands(commands.Cog):
                 if "image_url" in result:
                     embed.set_image(url=result["image_url"])
                     await thinking_msg.edit(content=None, embed=embed)
+                elif "image_data" in result:
+                    # ComfyUI returns raw bytes - create Discord file from memory
+                    file = discord.File(
+                        io.BytesIO(result["image_data"]),
+                        filename="generated_image.png"
+                    )
+                    embed.set_image(url="attachment://generated_image.png")
+                    await thinking_msg.edit(content=None, embed=embed, file=file)
                 elif "local_path" in result: # Handle direct image data from Cloudflare if needed
                     file = discord.File(result["local_path"], filename="generated_image.png")
-                    embed.set_image(url=f"attachment://generated_image.png")
+                    embed.set_image(url="attachment://generated_image.png")
                     await thinking_msg.edit(content=None, embed=embed, file=file)
                 else:
                      await thinking_msg.edit(content="⚠️ Generation succeeded but no image URL or data found in response.")
@@ -224,7 +262,8 @@ class UnifiedImageCommands(commands.Cog):
     @option("provider", description="Choose the backend provider.", choices=[
         discord.OptionChoice(name="AI Horde", value="ai_horde"),
         discord.OptionChoice(name="Cloudflare", value="cloudflare"),
-        discord.OptionChoice(name="OpenAI", value="openai")
+        discord.OptionChoice(name="OpenAI", value="openai"),
+        discord.OptionChoice(name="ComfyUI", value="comfyui")
     ], required=True)
     async def manage_set_provider(self, ctx: discord.ApplicationContext, provider: str): # Changed ProviderType to str
         """Sets the active image generation provider."""
@@ -233,6 +272,7 @@ class UnifiedImageCommands(commands.Cog):
         if provider == 'ai_horde' and self.horde_client: valid_provider = True
         elif provider == 'cloudflare' and self.cf_client: valid_provider = True
         elif provider == 'openai' and self.openai_client: valid_provider = True
+        elif provider == 'comfyui' and self.comfyui_client: valid_provider = True
 
         if not valid_provider:
              await ctx.respond(f"⚠️ Cannot set provider to '{provider}'. Its client is not configured/initialized (missing API key/URL?).", ephemeral=True)
@@ -262,9 +302,21 @@ class UnifiedImageCommands(commands.Cog):
             if config_json:
                 try:
                     config_data = json.loads(config_json)
-                    config_display = f"```json\n{json.dumps(config_data, indent=2)}\n```"
+
+                    # For ComfyUI, hide workflow JSON if present (too long for Discord)
+                    if provider_name == 'comfyui' and 'workflow' in config_data:
+                        display_data = config_data.copy()
+                        display_data['workflow'] = f"<Custom workflow: {len(config_data['workflow'])} chars>"
+                        config_display = f"```json\n{json.dumps(display_data, indent=2)}\n```"
+                    else:
+                        config_display = f"```json\n{json.dumps(config_data, indent=2)}\n```"
+
+                    # Truncate if still too long (Discord limit: 1024 chars per field)
+                    if len(config_display) > 1024:
+                        config_display = config_display[:1000] + "...\n```\n*(Truncated)*"
+
                 except json.JSONDecodeError:
-                    config_display = f"Error parsing stored JSON: `{config_json}`"
+                    config_display = f"Error parsing stored JSON: `{config_json[:100]}...`"
             else:
                  default_conf = DEFAULT_CONFIGS.get(provider_name, {})
                  config_display = f"*Using Defaults:*\n```json\n{json.dumps(default_conf, indent=2)}\n```"
@@ -343,14 +395,202 @@ class UnifiedImageCommands(commands.Cog):
         config = {k: v for k, v in config.items() if v is not None}
         await self._save_provider_config(ctx, 'openai', config)
 
+    @configure.command(name="comfyui", description="Configure ComfyUI default settings.")
+    @commands.has_permissions(administrator=True)
+    @option("size", str, description="Default image size.", choices=[
+        discord.OptionChoice(name="512x512", value="512x512"),
+        discord.OptionChoice(name="768x768", value="768x768"),
+        discord.OptionChoice(name="1024x1024", value="1024x1024"),
+        discord.OptionChoice(name="512x768 (Portrait)", value="512x768"),
+        discord.OptionChoice(name="768x512 (Landscape)", value="768x512"),
+        discord.OptionChoice(name="1024x768 (Landscape)", value="1024x768"),
+        discord.OptionChoice(name="768x1024 (Portrait)", value="768x1024")
+    ], required=True)
+    @option("steps", int, description="Default generation steps (10-150).", min_value=10, max_value=150, required=True)
+    @option("model", str, description="Checkpoint model name (use /dream_manage comfyui_models to list).", required=False, default=None)
+    async def configure_comfyui(self, ctx: discord.ApplicationContext, size: str, steps: int, model: Optional[str]):
+        """Configures default settings for the ComfyUI provider."""
+        config = {"size": size, "steps": steps}
+        if model:
+            config["model"] = model
+        await self._save_provider_config(ctx, 'comfyui', config)
+
+    # --- ComfyUI-specific Admin Commands ---
+
+    @manage.command(name="comfyui_models", description="List available ComfyUI checkpoint models.")
+    @commands.has_permissions(administrator=True)
+    async def comfyui_models(self, ctx: discord.ApplicationContext):
+        """Lists available checkpoint models from ComfyUI server."""
+        if not self.comfyui_client:
+            await ctx.respond("⚠️ ComfyUI is not configured (missing URL).", ephemeral=True)
+            return
+
+        await ctx.defer(ephemeral=True)
+
+        result = await self.comfyui_client.get_available_models("checkpoints")
+
+        if not result.get("success"):
+            await ctx.respond(f"⚠️ Error: {result.get('error', 'Unknown error')}", ephemeral=True)
+            return
+
+        models = result.get("models", [])
+
+        if not models:
+            await ctx.respond("No checkpoint models found on ComfyUI server.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="ComfyUI Checkpoint Models",
+            description=f"Found {len(models)} available models",
+            color=discord.Color.green()
+        )
+
+        # Show first 25 models (Discord embed field limit)
+        model_list = "\n".join([f"`{m['name']}`" for m in models[:25]])
+        if len(models) > 25:
+            model_list += f"\n... and {len(models) - 25} more"
+
+        embed.add_field(name="Available Models", value=model_list or "None", inline=False)
+        embed.set_footer(text="Use model names with /dream_manage configure comfyui")
+
+        await ctx.respond(embed=embed, ephemeral=True)
+
+    @manage.command(name="comfyui_test", description="Test ComfyUI server connection.")
+    @commands.has_permissions(administrator=True)
+    async def comfyui_test(self, ctx: discord.ApplicationContext):
+        """Tests connection to the ComfyUI server."""
+        if not self.comfyui_client:
+            await ctx.respond("⚠️ ComfyUI is not configured (missing URL).", ephemeral=True)
+            return
+
+        await ctx.defer(ephemeral=True)
+
+        result = await self.comfyui_client.test_connection()
+
+        if result.get("success"):
+            stats = result.get("system_stats", {})
+            embed = discord.Embed(
+                title="ComfyUI Connection Test",
+                description="Successfully connected to ComfyUI server",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="URL", value=self.comfyui_client.api_url, inline=False)
+
+            # Display system info if available
+            if "system" in stats:
+                sys_info = stats["system"]
+                embed.add_field(name="OS", value=sys_info.get("os", "Unknown"), inline=True)
+                embed.add_field(name="Python", value=sys_info.get("python_version", "Unknown"), inline=True)
+
+            if "devices" in stats:
+                devices = stats["devices"]
+                if devices:
+                    device_info = devices[0]
+                    embed.add_field(name="GPU", value=device_info.get("name", "Unknown"), inline=False)
+                    vram_total = device_info.get("vram_total", 0)
+                    vram_free = device_info.get("vram_free", 0)
+                    if vram_total:
+                        embed.add_field(name="VRAM", value=f"{vram_free / 1e9:.1f} / {vram_total / 1e9:.1f} GB free", inline=True)
+
+            await ctx.respond(embed=embed, ephemeral=True)
+        else:
+            await ctx.respond(
+                f"⚠️ Connection failed: {result.get('error', 'Unknown error')}\n\nURL: `{self.comfyui_client.api_url}`",
+                ephemeral=True
+            )
+
+    @manage.command(name="comfyui_workflow", description="Set a custom ComfyUI workflow (JSON).")
+    @commands.has_permissions(administrator=True)
+    @option("workflow_json", str, description="Workflow JSON string (or 'reset' to use default)", required=True)
+    async def comfyui_workflow(self, ctx: discord.ApplicationContext, workflow_json: str):
+        """Sets a custom workflow for ComfyUI generation."""
+        if not self.comfyui_client:
+            await ctx.respond("⚠️ ComfyUI is not configured (missing URL).", ephemeral=True)
+            return
+
+        if workflow_json.lower() == 'reset':
+            # Clear custom workflow
+            config_key = f"{DB_KEY_CONFIG_PREFIX}comfyui"
+            current = self.db.get_global_config(config_key)
+            if current:
+                try:
+                    config = json.loads(current)
+                    config.pop('workflow', None)
+                    self.db.set_global_config(config_key, json.dumps(config), 'json')
+                except json.JSONDecodeError:
+                    pass
+            await ctx.respond("✅ Custom workflow cleared. Using default workflow.", ephemeral=True)
+            return
+
+        # Validate JSON
+        try:
+            workflow = json.loads(workflow_json)
+            # Basic validation - check for some expected node types
+            class_types = [n.get("class_type") for n in workflow.values() if isinstance(n, dict)]
+            if not class_types:
+                await ctx.respond(
+                    "⚠️ Invalid workflow: No nodes found. Workflow should be a dict of node definitions.",
+                    ephemeral=True
+                )
+                return
+        except json.JSONDecodeError as e:
+            await ctx.respond(f"⚠️ Invalid JSON: {e}", ephemeral=True)
+            return
+
+        # Save to config
+        config_key = f"{DB_KEY_CONFIG_PREFIX}comfyui"
+        current = self.db.get_global_config(config_key)
+        try:
+            config = json.loads(current) if current else {}
+        except json.JSONDecodeError:
+            config = {}
+
+        config['workflow'] = workflow_json
+        self.db.set_global_config(config_key, json.dumps(config), 'json')
+
+        await ctx.respond(
+            f"✅ Custom workflow saved ({len(class_types)} nodes detected). It will be used for future generations.",
+            ephemeral=True
+        )
 
     async def _save_provider_config(self, ctx: discord.ApplicationContext, provider: ProviderType, config: Dict[str, Any]):
         """Helper function to save provider config JSON to the database."""
         config_key = f"{DB_KEY_CONFIG_PREFIX}{provider}"
         try:
-            config_json = json.dumps(config)
+            # Fetch existing config from database
+            existing_json = self.db.get_global_config(config_key)
+            if existing_json:
+                try:
+                    existing_config = json.loads(existing_json)
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse existing config for {provider}, starting fresh")
+                    existing_config = {}
+            else:
+                existing_config = {}
+
+            # Merge new config with existing (new values override)
+            merged_config = {**existing_config, **config}
+
+            # Save merged config back to database
+            config_json = json.dumps(merged_config)
             self.db.set_global_config(config_key, config_json, 'json') # Store as JSON string
-            await ctx.respond(f"✅ Default configuration saved for **{provider}**:\n```json\n{json.dumps(config, indent=2)}\n```", ephemeral=True)
+
+            # Prepare response - truncate if too long for Discord (2000 char limit)
+            # For ComfyUI, hide workflow JSON in response if present
+            if provider == 'comfyui' and 'workflow' in merged_config:
+                display_config = merged_config.copy()
+                display_config['workflow'] = f"<Custom workflow: {len(merged_config['workflow'])} chars>"
+                config_display = json.dumps(display_config, indent=2)
+            else:
+                config_display = json.dumps(merged_config, indent=2)
+
+            response_msg = f"✅ Default configuration saved for **{provider}**:\n```json\n{config_display}\n```"
+
+            # Truncate if still too long (leave room for message formatting)
+            if len(response_msg) > 1900:
+                response_msg = f"✅ Default configuration saved for **{provider}**.\n\nConfig preview:\n```json\n{config_display[:1800]}\n... (truncated)\n```"
+
+            await ctx.respond(response_msg, ephemeral=True)
             logger.info(f"Admin {ctx.author} updated config for {provider}: {config_json}")
         except json.JSONDecodeError:
              await ctx.respond(f"❌ Internal error: Failed to serialize configuration to JSON.", ephemeral=True)

@@ -261,6 +261,62 @@ An example Cloudflare worker that has been tested with Gideon can be found here:
   <img src="assets/images/dream-tea-screenshot.png" alt="dream-output" width="1080"/>
 </p>
 
+### ComfyUI Configuration (Optional)
+
+**ComfyUI** is a powerful node-based UI for Stable Diffusion and other AI image generation models. Gideon supports ComfyUI as an image generation provider, giving you access to advanced workflows and custom models.
+
+**Prerequisites:**
+- ComfyUI installed and running (local or remote)
+- Download from: [ComfyUI GitHub](https://github.com/comfyanonymous/ComfyUI)
+- Requires Python 3.10+, CUDA-compatible GPU recommended
+
+**Setup Steps:**
+
+1. **Install ComfyUI:**
+   ```bash
+   # Clone and setup ComfyUI
+   git clone https://github.com/comfyanonymous/ComfyUI
+   cd ComfyUI
+   pip install -r requirements.txt
+
+   # Download at least one checkpoint model to ComfyUI/models/checkpoints/
+   # Example: Stable Diffusion 1.5, SDXL, FLUX, etc.
+   ```
+
+2. **Start ComfyUI Server:**
+   ```bash
+   # Local (default port 8188)
+   python main.py
+
+   # Or specify host/port
+   python main.py --listen 0.0.0.0 --port 8188
+   ```
+
+3. **Configure Gideon:**
+   - Edit your `.env` file and add:
+     ```bash
+     COMFYUI_URL=http://127.0.0.1:8188  # Or your remote URL
+     ```
+   - Restart the bot
+
+4. **Activate ComfyUI Provider:**
+   ```
+   /dream manage set_provider provider:comfyui
+   /dream manage comfyui_test  # Verify connection
+   ```
+
+**Advanced Features:**
+
+- **Model Selection:** Use `/dream manage comfyui_models` to list available checkpoint models, then configure with `/dream manage configure comfyui`
+- **Custom Workflows:** Load custom ComfyUI workflow JSONs via `/dream manage comfyui_workflow` for advanced generation (FLUX, SDXL, LoRA support)
+- **Parameter Control:** Configure default size, steps, and model via `/dream manage configure comfyui`
+
+**Admin Commands:**
+- `/dream manage comfyui_test` - Test server connection and view system stats
+- `/dream manage comfyui_models` - List available checkpoint models
+- `/dream manage configure comfyui` - Set default size, steps, and model
+- `/dream manage comfyui_workflow` - Load custom workflow JSON or reset to default
+
 
 ## 🤖 Commands
 
@@ -564,7 +620,7 @@ Gideon now uses a unified command for image generation with support for multiple
     </tr>
     <tr>
       <td><code>/dream manage set_provider provider:&lt;Choice&gt;</code></td>
-      <td>Set the active image generation provider (AI Horde, Cloudflare, OpenAI).</td>
+      <td>Set the active image generation provider (AI Horde, Cloudflare, OpenAI, ComfyUI).</td>
       <td>Admin</td>
     </tr>
     <tr>

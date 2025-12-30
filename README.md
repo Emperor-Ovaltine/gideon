@@ -253,6 +253,31 @@ If you want to use OpenAI's DALL-E models for image generation:
 1. Obtain an OpenAI API key from the [OpenAI platform](https://platform.openai.com/).
 2. Set the `OPENAI_API_KEY` in your `.env` file to your OpenAI API key.
 
+**ComfyUI (Optional)**
+
+For advanced users who want to self-host image generation with full control over models and workflows:
+
+1. **Install ComfyUI**: Set up [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on your local machine or server
+2. **Start ComfyUI Server**: Run ComfyUI (typically accessible at `http://127.0.0.1:8188`)
+3. **Configure Gideon**: Set `COMFYUI_URL` in your `.env` file:
+   ```bash
+   COMFYUI_URL=http://127.0.0.1:8188  # For local instance
+   # or
+   COMFYUI_URL=http://your-server.com:8188  # For remote instance
+   ```
+4. **Test Connection**: Use `/dream_manage comfyui_test` to verify connectivity
+5. **Configure Settings**: Use `/dream_manage configure comfyui` to set default image size, steps, and model
+6. **Activate Provider**: Use `/dream_manage set_provider provider:ComfyUI` to switch to ComfyUI
+
+**Advanced ComfyUI Features:**
+- **Custom Workflows**: Load any ComfyUI workflow JSON via `/dream_manage comfyui_workflow`
+  - Supports FLUX, SDXL, SD3, Qwen-Image, and any ComfyUI-compatible workflow
+  - Parameters (prompt, negative_prompt, steps, seed) are automatically injected into compatible nodes. You can have an AI model adjust workflows from the UI version of ComfyUI to be quickly compatible with this method.
+- **Model Selection**: List available models with `/dream_manage comfyui_models`
+- **Flexible Configuration**: Works with checkpoints, LoRAs, ControlNet, and custom nodes
+
+**Default Workflow**: Gideon includes a built-in SD 1.5 txt2img workflow. To use advanced models like FLUX or Qwen-Image, load a custom workflow JSON using the admin command.
+
 **Example /dream output**
 
 <p align="center">

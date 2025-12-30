@@ -44,6 +44,11 @@ CLOUDFLARE_API_KEY = os.getenv('CLOUDFLARE_API_KEY', '')
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
+# ComfyUI Configuration
+# URL of your ComfyUI server (local or remote)
+# Examples: http://127.0.0.1:8188 or http://your-server.com:8188
+COMFYUI_URL = os.getenv('COMFYUI_URL', '')
+
 # Intent Discovery - Enable AI-powered intent detection for @mentions (opt-in feature)
 # When enabled, adds AI call on every mention to detect intents (reminders, etc.)
 # Default: FALSE (users must opt-in due to additional API calls)
