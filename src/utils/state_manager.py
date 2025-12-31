@@ -22,6 +22,7 @@ CONFIG_KEY_MAX_HISTORY = "max_channel_history"
 CONFIG_KEY_TIME_WINDOW = "time_window_hours"
 CONFIG_KEY_GLOBAL_MODEL = "global_model"
 CONFIG_KEY_GLOBAL_PROVIDER = "global_provider"
+CONFIG_KEY_GLOBAL_SYSTEM_PROMPT = "global_system_prompt"
 CONFIG_KEY_PRUNE_FREQUENCY_HOURS = "prune_frequency_hours"
 CONFIG_KEY_INTENT_ENABLED = "intent_enabled"
 CONFIG_KEY_INTENT_MODEL = "intent_model"
@@ -56,6 +57,7 @@ class BotStateManager:
         self.time_window_hours = await self._load_or_set_config(CONFIG_KEY_TIME_WINDOW, 48, 'int')
         self.global_model = await self._load_or_set_config(CONFIG_KEY_GLOBAL_MODEL, CONFIG_DEFAULT_MODEL, 'string')
         self.global_provider = await self._load_or_set_config(CONFIG_KEY_GLOBAL_PROVIDER, "openrouter", 'string')
+        self.global_system_prompt = await self._load_or_set_config(CONFIG_KEY_GLOBAL_SYSTEM_PROMPT, None, 'string')
         self.prune_frequency_hours = await self._load_or_set_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, 24, 'int')
 
         # Intent detection settings - load from DB or use .env defaults
@@ -497,6 +499,16 @@ class BotStateManager:
         self.global_provider = provider
         await self._save_config(CONFIG_KEY_GLOBAL_PROVIDER, provider, 'string')
         logger.info(f"Global provider set to: {provider}")
+
+    def get_global_system_prompt(self) -> Optional[str]:
+        """Gets the global system prompt."""
+        return self.global_system_prompt
+
+    async def set_global_system_prompt(self, prompt: Optional[str]):
+        """Sets the global system prompt."""
+        self.global_system_prompt = prompt
+        await self._save_config(CONFIG_KEY_GLOBAL_SYSTEM_PROMPT, prompt, 'string')
+        logger.info(f"Global system prompt set to: {prompt[:50]}..." if prompt and len(prompt) > 50 else f"Global system prompt set to: {prompt}")
 
     async def set_channel_model(self, channel_id: str, model: Optional[str]):
         """Sets a channel-specific model after validation, storing in provider/model_name format."""

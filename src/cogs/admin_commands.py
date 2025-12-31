@@ -245,27 +245,6 @@ class AdminCommands(commands.Cog, name="AdminCommands"):
             logger.error(f"Error setting prune frequency: {e}", exc_info=True)
             await ctx.respond(f"❌ Error: {e}", ephemeral=True)
 
-    @admin.command(
-        name="retention",
-        description="Set summary retention period (in days)"
-    )
-    @commands.has_permissions(administrator=True)
-    async def retention(self, ctx, days: int):
-        """Set how long summaries are retained."""
-        await ctx.defer()
-
-        try:
-            if days < 1 or days > 90:
-                await ctx.respond("⚠️ Retention period must be between 1 and 90 days.", ephemeral=True)
-                return
-
-            await self.state.set_summary_retention_days(days)
-            await ctx.respond(f"✅ Summary retention period set to {days} days")
-
-        except Exception as e:
-            logger.error(f"Error setting retention period: {e}", exc_info=True)
-            await ctx.respond(f"❌ Error: {e}", ephemeral=True)
-
 
 def setup(bot):
     bot.add_cog(AdminCommands(bot))
