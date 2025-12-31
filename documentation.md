@@ -46,7 +46,7 @@ Gideon is a versatile Discord bot designed to enhance server interactions with a
 
 *   **AI Conversation:** Engage in natural language conversations with the bot, powered by various AI models from multiple providers (e.g., OpenRouter, OpenAI).
 *   **Thread Management:** Utilize Discord's native threads for focused AI conversations with per-thread configuration overrides for models and system prompts.
-*   **Image Generation:** Create images using different AI backends (AI Horde, Cloudflare Worker, OpenAI DALL-E) via a unified command interface.
+*   **Image Generation:** Create images using different AI backends (AI Horde, Cloudflare Worker, OpenAI DALL-E, ComfyUI, OpenRouter) via a unified command interface.
 *   **Trivia Games:** Play interactive trivia with AI-generated questions on any topic, featuring solo and competitive modes, scoring, achievements, and leaderboards.
 *   **Flexible Configuration:** Customize bot behavior globally, per channel, or per thread for AI providers, models, and system prompts using organized command groups.
 
@@ -405,9 +405,10 @@ The `/dream` command provides a unified interface for generating images using di
     *   **Cloudflare Worker:** Allows using a custom image generation backend hosted on Cloudflare Workers. Requires `CLOUDFLARE_WORKER_URL` and optionally `CLOUDFLARE_API_KEY` in `.env`. The specific models and parameters supported depend on the worker implementation.
     *   **OpenAI:** Uses OpenAI's DALL-E models (DALL-E 2, DALL-E 3). Requires `OPENAI_API_KEY` in `.env`.
     *   **ComfyUI:** Powerful node-based UI for advanced image generation workflows. Requires `COMFYUI_URL` in `.env` pointing to a running ComfyUI server (local or remote). Supports custom workflows, multiple checkpoint models, and advanced features like LoRA.
+    *   **OpenRouter:** Access various image generation models through OpenRouter's unified API. Uses the same `OPENROUTER_API_KEY` as chat. Supports Google Gemini image models (e.g., `google/gemini-2.5-flash-image`), FLUX models, and other providers with image output capabilities. Offers Gemini-specific features like `aspect_ratio` (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`) and `image_size` (`1K`, `2K`, `4K`).
 
 *   **Admin Management Commands (`/dream_manage`)**: (Administrator Only)
-    *   `/dream_manage set_provider <provider>`: Set the active image generation provider for the bot (`ai_horde`, `cloudflare`, `openai`, `comfyui`). The bot will use this provider for all `/dream` commands until changed.
+    *   `/dream_manage set_provider <provider>`: Set the active image generation provider for the bot (`ai_horde`, `cloudflare`, `openai`, `comfyui`, `openrouter`). The bot will use this provider for all `/dream` commands until changed.
     *   `/dream_manage view_config`: View the current active provider and its default configuration settings (model, size, steps, etc.) as stored in the database.
     *   `/dream_manage comfyui_test`: Test connection to ComfyUI server and view system stats (ComfyUI only).
     *   `/dream_manage comfyui_models`: List available checkpoint models from ComfyUI server (ComfyUI only).
@@ -430,6 +431,10 @@ The `/dream` command provides a unified interface for generating images using di
         *   `size`: The default image resolution (e.g., `512x512`, `1024x1024`, `768x512`).
         *   `steps`: The default number of generation steps (10-150).
         *   `model`: (Optional) Default checkpoint model name. Use `/dream_manage comfyui_models` to list available models.
+    *   `/dream_manage configure openrouter <model> [aspect_ratio] [image_size]`: Configure default settings for the OpenRouter provider.
+        *   `model`: The OpenRouter model ID (e.g., `google/gemini-2.5-flash-image`, `black-forest-labs/flux.2-pro`). Use autocomplete to see available models.
+        *   `aspect_ratio`: (Optional, Gemini only) Image aspect ratio (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`). Default: `1:1`.
+        *   `image_size`: (Optional, Gemini only) Image resolution (`1K`, `2K`, `4K`). Default: `1K`.
 
 ### Trivia Commands
 

@@ -69,7 +69,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   <img src="assets/images/replys-to-at-tags.png" alt="analyze-demo" width="1200"/>
 </p>
 
-- **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions (e.g., "@Gideon draw a futuristic cityscape"). Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E)
+- **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions (e.g., "@Gideon draw a futuristic cityscape"). Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E, ComfyUI, OpenRouter)
 
 <p align="center">
   <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="1200"/>
@@ -608,7 +608,7 @@ These commands are deprecated and will be removed in a future update. Please use
 </table>
 
 ### Image Commands
-Gideon uses a unified command for image generation with support for multiple backend providers (AI Horde, Cloudflare, OpenAI, ComfyUI).
+Gideon uses a unified command for image generation with support for multiple backend providers (AI Horde, Cloudflare, OpenAI, ComfyUI, OpenRouter).
 
 <table>
   <thead>
@@ -655,6 +655,11 @@ Gideon uses a unified command for image generation with support for multiple bac
       <td>Admin</td>
     </tr>
     <tr>
+      <td><code>/dream_manage configure openrouter</code></td>
+      <td>Configure OpenRouter defaults (model, aspect ratio, image size).</td>
+      <td>Admin</td>
+    </tr>
+    <tr>
       <td><code>/dream_manage comfyui_models</code></td>
       <td>List available ComfyUI checkpoint models.</td>
       <td>Admin</td>
@@ -690,6 +695,11 @@ Gideon uses a unified command for image generation with support for multiple bac
 
 #### Via Cloudflare Worker (requires self-setup)
 - **Custom model implementation** - Your Cloudflare Worker can integrate any image generation model you choose (e.g., Stable Diffusion via Cloudflare's platform).
+
+#### Via OpenRouter
+- **Google Gemini**: Gemini 2.5 Flash Image, Gemini 3 Pro Image Preview
+- **OpenAI**: GPT-5 Image, GPT-5 Image Mini
+
 
 ## ❓ Troubleshooting
 

@@ -730,6 +730,18 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                     "workflow_json": provider_config.get("workflow")
                 })
 
+        elif active_provider == 'openrouter':
+            client = image_cog.openrouter_image_client
+            provider_display_name = "OpenRouter"
+            if client:
+                params.update({
+                    "model": provider_config.get("model", "google/gemini-2.0-flash-exp"),
+                    "aspect_ratio": provider_config.get("aspect_ratio", "1:1"),
+                    "image_size": provider_config.get("image_size", "1K")
+                })
+                if negative_prompt:
+                    params["negative_prompt"] = negative_prompt
+
         if not client:
             await self._handle_image_generation_fallback(
                 message, channel_id,

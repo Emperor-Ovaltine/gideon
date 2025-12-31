@@ -56,7 +56,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   <img src="assets/images/replys-to-at-tags.png" alt="analyze-demo" width="1200"/>
 </p>
 
-- **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions (e.g., "@Gideon draw a futuristic cityscape"). Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E). Admins can configure the active provider and its default settings.
+- **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions (e.g., "@Gideon draw a futuristic cityscape"). Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E, ComfyUI, OpenRouter). Admins can configure the active provider and its default settings.
 
 <p align="center">
   <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="1200"/>
@@ -278,6 +278,18 @@ For advanced users who want to self-host image generation with full control over
 
 **Default Workflow**: Gideon includes a built-in SD 1.5 txt2img workflow. To use advanced models like FLUX or Qwen-Image, load a custom workflow JSON using the admin command.
 
+**OpenRouter (Optional)**
+
+OpenRouter provides access to various image generation models through a unified API, including Google Gemini, FLUX, and other models with image output capabilities.
+
+1. Ensure your `OPENROUTER_API_KEY` is set in your `.env` file (same key used for chat).
+2. Use `/dream_manage set_provider provider:OpenRouter` to activate the provider.
+3. Configure the model and settings with `/dream_manage configure openrouter`.
+
+**OpenRouter-Specific Features (Gemini models):**
+- `aspect_ratio`: Control image aspect ratio (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`)
+- `image_size`: Control resolution (`1K`, `2K`, `4K`)
+
 **Example /dream output**
 
 <p align="center">
@@ -373,7 +385,7 @@ Administrative tools and diagnostics (Admin/Owner only).
 | `/admin vision_models` | List all vision-capable AI models |
 
 ### Image Commands
-Gideon uses a unified command for image generation with support for multiple backend providers (AI Horde, Cloudflare, OpenAI, ComfyUI).
+Gideon uses a unified command for image generation with support for multiple backend providers (AI Horde, Cloudflare, OpenAI, ComfyUI, OpenRouter).
 
 | Command | Description | Permissions |
 |:-------:|:------------|:------------|
@@ -384,6 +396,7 @@ Gideon uses a unified command for image generation with support for multiple bac
 | `/dream_manage configure cloudflare` | Configure Cloudflare defaults (size, steps, seed). | Admin |
 | `/dream_manage configure openai` | Configure OpenAI/DALL-E defaults (model, quality, style). | Admin |
 | `/dream_manage configure comfyui` | Configure ComfyUI defaults (model, size, steps). | Admin |
+| `/dream_manage configure openrouter` | Configure OpenRouter defaults (model, aspect ratio, image size). | Admin |
 | `/dream_manage comfyui_models` | List available ComfyUI checkpoint models. | Admin |
 | `/dream_manage comfyui_test` | Test ComfyUI server connection. | Admin |
 | `/dream_manage comfyui_workflow` | Set a custom ComfyUI workflow (JSON). | Admin |
@@ -406,6 +419,13 @@ Gideon uses a unified command for image generation with support for multiple bac
 
 #### Via Cloudflare Worker (requires self-setup)
 - **Custom model implementation** - Your Cloudflare Worker can integrate any image generation model you choose (e.g., Stable Diffusion via Cloudflare's platform).
+
+#### Via OpenRouter
+- **Google Gemini**: Gemini 2.5 Flash Image, Gemini 3 Pro Image Preview
+- **FLUX**: FLUX.2 Pro, FLUX.2 Max, FLUX.2 Flex
+- **OpenAI**: GPT-5 Image, GPT-5 Image Mini
+- **ByteDance**: Seedream 4.5
+- **Sourceful**: Riverflow V2 variants
 
 ## 📁 Project Structure
 

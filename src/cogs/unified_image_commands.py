@@ -12,12 +12,14 @@ from ..utils.ai_horde_client import AIHordeClient
 from ..utils.cloudflare_client import CloudflareWorkerClient
 from ..utils.openai_client import OpenAIClient
 from ..utils.comfyui_client import ComfyUIClient
+from ..utils.openrouter_image_client import OpenRouterImageClient
 from ..utils.database import DatabaseManager
 from ..config import (
     AI_HORDE_API_KEY,
     CLOUDFLARE_WORKER_URL,
     CLOUDFLARE_API_KEY,
     OPENAI_API_KEY,
+    OPENROUTER_API_KEY,
     COMFYUI_URL,
     DATA_DIRECTORY # Needed for DatabaseManager default path
 )
@@ -26,7 +28,7 @@ from ..config import (
 logger = logging.getLogger('unified_image_commands')
 
 # Define provider types for clarity
-ProviderType = Literal['ai_horde', 'cloudflare', 'openai', 'comfyui']
+ProviderType = Literal['ai_horde', 'cloudflare', 'openai', 'comfyui', 'openrouter']
 
 # Database keys
 DB_KEY_ACTIVE_PROVIDER = "image_active_provider"
@@ -57,6 +59,11 @@ DEFAULT_CONFIGS: Dict[ProviderType, Dict[str, Any]] = {
         "steps": 20,
         "seed": None,
         "workflow": None  # Use default workflow
+    },
+    'openrouter': {
+        "model": "google/gemini-2.0-flash-exp",
+        "aspect_ratio": "1:1",
+        "image_size": "1K"
     }
 }
 
@@ -72,12 +79,80 @@ class UnifiedImageCommands(commands.Cog):
         self.cf_client = CloudflareWorkerClient(CLOUDFLARE_WORKER_URL, CLOUDFLARE_API_KEY) if CLOUDFLARE_WORKER_URL else None
         self.openai_client = OpenAIClient(OPENAI_API_KEY) if OPENAI_API_KEY else None
         self.comfyui_client = ComfyUIClient(COMFYUI_URL) if COMFYUI_URL else None
+        self.openrouter_image_client = OpenRouterImageClient(OPENROUTER_API_KEY) if OPENROUTER_API_KEY else None
+
+        # Initialize OpenRouter image models list (will be populated on bot ready)
+        self.openrouter_image_models = ["google/gemini-2.0-flash-exp"]  # Default fallback
 
         # Log which clients are available
         if not self.horde_client: logger.warning("AI Horde client not initialized (API key missing).")
         if not self.cf_client: logger.warning("Cloudflare client not initialized (Worker URL missing).")
         if not self.openai_client: logger.warning("OpenAI client not initialized (API key missing).")
         if not self.comfyui_client: logger.warning("ComfyUI client not initialized (URL missing).")
+        if not self.openrouter_image_client: logger.warning("OpenRouter Image client not initialized (API key missing).")
+
+        # Schedule model list fetch
+        if self.openrouter_image_client:
+            bot.loop.create_task(self.initialize_openrouter_models())
+
+    async def initialize_openrouter_models(self):
+        """Fetch available OpenRouter image models when the bot starts."""
+        await self.bot.wait_until_ready()
+        try:
+            logger.info("Fetching available OpenRouter image generation models...")
+            result = await self.openrouter_image_client.get_image_models()
+            if result.get("success"):
+                models = result.get("models", [])
+                if models:
+                    # Extract just the model IDs for autocomplete
+                    self.openrouter_image_models = [model["id"] for model in models]
+                    logger.info(f"Successfully loaded {len(self.openrouter_image_models)} image models from OpenRouter")
+                else:
+                    logger.warning("OpenRouter returned empty model list, using defaults")
+            else:
+                logger.error(f"Failed to fetch OpenRouter image models: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"Error initializing OpenRouter image models: {str(e)}")
+
+    async def openrouter_model_autocomplete(self, ctx):
+        """Autocomplete for OpenRouter image generation models."""
+        current_input = ctx.value.lower() if ctx.value else ""
+
+        # Get current configured model to highlight it
+        config_key = f"{DB_KEY_CONFIG_PREFIX}openrouter"
+        config_json = self.db.get_global_config(config_key)
+        current_model = None
+        if config_json:
+            try:
+                config = json.loads(config_json)
+                current_model = config.get("model")
+            except json.JSONDecodeError:
+                pass
+
+        # Format models with current selection marked
+        formatted_models = []
+        for model_id in self.openrouter_image_models:
+            if model_id == current_model:
+                formatted_models.append(f"✓ {model_id} (current)")
+            else:
+                formatted_models.append(model_id)
+
+        # If no input, return first 25
+        if not current_input:
+            return formatted_models[:25]
+
+        # Filter by user input
+        matching_models = [model for model in formatted_models if current_input in model.lower()]
+
+        # Prioritize models that start with the input
+        priority_matches = [m for m in matching_models if m.lower().startswith(current_input) or m.lower().startswith("✓ " + current_input)]
+        secondary_matches = [m for m in matching_models if m not in priority_matches]
+
+        # Combine and limit to 25
+        filtered_models = (priority_matches + secondary_matches)[:25]
+
+        # If no matches, return first 25 anyway
+        return filtered_models if filtered_models else formatted_models[:25]
 
     # --- User Command ---
 
@@ -188,6 +263,21 @@ class UnifiedImageCommands(commands.Cog):
                 await ctx.respond("⚠️ ComfyUI client is not configured (missing URL). Please contact an admin.", ephemeral=True)
                 return
 
+        elif active_provider == 'openrouter':
+            client = self.openrouter_image_client
+            provider_display_name = "OpenRouter"
+            if client:
+                params.update({
+                    "model": provider_config.get("model", "google/gemini-2.0-flash-exp"),
+                    "aspect_ratio": provider_config.get("aspect_ratio", "1:1"),
+                    "image_size": provider_config.get("image_size", "1K")
+                })
+                if negative_prompt:
+                    params["negative_prompt"] = negative_prompt
+            else:
+                await ctx.respond("⚠️ OpenRouter client is not configured (missing API key). Please contact an admin.", ephemeral=True)
+                return
+
         else:
             await ctx.respond(f"⚠️ Unknown or unsupported image provider configured: '{active_provider}'. Please contact an admin.", ephemeral=True)
             return
@@ -263,7 +353,8 @@ class UnifiedImageCommands(commands.Cog):
         discord.OptionChoice(name="AI Horde", value="ai_horde"),
         discord.OptionChoice(name="Cloudflare", value="cloudflare"),
         discord.OptionChoice(name="OpenAI", value="openai"),
-        discord.OptionChoice(name="ComfyUI", value="comfyui")
+        discord.OptionChoice(name="ComfyUI", value="comfyui"),
+        discord.OptionChoice(name="OpenRouter", value="openrouter")
     ], required=True)
     async def manage_set_provider(self, ctx: discord.ApplicationContext, provider: str): # Changed ProviderType to str
         """Sets the active image generation provider."""
@@ -273,6 +364,7 @@ class UnifiedImageCommands(commands.Cog):
         elif provider == 'cloudflare' and self.cf_client: valid_provider = True
         elif provider == 'openai' and self.openai_client: valid_provider = True
         elif provider == 'comfyui' and self.comfyui_client: valid_provider = True
+        elif provider == 'openrouter' and self.openrouter_image_client: valid_provider = True
 
         if not valid_provider:
              await ctx.respond(f"⚠️ Cannot set provider to '{provider}'. Its client is not configured/initialized (missing API key/URL?).", ephemeral=True)
@@ -414,6 +506,39 @@ class UnifiedImageCommands(commands.Cog):
         if model:
             config["model"] = model
         await self._save_provider_config(ctx, 'comfyui', config)
+
+    @configure.command(name="openrouter", description="Configure OpenRouter default settings.")
+    @commands.has_permissions(administrator=True)
+    @option(
+        "model",
+        str,
+        description="Select OpenRouter image generation model",
+        required=True,
+        autocomplete=openrouter_model_autocomplete
+    )
+    @option("aspect_ratio", str, description="Image aspect ratio (Gemini models only)", choices=[
+        discord.OptionChoice(name="Square (1:1)", value="1:1"),
+        discord.OptionChoice(name="Landscape (16:9)", value="16:9"),
+        discord.OptionChoice(name="Portrait (9:16)", value="9:16"),
+        discord.OptionChoice(name="Landscape (4:3)", value="4:3"),
+        discord.OptionChoice(name="Portrait (3:4)", value="3:4")
+    ], required=False, default="1:1")
+    @option("image_size", str, description="Image size (Gemini models only)", choices=[
+        discord.OptionChoice(name="1K (1024px)", value="1K"),
+        discord.OptionChoice(name="2K (2048px)", value="2K"),
+        discord.OptionChoice(name="4K (4096px)", value="4K")
+    ], required=False, default="1K")
+    async def configure_openrouter(self, ctx: discord.ApplicationContext, model: str, aspect_ratio: str, image_size: str):
+        """Configures default settings for the OpenRouter provider."""
+        # Strip the "✓ " prefix and " (current)" suffix if present
+        clean_model = model.replace("✓ ", "").replace(" (current)", "").strip()
+
+        config = {
+            "model": clean_model,
+            "aspect_ratio": aspect_ratio,
+            "image_size": image_size
+        }
+        await self._save_provider_config(ctx, 'openrouter', config)
 
     # --- ComfyUI-specific Admin Commands ---
 
