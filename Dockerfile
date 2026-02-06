@@ -15,4 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Assuming your Dockerfile is in the root of the gideon project
 COPY ./src ./src
 
+# Expose dashboard port (configurable via DASHBOARD_PORT env var, default 8080)
+EXPOSE 8080
+
 CMD ["python", "-m", "src"]

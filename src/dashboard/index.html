@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gideon Admin Dashboard</title>
+    <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="login-screen" class="login-screen">
+        <div class="login-card">
+            <div class="login-header">
+                <h1>Gideon</h1>
+                <p>Admin Dashboard</p>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="secret-input">Dashboard Secret</label>
+                    <input type="password" id="secret-input" placeholder="Enter dashboard secret" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+                <div id="login-error" class="error-message" style="display:none;"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="dashboard" style="display:none;">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h2>Gideon</h2>
+                <span class="badge" id="bot-status-badge">Connecting...</span>
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item active" data-tab="overview">
+                    <span class="nav-icon">&#9634;</span> Overview
+                </li>
+                <li class="nav-item" data-tab="settings">
+                    <span class="nav-icon">&#9881;</span> Settings
+                </li>
+                <li class="nav-item" data-tab="channels">
+                    <span class="nav-icon">&#9776;</span> Channels
+                </li>
+                <li class="nav-item" data-tab="threads">
+                    <span class="nav-icon">&#8801;</span> Threads
+                </li>
+                <li class="nav-item" data-tab="diagnostics">
+                    <span class="nav-icon">&#9889;</span> Diagnostics
+                </li>
+                <li class="nav-item" data-tab="activity">
+                    <span class="nav-icon">&#9679;</span> Live Activity
+                </li>
+            </ul>
+            <div class="sidebar-footer">
+                <button id="logout-btn" class="btn btn-secondary btn-small">Sign Out</button>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Overview Tab -->
+            <section id="tab-overview" class="tab-content active">
+                <h2>Dashboard Overview</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-guilds">--</div>
+                        <div class="stat-label">Servers</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-messages">--</div>
+                        <div class="stat-label">Stored Messages</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-threads">--</div>
+                        <div class="stat-label">Active Threads</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-channels">--</div>
+                        <div class="stat-label">Custom Channels</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-latency">--</div>
+                        <div class="stat-label">Latency (ms)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-uptime">--</div>
+                        <div class="stat-label">Uptime</div>
+                    </div>
+                </div>
+                <div class="info-panel">
+                    <h3>Bot Information</h3>
+                    <div class="info-row"><span>Bot Name:</span> <span id="info-bot-name">--</span></div>
+                    <div class="info-row"><span>Bot ID:</span> <span id="info-bot-id">--</span></div>
+                    <div class="info-row"><span>Global Model:</span> <span id="info-model">--</span></div>
+                    <div class="info-row"><span>Global Provider:</span> <span id="info-provider">--</span></div>
+                    <div class="info-row"><span>Database Size:</span> <span id="info-db-size">--</span></div>
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="tab-settings" class="tab-content">
+                <h2>Global Settings</h2>
+                <div class="settings-panel">
+                    <form id="settings-form">
+                        <div class="form-group">
+                            <label for="setting-provider">AI Provider</label>
+                            <select id="setting-provider">
+                                <option value="openrouter">OpenRouter</option>
+                                <option value="openai">OpenAI</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-model">Global Model</label>
+                            <input type="text" id="setting-model" placeholder="e.g., openrouter/gpt-4o-mini">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-memory">Message History Limit (1-100)</label>
+                            <input type="number" id="setting-memory" min="1" max="100">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-window">Time Window (hours, 1-96)</label>
+                            <input type="number" id="setting-window" min="1" max="96">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-prune">Prune Frequency (hours)</label>
+                            <input type="number" id="setting-prune" min="1" max="168">
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-system-prompt">System Prompt</label>
+                            <textarea id="setting-system-prompt" rows="4"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save Settings</button>
+                        <span id="settings-save-status" class="save-status"></span>
+                    </form>
+                </div>
+
+                <h3>Intent Detection</h3>
+                <div class="settings-panel">
+                    <form id="intent-form">
+                        <div class="form-group">
+                            <label for="intent-enabled">Intent Detection</label>
+                            <select id="intent-enabled">
+                                <option value="true">Enabled</option>
+                                <option value="false">Disabled</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="intent-model">Intent Model</label>
+                            <input type="text" id="intent-model" placeholder="e.g., openai/gpt-4o-mini">
+                        </div>
+                        <div class="form-group">
+                            <label for="intent-threshold">Confidence Threshold (0.0 - 1.0)</label>
+                            <input type="number" id="intent-threshold" min="0" max="1" step="0.05">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save Intent Settings</button>
+                        <span id="intent-save-status" class="save-status"></span>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Channels Tab -->
+            <section id="tab-channels" class="tab-content">
+                <h2>Channel Configurations</h2>
+                <p class="tab-description">Channels with custom model, provider, or system prompt overrides.</p>
+                <div id="channels-list" class="table-container">
+                    <p class="loading-text">Loading channels...</p>
+                </div>
+
+                <!-- Channel Editor Modal -->
+                <div id="channel-modal" class="modal" style="display:none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>Edit Channel: <span id="channel-modal-name">--</span></h3>
+                            <button class="modal-close" id="channel-modal-close">&times;</button>
+                        </div>
+                        <form id="channel-edit-form">
+                            <input type="hidden" id="channel-edit-id">
+                            <div class="form-group">
+                                <label for="channel-edit-model">Model Override (blank for global default)</label>
+                                <input type="text" id="channel-edit-model" placeholder="e.g., openai/gpt-4o">
+                            </div>
+                            <div class="form-group">
+                                <label for="channel-edit-provider">Provider Override</label>
+                                <select id="channel-edit-provider">
+                                    <option value="">Use Global Default</option>
+                                    <option value="openrouter">OpenRouter</option>
+                                    <option value="openai">OpenAI</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="channel-edit-prompt">System Prompt Override</label>
+                                <textarea id="channel-edit-prompt" rows="3" placeholder="Leave blank for global default"></textarea>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="submit" class="btn btn-primary">Save</button>
+                                <button type="button" class="btn btn-danger" id="channel-reset-btn">Reset to Defaults</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Threads Tab -->
+            <section id="tab-threads" class="tab-content">
+                <h2>Thread Management</h2>
+                <p class="tab-description">Active AI conversation threads and their configurations.</p>
+                <div id="threads-list" class="table-container">
+                    <p class="loading-text">Loading threads...</p>
+                </div>
+
+                <!-- Thread Editor Modal -->
+                <div id="thread-modal" class="modal" style="display:none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>Edit Thread: <span id="thread-modal-name">--</span></h3>
+                            <button class="modal-close" id="thread-modal-close">&times;</button>
+                        </div>
+                        <form id="thread-edit-form">
+                            <input type="hidden" id="thread-edit-id">
+                            <div class="form-group">
+                                <label for="thread-edit-name">Thread Name</label>
+                                <input type="text" id="thread-edit-name">
+                            </div>
+                            <div class="form-group">
+                                <label for="thread-edit-model">Model Override</label>
+                                <input type="text" id="thread-edit-model" placeholder="Leave blank for channel/global default">
+                            </div>
+                            <div class="form-group">
+                                <label for="thread-edit-prompt">System Prompt Override</label>
+                                <textarea id="thread-edit-prompt" rows="3" placeholder="Leave blank for channel/global default"></textarea>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="submit" class="btn btn-primary">Save</button>
+                                <button type="button" class="btn btn-danger" id="thread-delete-btn">Delete Thread</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Diagnostics Tab -->
+            <section id="tab-diagnostics" class="tab-content">
+                <h2>System Diagnostics</h2>
+                <div class="diagnostics-actions">
+                    <button id="run-diagnostics-btn" class="btn btn-primary">Run Diagnostics</button>
+                    <button id="run-prune-btn" class="btn btn-secondary">Trigger Data Prune</button>
+                </div>
+                <div id="diagnostics-results" class="diagnostics-panel">
+                    <p class="loading-text">Click "Run Diagnostics" to check system health.</p>
+                </div>
+            </section>
+
+            <!-- Live Activity Tab -->
+            <section id="tab-activity" class="tab-content">
+                <h2>Live Activity</h2>
+                <div class="activity-controls">
+                    <span id="ws-status" class="badge badge-warning">Disconnected</span>
+                    <button id="clear-activity-btn" class="btn btn-small btn-secondary">Clear</button>
+                </div>
+                <div id="activity-feed" class="activity-feed">
+                    <p class="loading-text">Waiting for events...</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>

@@ -4,6 +4,8 @@ services:
     container_name: gideon-bot
     env_file:
       - .env
+    ports:
+      - "${DASHBOARD_PORT:-8080}:${DASHBOARD_PORT:-8080}"
     volumes:
       - /change/to/your/data/dir:/app/data
     restart: always # Optional: Add restart policy

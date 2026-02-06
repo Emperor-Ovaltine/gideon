@@ -125,6 +125,7 @@ async def on_ready():
         "src.cogs.reminder_commands",
         "src.cogs.trivia_commands",
         "src.cogs.help_commands",  # Interactive help system
+        "src.cogs.dashboard_commands",  # Web admin dashboard
     ]
 
     for cog in cogs:
