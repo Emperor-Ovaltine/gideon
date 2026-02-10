@@ -1,11 +1,12 @@
 """In-memory game state management for trivia sessions."""
 
+import asyncio
 import time
 import logging
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 
-from .trivia_config import calculate_points, check_achievements
+from .trivia_config import calculate_points, check_achievements, LATE_ANSWER_POINT_MULTIPLIER
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,10 @@ class GameSession:
         # Competitive mode tracking
         self.round_winner: Optional[str] = None  # user_id of round winner
 
+        # Timer tasks (managed by the cog, stored here for per-session tracking)
+        self._question_timeout_task: Optional[asyncio.Task] = None
+        self._answer_window_task: Optional[asyncio.Task] = None
+
         logger.debug(f"Created GameSession {session_id} in thread {thread_id} ({game_mode} mode)")
 
     def add_player(self, user_id: str, username: str):
@@ -112,6 +117,15 @@ class GameSession:
         if user_id not in self.players:
             self.players[user_id] = PlayerState(user_id, username)
             logger.debug(f"Added player {username} ({user_id}) to game {self.session_id}")
+
+    def cancel_timers(self):
+        """Cancel any active timer tasks for this session."""
+        if self._question_timeout_task and not self._question_timeout_task.done():
+            self._question_timeout_task.cancel()
+            self._question_timeout_task = None
+        if self._answer_window_task and not self._answer_window_task.done():
+            self._answer_window_task.cancel()
+            self._answer_window_task = None
 
     def get_or_create_player(self, user_id: str, username: str) -> PlayerState:
         """Get existing player or create new one."""
@@ -180,24 +194,27 @@ class GameSession:
             player.record_answer(False, response_time, 0)
             return (True, 0, 'incorrect')
 
-        # Correct answer - calculate points
-        points = calculate_points(self.difficulty, response_time, player.current_streak)
+        # Correct answer - determine winner status first, then calculate points
+        if self.game_mode == 'competitive':
+            if self.round_winner is None:
+                self.round_winner = user_id
+                winner_status = 'first_correct'
+            else:
+                winner_status = 'also_correct'
+        else:
+            winner_status = 'first_correct'
+
+        # Calculate points with post-increment streak (fixes off-by-one)
+        points = calculate_points(self.difficulty, response_time, player.current_streak + 1)
+
+        # Apply late-answer reduction for competitive also_correct
+        if winner_status == 'also_correct':
+            points = int(points * LATE_ANSWER_POINT_MULTIPLIER)
 
         # Record the answer
         player.record_answer(True, response_time, points)
 
-        # Determine winner status
-        if self.game_mode == 'competitive':
-            if self.round_winner is None:
-                # First correct answer in competitive mode
-                self.round_winner = user_id
-                return (True, points, 'first_correct')
-            else:
-                # Subsequent correct answer in competitive mode
-                return (True, points, 'also_correct')
-        else:
-            # Solo mode - always first correct
-            return (True, points, 'first_correct')
+        return (True, points, winner_status)
 
     def complete_question(self):
         """Mark current question as complete and increment counter."""
@@ -362,6 +379,7 @@ class GameSessionManager:
         """
         session = self._sessions.pop(thread_id, None)
         if session:
+            session.cancel_timers()
             session.is_active = False
             logger.info(f"Ended game session {session.session_id} in thread {thread_id}")
         return session

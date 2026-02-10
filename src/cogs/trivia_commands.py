@@ -15,6 +15,8 @@ from ..utils.trivia_config import (
     DEFAULT_QUESTIONS_PER_GAME,
     MAX_QUESTIONS_PER_GAME,
     NEXT_QUESTION_DELAY_SECONDS,
+    QUESTION_TIMEOUT_SECONDS,
+    COMPETITIVE_ANSWER_WINDOW_SECONDS,
     LEADERBOARD_PAGE_SIZE,
     get_rank_emoji,
     ACHIEVEMENTS
@@ -474,10 +476,12 @@ class TriviaCommands(commands.Cog):
                 # Get player state
                 player = game.players[str(message.author.id)]
 
-                # Build response
+                # Build response based on winner status
                 if game.game_mode == "competitive" and winner_status == "first_correct":
                     response = f"✅ **{message.author.mention} wins this round!**\n"
                     response += f"💰 +{points_earned} points"
+                elif game.game_mode == "competitive" and winner_status == "also_correct":
+                    response = f"✅ Correct! +{points_earned} points (partial credit)"
                 else:
                     response = f"✅ Correct! +{points_earned} points"
 
@@ -493,8 +497,13 @@ class TriviaCommands(commands.Cog):
                 await message.add_reaction("✅")
 
             else:
-                # Wrong answer - show correct answer
-                response = f"❌ Not quite! The correct answer was: **{game.current_correct_answer}**"
+                # Wrong answer
+                if game.game_mode == "solo":
+                    # Solo: show correct answer since we advance immediately
+                    response = f"❌ Not quite! The correct answer was: **{game.current_correct_answer}**"
+                else:
+                    # Competitive: don't reveal answer, others may still try
+                    response = f"❌ Not quite!"
 
                 # Add AI reason if available
                 if ai_reason and match_type == 'ai_rejected':
@@ -503,24 +512,139 @@ class TriviaCommands(commands.Cog):
                 await message.reply(response, mention_author=False)
                 await message.add_reaction("❌")
 
-            # Check if this question is done (competitive mode: first correct answer, solo: any answer)
-            if game.game_mode == "solo" or (game.game_mode == "competitive" and game.round_winner):
+            # Question advancement logic
+            if game.game_mode == "solo":
+                # Solo: complete immediately on any answer
+                game.cancel_timers()
                 game.complete_question()
 
-                # Update database
                 state_manager.update_trivia_questions_answered(thread_id)
 
-                # Check if game is complete
                 if game.is_game_complete():
                     await self._end_game(message.channel, game, reason="All questions answered")
                 else:
-                    # Post next question after delay
                     await asyncio.sleep(NEXT_QUESTION_DELAY_SECONDS)
                     await self._post_next_question(message.channel, game)
+
+            elif game.game_mode == "competitive" and winner_status == "first_correct":
+                # First correct answer in competitive: cancel timeout, start answer window
+                if game._question_timeout_task and not game._question_timeout_task.done():
+                    game._question_timeout_task.cancel()
+                    game._question_timeout_task = None
+
+                game._answer_window_task = asyncio.create_task(
+                    self._answer_window_handler(message.channel, game)
+                )
+
+                await message.channel.send(
+                    f"⏳ Others have **{COMPETITIVE_ANSWER_WINDOW_SECONDS} seconds** to answer for partial credit!"
+                )
+
+            elif game.game_mode == "competitive" and winner_status == "also_correct":
+                # Check if all known players have answered — close window early
+                if len(game.answered_current_question) >= len(game.players):
+                    game.cancel_timers()
+                    game.complete_question()
+
+                    state_manager.update_trivia_questions_answered(thread_id)
+
+                    if game.is_game_complete():
+                        await self._end_game(message.channel, game, reason="All questions answered")
+                    else:
+                        await asyncio.sleep(NEXT_QUESTION_DELAY_SECONDS)
+                        await self._post_next_question(message.channel, game)
+            # Competitive + incorrect: do nothing, let timeout or window handle advancement
 
         except Exception as e:
             logger.error(f"Error processing trivia answer: {e}", exc_info=True)
             await message.add_reaction("⚠️")
+
+    async def _question_timeout_handler(self, channel: discord.TextChannel, game):
+        """Handle question timeout when no correct answer arrives in time."""
+        try:
+            await asyncio.sleep(QUESTION_TIMEOUT_SECONDS)
+
+            if not game.is_waiting_for_answer or not game.is_active:
+                return
+
+            # Time's up
+            game.cancel_timers()
+            game.complete_question()
+
+            state_manager = self.bot.state_manager
+            state_manager.update_trivia_questions_answered(game.thread_id)
+
+            timeout_embed = discord.Embed(
+                title="⏰ Time's Up!",
+                description=f"Nobody answered correctly in time.\n\n**The correct answer was:** {game.current_correct_answer}",
+                color=discord.Color.orange()
+            )
+            await channel.send(embed=timeout_embed)
+
+            if game.is_game_complete():
+                await self._end_game(channel, game, reason="All questions answered")
+            else:
+                await asyncio.sleep(NEXT_QUESTION_DELAY_SECONDS)
+                await self._post_next_question(channel, game)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Error in question timeout handler: {e}", exc_info=True)
+
+    async def _answer_window_handler(self, channel: discord.TextChannel, game):
+        """Handle the competitive answer window after the first correct answer."""
+        try:
+            await asyncio.sleep(COMPETITIVE_ANSWER_WINDOW_SECONDS)
+
+            if not game.is_waiting_for_answer or not game.is_active:
+                return
+
+            # Window expired — complete the question and advance
+            game.cancel_timers()
+            game.complete_question()
+
+            state_manager = self.bot.state_manager
+            state_manager.update_trivia_questions_answered(game.thread_id)
+
+            if game.is_game_complete():
+                await self._end_game(channel, game, reason="All questions answered")
+            else:
+                await asyncio.sleep(NEXT_QUESTION_DELAY_SECONDS)
+                await self._post_next_question(channel, game)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Error in answer window handler: {e}", exc_info=True)
+
+    async def _check_and_award_achievements(self, channel, game, player_standing, state_manager):
+        """Check and award achievements for a single player. Returns list of achievement text strings."""
+        leaderboard_stats = state_manager.get_trivia_user_stats(
+            user_id=player_standing['user_id'],
+            server_id=str(channel.guild.id)
+        )
+        newly_earned = game.check_achievements_for_player(
+            player_standing['user_id'],
+            leaderboard_stats
+        )
+
+        achievement_text = []
+        if newly_earned:
+            for ach_id in newly_earned:
+                if not state_manager.has_trivia_achievement(
+                    user_id=player_standing['user_id'],
+                    server_id=str(channel.guild.id),
+                    achievement_type=ach_id
+                ):
+                    ach = ACHIEVEMENTS[ach_id]
+                    state_manager.add_trivia_achievement(
+                        user_id=player_standing['user_id'],
+                        server_id=str(channel.guild.id),
+                        achievement_type=ach_id,
+                        achievement_name=ach['name']
+                    )
+                    achievement_text.append(f"{ach['name']}\n*{ach['description']}*")
+
+        return achievement_text
 
     async def _post_next_question(self, channel: discord.TextChannel, game):
         """Generate and post the next question."""
@@ -566,6 +690,12 @@ class TriviaCommands(commands.Cog):
 
             await channel.send(embed=embed)
 
+            # Start question timeout timer
+            game.cancel_timers()
+            game._question_timeout_task = asyncio.create_task(
+                self._question_timeout_handler(channel, game)
+            )
+
         except Exception as e:
             logger.error(f"Error posting question: {e}", exc_info=True)
             await channel.send("❌ Error posting question. Ending game.")
@@ -574,6 +704,9 @@ class TriviaCommands(commands.Cog):
     async def _end_game(self, channel: discord.TextChannel, game, reason: str = "Game completed"):
         """End a trivia game and show final results."""
         try:
+            # Cancel any active timers
+            game.cancel_timers()
+
             state_manager = self.bot.state_manager
 
             # Get final standings
@@ -614,40 +747,15 @@ class TriviaCommands(commands.Cog):
                     )
 
                     # Check for achievements
-                    leaderboard_stats = state_manager.get_trivia_user_stats(
-                        user_id=player['user_id'],
-                        server_id=str(channel.guild.id)
+                    achievement_text = await self._check_and_award_achievements(
+                        channel, game, player, state_manager
                     )
-                    newly_earned = game.check_achievements_for_player(
-                        player['user_id'],
-                        leaderboard_stats
-                    )
-
-                    # Award achievements
-                    if newly_earned:
-                        achievement_text = []
-                        for ach_id in newly_earned:
-                            # Check if already has this achievement
-                            if not state_manager.has_trivia_achievement(
-                                user_id=player['user_id'],
-                                server_id=str(channel.guild.id),
-                                achievement_type=ach_id
-                            ):
-                                ach = ACHIEVEMENTS[ach_id]
-                                state_manager.add_trivia_achievement(
-                                    user_id=player['user_id'],
-                                    server_id=str(channel.guild.id),
-                                    achievement_type=ach_id,
-                                    achievement_name=ach['name']
-                                )
-                                achievement_text.append(f"{ach['name']}\n*{ach['description']}*")
-
-                        if achievement_text:
-                            embed.add_field(
-                                name="🏆 New Achievements!",
-                                value="\n\n".join(achievement_text),
-                                inline=False
-                            )
+                    if achievement_text:
+                        embed.add_field(
+                            name="🏆 New Achievements!",
+                            value="\n\n".join(achievement_text),
+                            inline=False
+                        )
 
                 else:
                     # Competitive mode - leaderboard
@@ -675,6 +783,25 @@ class TriviaCommands(commands.Cog):
                         value="\n".join(leaderboard_text),
                         inline=False
                     )
+
+                    # Check achievements for ALL competitive players
+                    all_achievements = []
+                    for player in standings:
+                        player_achievements = await self._check_and_award_achievements(
+                            channel, game, player, state_manager
+                        )
+                        if player_achievements:
+                            user = channel.guild.get_member(int(player['user_id']))
+                            username = user.display_name if user else player['username']
+                            for ach_text in player_achievements:
+                                all_achievements.append(f"**{username}**: {ach_text}")
+
+                    if all_achievements:
+                        embed.add_field(
+                            name="🏆 New Achievements!",
+                            value="\n\n".join(all_achievements[:10]),
+                            inline=False
+                        )
 
             await channel.send(embed=embed)
 
