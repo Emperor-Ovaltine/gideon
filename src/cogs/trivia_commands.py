@@ -527,18 +527,32 @@ class TriviaCommands(commands.Cog):
                     await self._post_next_question(message.channel, game)
 
             elif game.game_mode == "competitive" and winner_status == "first_correct":
-                # First correct answer in competitive: cancel timeout, start answer window
+                # First correct answer in competitive: cancel the question timeout
                 if game._question_timeout_task and not game._question_timeout_task.done():
                     game._question_timeout_task.cancel()
                     game._question_timeout_task = None
 
-                game._answer_window_task = asyncio.create_task(
-                    self._answer_window_handler(message.channel, game)
-                )
+                # If all known players have already answered, advance immediately
+                if len(game.answered_current_question) >= len(game.players):
+                    game._answer_window_task = None
+                    game.complete_question()
 
-                await message.channel.send(
-                    f"⏳ Others have **{COMPETITIVE_ANSWER_WINDOW_SECONDS} seconds** to answer for partial credit!"
-                )
+                    state_manager.update_trivia_questions_answered(thread_id)
+
+                    if game.is_game_complete():
+                        await self._end_game(message.channel, game, reason="All questions answered")
+                    else:
+                        await asyncio.sleep(NEXT_QUESTION_DELAY_SECONDS)
+                        await self._post_next_question(message.channel, game)
+                else:
+                    # Start answer window for remaining players
+                    game._answer_window_task = asyncio.create_task(
+                        self._answer_window_handler(message.channel, game)
+                    )
+
+                    await message.channel.send(
+                        f"⏳ Others have **{COMPETITIVE_ANSWER_WINDOW_SECONDS} seconds** to answer for partial credit!"
+                    )
 
             elif game.game_mode == "competitive" and winner_status == "also_correct":
                 # Check if all known players have answered — close window early
@@ -567,8 +581,9 @@ class TriviaCommands(commands.Cog):
             if not game.is_waiting_for_answer or not game.is_active:
                 return
 
-            # Time's up
-            game.cancel_timers()
+            # Time's up — clear task references without cancelling self
+            game._question_timeout_task = None
+            game._answer_window_task = None
             game.complete_question()
 
             state_manager = self.bot.state_manager
@@ -599,8 +614,9 @@ class TriviaCommands(commands.Cog):
             if not game.is_waiting_for_answer or not game.is_active:
                 return
 
-            # Window expired — complete the question and advance
-            game.cancel_timers()
+            # Window expired — clear task references without cancelling self
+            game._question_timeout_task = None
+            game._answer_window_task = None
             game.complete_question()
 
             state_manager = self.bot.state_manager
