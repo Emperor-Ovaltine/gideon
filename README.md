@@ -241,6 +241,8 @@ When you @mention Gideon, the bot uses AI to analyze your message and determine 
 
 Gideon includes a web-based admin dashboard that provides a browser interface for managing all bot settings, channels, threads, and diagnostics. This serves as a full alternative to the Discord slash command interface.
 
+**WARNING: This feature is experimental and should NOT be exposed to the public internet without addtional authentication measures in place.**
+
 **Environment Variables (in `.env`):**
 - `DASHBOARD_ENABLED=TRUE` - Enable/disable the dashboard (default: FALSE)
 - `DASHBOARD_PORT=8080` - Port for the web server (default: 8080)
