@@ -37,6 +37,9 @@ Environment-based configuration loading:
 - `INTENT_DISCOVERY` - Enable/disable AI intent detection for @mentions
 - `INTENT_DETECTION_MODEL` - Model for intent classification
 - `INTENT_CONFIDENCE_THRESHOLD` - Confidence threshold (0.0-1.0)
+- `DASHBOARD_ENABLED` - Enable/disable web admin dashboard
+- `DASHBOARD_PORT` - Dashboard server port (default: 8080)
+- `DASHBOARD_SECRET` - Authentication secret for dashboard access
 
 #### 3. State Management (`src/utils/state_manager.py`)
 `BotStateManager` is the centralized hub for:
@@ -159,6 +162,47 @@ Each cog is a self-contained feature module loaded dynamically at startup:
     - `/help` - Browse commands by category with buttons
     - Auto-hides admin commands from non-admin users
 
+12. **`dashboard_commands.py`** - Web admin dashboard
+    - `/dashboard status` - Check dashboard server status
+    - `/dashboard restart` - Restart dashboard server (owner only)
+    - Starts aiohttp web server alongside the Discord bot
+    - Broadcasts bot events to WebSocket clients for real-time monitoring
+
+### Admin Dashboard (`src/utils/dashboard/`, `src/dashboard/`)
+
+The admin dashboard is an optional web-based interface for managing all bot settings, channels, threads, and diagnostics. It serves as a full alternative to the Discord slash command interface.
+
+#### Architecture
+- **Backend**: aiohttp web server running in the same event loop as the Discord bot
+- **Frontend**: Vanilla HTML/CSS/JS single-page application (no framework dependencies)
+- **Auth**: Token-based session authentication via `DASHBOARD_SECRET`
+- **Real-time**: WebSocket connection for live event streaming
+
+#### Backend Components (`src/utils/dashboard/`)
+- **`server.py`** - `DashboardServer` class
+  - REST API endpoints for all CRUD operations (settings, channels, threads, diagnostics)
+  - WebSocket handler for real-time event broadcasting
+  - Serves static frontend files from `src/dashboard/`
+  - API routes: `/api/overview`, `/api/settings`, `/api/channels`, `/api/threads`, `/api/messages`, `/api/models`, `/api/providers`, `/api/diagnostics`
+- **`auth.py`** - Authentication middleware
+  - Session token generation and validation
+  - Constant-time secret comparison
+  - Cookie and Bearer token support
+
+#### Frontend (`src/dashboard/`)
+- **`index.html`** - Single-page dashboard with tab-based navigation
+- **`css/dashboard.css`** - Dark theme responsive styles
+- **`js/dashboard.js`** - Application logic (API calls, WebSocket, tab management)
+
+#### Dashboard Tabs
+1. **Overview** - Bot status, guild count, message/thread stats, uptime, latency
+2. **Settings** - Global model, provider, system prompt, memory, intent detection
+3. **Channels** - Channel-specific configuration overrides (edit/reset)
+4. **Threads** - Thread management (rename, configure model/prompt, delete)
+5. **Messages** - Browse stored conversation history (filter by channel/thread/role, paginated)
+6. **Diagnostics** - Provider health checks, DB stats, manual prune trigger
+7. **Live Activity** - Real-time WebSocket feed of bot events
+
 ### AI Provider Clients (`src/utils/`)
 
 #### `openrouter_client.py` - OpenRouterClient
@@ -280,6 +324,8 @@ When `INTENT_DISCOVERY=TRUE`:
 6. **Graceful Degradation** - Missing API keys disable features but don't crash bot
 7. **Docker-First Deployment** - Dockerfile + docker-compose.yml for easy deployment
 8. **Intent Detection Opt-In** - Performance/cost optimization (disabled by default)
+9. **Dashboard Opt-In** - Web dashboard disabled by default, runs in same event loop when enabled
+10. **No Frontend Framework** - Dashboard uses vanilla JS to avoid build dependencies
 
 ## Important Files Reference
 
@@ -291,6 +337,9 @@ When `INTENT_DISCOVERY=TRUE`:
 - **AI Providers**: `src/utils/openrouter_client.py`, `src/utils/openai_client.py`
 - **Image Gen**: `src/cogs/unified_image_commands.py`
 - **Trivia Logic**: `src/utils/trivia_ai.py`, `src/cogs/trivia_commands.py`
+- **Dashboard Server**: `src/utils/dashboard/server.py`
+- **Dashboard Frontend**: `src/dashboard/index.html`, `src/dashboard/js/dashboard.js`
+- **Dashboard Cog**: `src/cogs/dashboard_commands.py`
 - **Environment**: `.env` (create from `.env.example`)
 
 ## Testing & Debugging
@@ -298,6 +347,7 @@ When `INTENT_DISCOVERY=TRUE`:
 - **Console Logs**: Bot outputs startup info, errors to stdout/stderr
 - **Docker Logs**: `docker-compose logs -f` to tail container logs
 - **Debug Commands**: `/admin debug`, `/admin state`, `/admin diagnostic`
+- **Dashboard**: Enable `DASHBOARD_ENABLED=TRUE` and access `http://localhost:8080` for web-based management
 - **Database Inspection**: Use SQLite browser on `{DATA_DIRECTORY}/gideon.db`
 - **Intent Testing**: Enable `INTENT_DISCOVERY` and check logs for classification results
 
@@ -365,12 +415,12 @@ docker-compose down
 - Multi-server support (currently single-server focused)
 - More intent handlers (code execution, math solver, etc.)
 - Voice integration (TTS/STT)
-- Web dashboard for config management
+- ~~Web dashboard for config management~~ (Implemented)
 - Rate limiting per user/channel
 - Advanced permission system beyond admin/non-admin
 
 ---
 
-**Last Updated**: 2026-02-01
+**Last Updated**: 2026-02-10
 **Version**: Based on current main branch
 **Maintainer**: eoko-dev

@@ -72,3 +72,8 @@ try:
         INTENT_CONFIDENCE_THRESHOLD = 1.0
 except ValueError:
     INTENT_CONFIDENCE_THRESHOLD = 0.7
+
+# Dashboard Configuration
+DASHBOARD_ENABLED = os.getenv('DASHBOARD_ENABLED', 'FALSE').upper() == 'TRUE'
+DASHBOARD_PORT = int(os.getenv('DASHBOARD_PORT', '8080'))
+DASHBOARD_SECRET = os.getenv('DASHBOARD_SECRET', '')

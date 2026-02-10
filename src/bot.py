@@ -125,6 +125,7 @@ async def on_ready():
         "src.cogs.reminder_commands",
         "src.cogs.trivia_commands",
         "src.cogs.help_commands",  # Interactive help system
+        "src.cogs.dashboard_commands",  # Web admin dashboard
     ]
 
     for cog in cogs:
@@ -133,9 +134,7 @@ async def on_ready():
             print(f"{cog} loaded successfully.")
         except Exception as e:
             print(f"Error loading {cog}: {e}")
-            # Print full traceback for config_commands to debug issues
-            if cog == "src.cogs.config_commands":
-                print(f"Detailed error for config commands: {traceback.format_exc()}")
+            print(f"Traceback: {traceback.format_exc()}")
 
     # Skip command clearing and just sync
     try:
@@ -212,6 +211,15 @@ async def on_ready():
             print("Started reminder checking task to run every minute.")
         except Exception as e:
             print(f"Error starting reminder task: {e}", file=sys.stderr)
+            traceback.print_exc()
+
+    # Start the admin dashboard if enabled
+    dashboard_cog = bot.get_cog("DashboardCommands")
+    if dashboard_cog:
+        try:
+            await dashboard_cog.start_dashboard()
+        except Exception as e:
+            print(f"Error starting dashboard: {e}", file=sys.stderr)
             traceback.print_exc()
 
     print('Ready to serve!')

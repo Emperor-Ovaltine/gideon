@@ -107,6 +107,14 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 </p>
 
 
+### 🖥️ Admin Dashboard
+- **Web-Based Management** - Full browser-based admin dashboard as an alternative to Discord slash commands
+- **Real-Time Monitoring** - Live activity feed with WebSocket-powered updates
+- **Settings Management** - Edit global settings, channel overrides, and intent detection from the browser
+- **Thread & Channel Management** - View, edit, and delete threads and channel configurations
+- **System Diagnostics** - Run diagnostics, check provider status, and trigger data pruning
+- **Secure Authentication** - Token-based authentication with configurable secret key
+
 ### 🛠️ Customization
 - **Model Switching** - Change AI models on-the-fly with simple commands
 - **Channel Personalities** - Set different system prompts per channel
@@ -228,6 +236,38 @@ When you @mention Gideon, the bot uses AI to analyze your message and determine 
 2. **Image Generation**: Create images from text descriptions
 3. **Search**: Fetch current information from the web (OpenRouter only)
 4. **Conversation**: General chat and questions
+
+### Admin Dashboard Configuration (Optional)
+
+Gideon includes a web-based admin dashboard that provides a browser interface for managing all bot settings, channels, threads, and diagnostics. This serves as a full alternative to the Discord slash command interface.
+
+**Environment Variables (in `.env`):**
+- `DASHBOARD_ENABLED=TRUE` - Enable/disable the dashboard (default: FALSE)
+- `DASHBOARD_PORT=8080` - Port for the web server (default: 8080)
+- `DASHBOARD_SECRET=your_secret_here` - Authentication secret (required when enabled)
+
+**Quick Start:**
+1. Generate a secret: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+2. Add to `.env`:
+   ```bash
+   DASHBOARD_ENABLED=TRUE
+   DASHBOARD_PORT=8080
+   DASHBOARD_SECRET=your_generated_secret
+   ```
+3. Restart the bot
+4. Open `http://localhost:8080` in your browser
+5. Log in with the dashboard secret
+
+**Docker:** The dashboard port is automatically exposed via docker-compose. Access it at `http://your-server:8080`.
+
+**Dashboard Features:**
+- **Overview** - Bot status, server count, message stats, uptime, and latency
+- **Settings** - Edit global model, provider, system prompt, memory limits, and intent detection
+- **Channels** - View and edit channel-specific configuration overrides
+- **Threads** - Manage AI conversation threads (rename, configure, delete)
+- **Messages** - Browse stored conversation history with channel/thread/role filtering and pagination
+- **Diagnostics** - System health checks, provider status, manual data pruning
+- **Live Activity** - Real-time WebSocket feed of bot events and message activity
 
 ### Image Generation Provider Configuration (Optional)
 
@@ -384,6 +424,14 @@ Administrative tools and diagnostics (Admin/Owner only).
 | `/admin diagnostic` | Run system diagnostics |
 | `/admin vision_models` | List all vision-capable AI models |
 
+### Dashboard Commands (Admin)
+Manage the web-based admin dashboard.
+
+| Command | Description |
+|:-------:|:------------|
+| `/dashboard status` | Check dashboard server status |
+| `/dashboard restart` | Restart the dashboard server (Owner only) |
+
 ### Image Commands
 Gideon uses a unified command for image generation with support for multiple backend providers (AI Horde, Cloudflare, OpenAI, ComfyUI, OpenRouter).
 
@@ -446,8 +494,13 @@ gideon/
 │   │   ├── settings_commands.py     # Global settings (/settings group)
 │   │   ├── thread_commands.py       # Thread management (/thread group)
 │   │   ├── trivia_commands.py       # Trivia game system (/trivia group)
+│   │   ├── dashboard_commands.py     # Web admin dashboard (/dashboard)
 │   │   ├── unified_image_commands.py # Image generation (/dream)
 │   │   └── url_commands.py          # URL summarization
+│   ├── dashboard/             # Dashboard frontend assets
+│   │   ├── index.html         # Main dashboard page
+│   │   ├── css/dashboard.css  # Dashboard styles
+│   │   └── js/dashboard.js   # Dashboard application logic
 │   └── utils/              # Utility classes and functions
 │       ├── ai_horde_client.py    # API client for AI Horde
 │       ├── cloudflare_client.py  # API client for Cloudflare Worker
@@ -459,6 +512,9 @@ gideon/
 │       ├── state_manager.py      # Centralized state management
 │       ├── trivia_ai.py          # AI question generation & validation
 │       ├── trivia_config.py      # Trivia scoring & achievements
+│       ├── dashboard/            # Dashboard server modules
+│       │   ├── server.py         # aiohttp web server & API routes
+│       │   └── auth.py           # Authentication middleware
 │       ├── database/             # Modular database managers
 │       │   ├── core.py           # Database manager initialization
 │       │   ├── schema.py         # Table definitions
