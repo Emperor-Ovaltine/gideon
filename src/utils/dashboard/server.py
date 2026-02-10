@@ -104,6 +104,10 @@ class DashboardServer:
         router.add_put('/api/threads/{thread_id}', self._handle_update_thread)
         router.add_delete('/api/threads/{thread_id}', self._handle_delete_thread)
 
+        # Models API
+        router.add_get('/api/models/{provider}', self._handle_get_models)
+        router.add_get('/api/providers', self._handle_get_providers)
+
         # Diagnostics API
         router.add_get('/api/diagnostics', self._handle_diagnostics)
         router.add_post('/api/diagnostics/prune', self._handle_prune)
@@ -155,7 +159,7 @@ class DashboardServer:
         return response
 
     async def _handle_auth_check(self, request):
-        """Check if the current session is valid."""
+        """Check if the current session is valid. Returns the token so JS can use it for WebSocket."""
         token = request.cookies.get('session_token')
         if not token:
             auth_header = request.headers.get('Authorization', '')
@@ -163,7 +167,7 @@ class DashboardServer:
                 token = auth_header[7:]
 
         if token and validate_session_token(token):
-            return web.json_response({'authenticated': True})
+            return web.json_response({'authenticated': True, 'token': token})
         return web.json_response({'authenticated': False})
 
     # ── Overview Handler ───────────────────────────────────────────
@@ -475,6 +479,31 @@ class DashboardServer:
 
         await self._broadcast_ws({'type': 'thread_deleted', 'thread_id': thread_id})
         return web.json_response({'status': 'ok', 'deleted': result})
+
+    # ── Models Handlers ─────────────────────────────────────────────
+
+    async def _handle_get_providers(self, request):
+        """Get list of available AI providers."""
+        providers = []
+        if self.bot.openrouter_client:
+            providers.append('openrouter')
+        if self.bot.openai_client:
+            providers.append('openai')
+        return web.json_response(providers)
+
+    async def _handle_get_models(self, request):
+        """Get available models for a specific provider."""
+        provider = request.match_info['provider']
+        try:
+            model_ids = await self.bot.model_manager.get_models(provider)
+            # Format as provider/model_id (matching slash command behavior)
+            formatted = [f"{provider}/{mid}" for mid in model_ids]
+            return web.json_response(formatted)
+        except ValueError as e:
+            return web.json_response({'error': str(e)}, status=400)
+        except Exception as e:
+            logger.error(f"Error fetching models for {provider}: {e}", exc_info=True)
+            return web.json_response({'error': f'Failed to fetch models: {str(e)}'}, status=500)
 
     # ── Diagnostics Handlers ───────────────────────────────────────
 

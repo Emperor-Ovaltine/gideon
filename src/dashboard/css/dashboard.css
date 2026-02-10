@@ -126,6 +126,47 @@ select {
     padding-right: 32px;
 }
 
+/* ── Model Select ──────────────────────────────────────── */
+
+.model-select-wrapper {
+    position: relative;
+}
+
+.model-search {
+    margin-bottom: 6px;
+}
+
+.model-select {
+    width: 100%;
+    padding: 0;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    appearance: none;
+    background-image: none;
+    overflow-y: auto;
+}
+
+.model-select option {
+    padding: 6px 10px;
+}
+
+.model-select option:checked {
+    background: var(--accent);
+    color: #fff;
+}
+
+.model-select option:hover {
+    background: var(--bg-tertiary);
+}
+
+.model-select option.current-model {
+    font-weight: 700;
+}
+
 /* ── Buttons ───────────────────────────────────────────── */
 
 .btn {

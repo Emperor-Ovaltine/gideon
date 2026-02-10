@@ -113,7 +113,12 @@
                         </div>
                         <div class="form-group">
                             <label for="setting-model">Global Model</label>
-                            <input type="text" id="setting-model" placeholder="e.g., openrouter/gpt-4o-mini">
+                            <div class="model-select-wrapper">
+                                <input type="text" id="setting-model-search" class="model-search" placeholder="Type to filter models..." autocomplete="off">
+                                <select id="setting-model" size="8" class="model-select">
+                                    <option value="">Loading models...</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="form-group">
                             <label for="setting-memory">Message History Limit (1-100)</label>
@@ -148,7 +153,12 @@
                         </div>
                         <div class="form-group">
                             <label for="intent-model">Intent Model</label>
-                            <input type="text" id="intent-model" placeholder="e.g., openai/gpt-4o-mini">
+                            <div class="model-select-wrapper">
+                                <input type="text" id="intent-model-search" class="model-search" placeholder="Type to filter models..." autocomplete="off">
+                                <select id="intent-model" size="6" class="model-select">
+                                    <option value="">Loading models...</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="form-group">
                             <label for="intent-threshold">Confidence Threshold (0.0 - 1.0)</label>
@@ -178,8 +188,13 @@
                         <form id="channel-edit-form">
                             <input type="hidden" id="channel-edit-id">
                             <div class="form-group">
-                                <label for="channel-edit-model">Model Override (blank for global default)</label>
-                                <input type="text" id="channel-edit-model" placeholder="e.g., openai/gpt-4o">
+                                <label for="channel-edit-model">Model Override (select none for global default)</label>
+                                <div class="model-select-wrapper">
+                                    <input type="text" id="channel-model-search" class="model-search" placeholder="Type to filter models..." autocomplete="off">
+                                    <select id="channel-edit-model" size="6" class="model-select">
+                                        <option value="">Use Global Default</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label for="channel-edit-provider">Provider Override</label>
@@ -225,7 +240,12 @@
                             </div>
                             <div class="form-group">
                                 <label for="thread-edit-model">Model Override</label>
-                                <input type="text" id="thread-edit-model" placeholder="Leave blank for channel/global default">
+                                <div class="model-select-wrapper">
+                                    <input type="text" id="thread-model-search" class="model-search" placeholder="Type to filter models..." autocomplete="off">
+                                    <select id="thread-edit-model" size="6" class="model-select">
+                                        <option value="">Use Channel/Global Default</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label for="thread-edit-prompt">System Prompt Override</label>

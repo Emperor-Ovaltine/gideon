@@ -10,6 +10,9 @@
     let wsReconnectTimer = null;
     const WS_RECONNECT_DELAY = 3000;
 
+    // Model cache: { provider: [model_ids] }
+    var modelCache = {};
+
     // ── Helpers ──────────────────────────────────────────────
 
     async function api(method, path, body) {
@@ -78,12 +81,69 @@
         setTimeout(function() { el.textContent = ''; }, 4000);
     }
 
+    // ── Model Select Helpers ─────────────────────────────────
+
+    async function fetchModels(provider) {
+        if (modelCache[provider]) return modelCache[provider];
+        try {
+            var models = await api('GET', '/api/models/' + provider);
+            modelCache[provider] = models;
+            return models;
+        } catch (e) {
+            console.error('Failed to fetch models for ' + provider + ':', e);
+            return [];
+        }
+    }
+
+    function populateModelSelect(selectEl, models, currentValue, emptyLabel) {
+        var html = '';
+        if (emptyLabel) {
+            html += '<option value="">' + escapeHtml(emptyLabel) + '</option>';
+        }
+        models.forEach(function(model) {
+            var selected = (model === currentValue) ? ' selected' : '';
+            var label = model;
+            if (model === currentValue) {
+                label = '> ' + model + ' (current)';
+            }
+            html += '<option value="' + escapeHtml(model) + '"' + selected + '>' + escapeHtml(label) + '</option>';
+        });
+        selectEl.innerHTML = html;
+    }
+
+    function setupModelSearch(searchId, selectId) {
+        var searchEl = document.getElementById(searchId);
+        var selectEl = document.getElementById(selectId);
+        if (!searchEl || !selectEl) return;
+
+        searchEl.addEventListener('input', function() {
+            var filter = searchEl.value.toLowerCase();
+            var options = selectEl.options;
+            for (var i = 0; i < options.length; i++) {
+                var text = options[i].value.toLowerCase() + ' ' + options[i].textContent.toLowerCase();
+                options[i].style.display = (!filter || text.indexOf(filter) !== -1) ? '' : 'none';
+            }
+        });
+    }
+
+    async function loadModelsForProvider(provider, selectId, currentValue, emptyLabel) {
+        var selectEl = document.getElementById(selectId);
+        if (!selectEl) return;
+        selectEl.innerHTML = '<option value="">Loading models...</option>';
+        var models = await fetchModels(provider);
+        populateModelSelect(selectEl, models, currentValue, emptyLabel);
+    }
+
     // ── Auth ─────────────────────────────────────────────────
 
     async function checkAuth() {
         try {
             const data = await api('GET', '/api/auth/check');
             if (data.authenticated) {
+                // Restore token from cookie-based session so WebSocket can authenticate
+                if (data.token) {
+                    authToken = data.token;
+                }
                 showDashboard();
                 return;
             }
@@ -164,17 +224,29 @@
     async function loadSettings() {
         try {
             const data = await api('GET', '/api/settings');
-            $('#setting-provider').value = data.global_provider || 'openrouter';
-            $('#setting-model').value = data.global_model || '';
+            var provider = data.global_provider || 'openrouter';
+
+            $('#setting-provider').value = provider;
             $('#setting-memory').value = data.max_channel_history || 35;
             $('#setting-window').value = data.time_window_hours || 48;
             $('#setting-prune').value = data.prune_frequency_hours || 24;
             $('#setting-system-prompt').value = data.global_system_prompt || '';
 
+            // Load models for the current provider and select current model
+            await loadModelsForProvider(provider, 'setting-model', data.global_model, null);
+
+            // Clear search
+            var searchEl = document.getElementById('setting-model-search');
+            if (searchEl) searchEl.value = '';
+
             const intent = await api('GET', '/api/settings/intent');
             $('#intent-enabled').value = intent.enabled ? 'true' : 'false';
-            $('#intent-model').value = intent.model || '';
             $('#intent-threshold').value = intent.threshold !== undefined ? intent.threshold : 0.7;
+
+            // Load models for intent model select too
+            await loadModelsForProvider(provider, 'intent-model', intent.model, null);
+            var intentSearchEl = document.getElementById('intent-model-search');
+            if (intentSearchEl) intentSearchEl.value = '';
         } catch (e) {
             console.error('Failed to load settings:', e);
         }
@@ -209,6 +281,14 @@
         } catch (e) {
             showSaveStatus('intent-save-status', 'Error: ' + e.message, true);
         }
+    }
+
+    async function onProviderChange() {
+        var provider = $('#setting-provider').value;
+        // Clear cache to force reload if switching providers
+        delete modelCache[provider];
+        await loadModelsForProvider(provider, 'setting-model', null, null);
+        await loadModelsForProvider(provider, 'intent-model', null, null);
     }
 
     // ── Channels ─────────────────────────────────────────────
@@ -248,9 +328,17 @@
             const data = await api('GET', '/api/channels/' + channelId);
             $('#channel-edit-id').value = channelId;
             $('#channel-modal-name').textContent = data.channel_name || channelId;
-            $('#channel-edit-model').value = data.model || '';
             $('#channel-edit-provider').value = data.provider || '';
             $('#channel-edit-prompt').value = data.system_prompt || '';
+
+            // Load models for the channel's provider (or global)
+            var settings = await api('GET', '/api/settings');
+            var provider = data.provider || settings.global_provider || 'openrouter';
+            await loadModelsForProvider(provider, 'channel-edit-model', data.model, 'Use Global Default');
+
+            var searchEl = document.getElementById('channel-model-search');
+            if (searchEl) searchEl.value = '';
+
             $('#channel-modal').style.display = 'flex';
         } catch (e) {
             alert('Error loading channel: ' + e.message);
@@ -326,8 +414,16 @@
             $('#thread-edit-id').value = threadId;
             $('#thread-modal-name').textContent = data.name || threadId;
             $('#thread-edit-name').value = data.name || '';
-            $('#thread-edit-model').value = data.model || '';
             $('#thread-edit-prompt').value = data.system_prompt || '';
+
+            // Load models for the global provider
+            var settings = await api('GET', '/api/settings');
+            var provider = settings.global_provider || 'openrouter';
+            await loadModelsForProvider(provider, 'thread-edit-model', data.model, 'Use Channel/Global Default');
+
+            var searchEl = document.getElementById('thread-model-search');
+            if (searchEl) searchEl.value = '';
+
             $('#thread-modal').style.display = 'flex';
         } catch (e) {
             alert('Error loading thread: ' + e.message);
@@ -451,13 +547,19 @@
             return;
         }
 
+        // Need a token for WS auth. The httponly cookie isn't readable from JS,
+        // so we must use the authToken we stored from login.
+        if (!authToken) {
+            console.warn('No auth token available for WebSocket connection');
+            updateWsStatus('No Token', 'badge-warning');
+            return;
+        }
+
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         ws = new WebSocket(proto + '//' + location.host + '/ws');
 
         ws.onopen = function () {
-            // Authenticate
-            var token = authToken || getCookie('session_token');
-            ws.send(JSON.stringify({ token: token }));
+            ws.send(JSON.stringify({ token: authToken }));
         };
 
         ws.onmessage = function (event) {
@@ -480,26 +582,19 @@
             addActivityEntry(data);
 
             // Refresh relevant tab data on updates
+            var activeTab = document.querySelector('.nav-item.active');
+            if (!activeTab) return;
+            var tab = activeTab.dataset.tab;
+
             if (data.type === 'settings_updated' || data.type === 'intent_settings_updated') {
-                var activeTab = document.querySelector('.nav-item.active');
-                if (activeTab && activeTab.dataset.tab === 'settings') {
-                    loadSettings();
-                }
-                if (activeTab && activeTab.dataset.tab === 'overview') {
-                    loadOverview();
-                }
+                if (tab === 'settings') loadSettings();
+                if (tab === 'overview') loadOverview();
             }
             if (data.type === 'channel_updated' || data.type === 'channel_reset') {
-                var activeTab = document.querySelector('.nav-item.active');
-                if (activeTab && activeTab.dataset.tab === 'channels') {
-                    loadChannels();
-                }
+                if (tab === 'channels') loadChannels();
             }
             if (data.type === 'thread_updated' || data.type === 'thread_deleted') {
-                var activeTab = document.querySelector('.nav-item.active');
-                if (activeTab && activeTab.dataset.tab === 'threads') {
-                    loadThreads();
-                }
+                if (tab === 'threads') loadThreads();
             }
         };
 
@@ -598,11 +693,6 @@
         }
     }
 
-    function getCookie(name) {
-        var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-        return match ? match[2] : '';
-    }
-
     // ── Periodic Refresh ─────────────────────────────────────
 
     function startPeriodicRefresh() {
@@ -656,6 +746,15 @@
         // Settings forms
         $('#settings-form').addEventListener('submit', saveSettings);
         $('#intent-form').addEventListener('submit', saveIntentSettings);
+
+        // Provider change reloads model list
+        $('#setting-provider').addEventListener('change', onProviderChange);
+
+        // Model search filters
+        setupModelSearch('setting-model-search', 'setting-model');
+        setupModelSearch('intent-model-search', 'intent-model');
+        setupModelSearch('channel-model-search', 'channel-edit-model');
+        setupModelSearch('thread-model-search', 'thread-edit-model');
 
         // Channel modal
         $('#channel-edit-form').addEventListener('submit', saveChannel);
