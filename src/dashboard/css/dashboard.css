@@ -1174,6 +1174,80 @@ select {
     font-weight: 500;
 }
 
+/* ── Channel Configurations ────────────────────────────── */
+
+.channels-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-5);
+}
+
+.channels-filters .filter-group input[type="text"] {
+    min-width: 250px;
+}
+
+.channel-guild-group {
+    margin-bottom: var(--space-5);
+}
+
+.guild-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-2);
+}
+
+.guild-header h4 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.2px;
+}
+
+.channel-guild-group .table-container {
+    margin-bottom: 0;
+}
+
+.channel-guild-group .data-table {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+.channel-name {
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.row-customized {
+    background: rgba(99, 130, 255, 0.03);
+}
+
+.row-customized:hover {
+    background: rgba(99, 130, 255, 0.07) !important;
+}
+
+.badge-info {
+    background: rgba(96, 165, 250, 0.12);
+    color: var(--info);
+}
+
+.badge-accent {
+    background: var(--accent-subtle);
+    color: var(--accent);
+}
+
+.badge-default {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
 /* ── Responsive ────────────────────────────────────────── */
 
 @media (max-width: 768px) {
