@@ -741,6 +741,13 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 })
                 if negative_prompt:
                     params["negative_prompt"] = negative_prompt
+                # Load modalities from database config (allows dashboard override)
+                modalities_json = image_cog.db.get_global_config('image_openrouter_modalities')
+                if modalities_json:
+                    try:
+                        params["modalities"] = json.loads(modalities_json)
+                    except json.JSONDecodeError:
+                        pass  # Fall back to client default ["image", "text"]
 
         if not client:
             await self._handle_image_generation_fallback(
