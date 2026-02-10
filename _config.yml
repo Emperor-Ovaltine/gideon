@@ -19,7 +19,6 @@ github:
 # Navigation
 header_pages:
   - index.md
-  - documentation.md
 
 # Default layout
 defaults:
