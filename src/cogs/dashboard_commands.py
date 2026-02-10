@@ -1,6 +1,8 @@
 """Dashboard cog - manages the web-based admin dashboard server."""
+import asyncio
 import discord
 import logging
+from typing import Optional
 from discord.ext import commands
 from ..config import DASHBOARD_ENABLED, DASHBOARD_PORT, DASHBOARD_SECRET
 from ..utils.dashboard import DashboardServer
@@ -13,10 +15,14 @@ class DashboardCommands(commands.Cog, name="DashboardCommands"):
 
     def __init__(self, bot):
         self.bot = bot
-        self.server: DashboardServer | None = None
+        self.server: Optional[DashboardServer] = None
+        self._started = False
 
-    async def _start_dashboard(self):
-        """Start the dashboard server if configured."""
+    async def start_dashboard(self):
+        """Start the dashboard server if configured. Called explicitly from bot.py."""
+        if self._started:
+            return
+
         if not DASHBOARD_ENABLED:
             logger.info("Dashboard is disabled (DASHBOARD_ENABLED=FALSE)")
             return
@@ -28,18 +34,13 @@ class DashboardCommands(commands.Cog, name="DashboardCommands"):
         try:
             self.server = DashboardServer(self.bot, DASHBOARD_SECRET, DASHBOARD_PORT)
             await self.server.start()
+            self._started = True
             # Attach to bot so other cogs can broadcast events
             self.bot.dashboard_server = self.server
-            logger.info(f"Admin dashboard available at http://localhost:{DASHBOARD_PORT}")
+            logger.info(f"Admin dashboard available at http://0.0.0.0:{DASHBOARD_PORT}")
         except Exception as e:
             logger.error(f"Failed to start dashboard server: {e}", exc_info=True)
             self.server = None
-
-    @commands.Cog.listener()
-    async def on_ready(self):
-        """Start the dashboard when the bot is ready."""
-        if not self.server:
-            await self._start_dashboard()
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -57,7 +58,6 @@ class DashboardCommands(commands.Cog, name="DashboardCommands"):
     def cog_unload(self):
         """Clean up when the cog is unloaded."""
         if self.server:
-            import asyncio
             asyncio.ensure_future(self.server.stop())
 
     # Discord command to check dashboard status
@@ -108,8 +108,9 @@ class DashboardCommands(commands.Cog, name="DashboardCommands"):
         if self.server:
             await self.server.stop()
             self.server = None
+            self._started = False
 
-        await self._start_dashboard()
+        await self.start_dashboard()
 
         if self.server:
             await ctx.respond(f"Dashboard restarted on port {DASHBOARD_PORT}.", ephemeral=True)

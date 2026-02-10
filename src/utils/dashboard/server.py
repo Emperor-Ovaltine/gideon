@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from aiohttp import web, WSMsgType
 
@@ -31,7 +31,7 @@ class DashboardServer:
         self.app: Optional[web.Application] = None
         self.runner: Optional[web.AppRunner] = None
         self.site: Optional[web.TCPSite] = None
-        self._ws_clients: list[web.WebSocketResponse] = []
+        self._ws_clients: List[web.WebSocketResponse] = []
         self._start_time = time.time()
 
     async def start(self):
