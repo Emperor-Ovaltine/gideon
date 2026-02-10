@@ -15,7 +15,7 @@
 [Commands](#-commands) • 
 [Models](#-supported-models) • 
 [Troubleshooting](#-troubleshooting) •
-[Documentation](documentation.md)
+[Developer Guide](CLAUDE.MD)
 
 </div>
 
@@ -27,11 +27,6 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 
 ### 🧠 Intelligence
 - **Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more through OpenRouter
-
-<p align="center">
-  <img src="assets/images/dynamic-model-search.png" alt="dynamic-model-search" width="1200"/>
-</p>
-
 - **Conversation Memory** - Natural conversations with context across messages
 
 - **Natural Language Intent Detection** - Simply @mention Gideon with natural language to automatically execute commands without needing to remember slash command syntax. The AI understands your intent and routes to the appropriate feature:
@@ -41,34 +36,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   - **Conversation**: Any other @mention automatically engages in natural conversation
 
 - **Web Search** - Search the web for current information through conversational AI responses or natural language (@mention)
-
-<img src="assets/images/web-search1.png" alt="web-search-demo" width="800"/>
-<img src="assets/images/web-search2.png" alt="web-search-demo" width="800"/>
-<img src="assets/images/web-search3.png" alt="web-search-demo" width="800"/>
-
-- **Image Analysis** - Upload and analyze images with vision-capable AI models
-
-<p align="center">
-  <img src="assets/images/image-analyze-screenshot.png" alt="analyze-demo" width="1200"/>
-</p>
-
-<p align="center">
-  <img src="assets/images/replys-to-at-tags.png" alt="analyze-demo" width="1200"/>
-</p>
-
 - **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions (e.g., "@Gideon draw a futuristic cityscape"). Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E, ComfyUI, OpenRouter). Admins can configure the active provider and its default settings.
-
-<p align="center">
-  <img src="assets/images/imagine-screenshot.png" alt="imagine-queue" width="1200"/>
-</p>
-
-<p align="center">
-  <img src="assets/images/imagine-queue-screenshot.png" alt="imagine-queue" width="1200"/>
-</p>
-
-<p align="center">
-  <img src="assets/images/imagine-tea-screenshot.png" alt="imagine-queue" width="1200"/>
-</p>
 
 ### 🎮 Entertainment
 - **AI-Powered Trivia** - Play interactive trivia games with questions generated dynamically by AI
@@ -83,29 +51,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 ### 🧵 Organization
 - **Conversation Threads** - Create dedicated topics with independent histories using Discord's native threads
 - **Auto-Responses** - Bot automatically responds to all messages in AI threads
-
-<p align="center">
-  <img src="assets/images/ai-chat-threads.png" alt="ai-thread-demo" width="1200"/>
-</p>
-
-<p align="center">
-  <img src="assets/images/ai-chat-threads-2.png" alt="ai-thread-demo" width="1200"/>
-</p>
-
-<p align="center">
-  <img src="assets/images/ai-threads-3.png" alt="ai-thread-demo" width="1200"/>
-</p>
-
 - **Dynamic URL Summarization** - Instantly extracts and distills key information from any shared webpage, providing concise, up-to-date summaries directly in your chat.
-
-<p align="center">
-  <img src="assets/images/url-summarize-entry-screenshot.png" alt="url-summary-demo" width="1200"/>
-</p>
-
-<p align="center">
-  <img src="assets/images/url-summary-screenshot.png" alt="url-summary-demo" width="1200"/>
-</p>
-
 
 ### 🖥️ Admin Dashboard
 - **Web-Based Management** - Full browser-based admin dashboard as an alternative to Discord slash commands
@@ -332,13 +278,6 @@ OpenRouter provides access to various image generation models through a unified 
 - `aspect_ratio`: Control image aspect ratio (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`)
 - `image_size`: Control resolution (`1K`, `2K`, `4K`)
 
-**Example /dream output**
-
-<p align="center">
-  <img src="assets/images/dream-tea-screenshot.png" alt="dream-output" width="1080"/>
-</p>
-
-
 ## 🤖 Commands
 
 > **Tip:** Use `/help` in Discord to browse all commands with an interactive menu. Admin commands are automatically hidden from regular users.
@@ -528,8 +467,8 @@ gideon/
 ├── docker-compose.yml      # For running with Docker Compose
 ├── requirements.txt        # Python dependencies
 ├── README.md               # This file
-├── documentation.md        # Detailed technical documentation
-└── index.md                # GitHub Pages source file
+├── CLAUDE.MD               # Developer guide & architecture reference
+└── index.md                # GitHub Pages landing page
 ```
 
 ## ❓ Troubleshooting
@@ -556,7 +495,7 @@ gideon/
 
 ## 📖 Documentation
 
-For detailed technical information about Gideon's architecture, implementation details, and advanced setup instructions, please refer to the [Technical Documentation](documentation.md).
+For detailed technical information about Gideon's architecture, development patterns, and implementation details, see the [Developer Guide](CLAUDE.MD).
 
 <div align="center">
 Made with ❤️ by <a href="https://github.com/eoko-dev">eoko</a>

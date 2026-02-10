@@ -13,6 +13,25 @@ Gideon is a sophisticated Discord bot that serves as an AI-powered assistant, pr
 
 ## Architecture
 
+### Architecture Diagram
+
+```mermaid
+graph TD
+    A[Discord API] --> B(Bot Instance);
+    B --> C(Event Handlers);
+    B --> D(Command Dispatcher);
+    D --> E(Cogs);
+    E --> F(BotStateManager);
+    F --> G(DatabaseManager);
+    E --> H(API Clients);
+    H --> I(External AI Services<br/>OpenRouter, OpenAI, AI Horde, Cloudflare);
+    E --> J(Background Tasks<br/>Auto-save, Pruning);
+    G --> K(SQLite Database);
+    B --> L(Configuration<br/>.env, DB Config);
+    L --> F;
+    L --> H;
+```
+
 ### Core Components
 
 #### 1. Bot Initialization (`src/bot.py`)
@@ -244,14 +263,15 @@ The admin dashboard is an optional web-based interface for managing all bot sett
 ## Development Patterns
 
 ### Configuration Hierarchy
-1. **Global Settings** (via `/settings`) - Default for all channels
-2. **Channel Overrides** (via `/channel`) - Per-channel customization
-3. **Thread Settings** (via `/thread`) - Thread-specific configs
 
-When resolving config (e.g., which model to use):
-- Check thread config first (if in a thread)
-- Fall back to channel config
-- Fall back to global config
+Two types of configuration:
+- **Static** (env vars via `.env` / `config.py`): Loaded once at startup. Used for API keys, tokens, `DATA_DIRECTORY`, and initial defaults
+- **Dynamic** (`GLOBAL_CONFIG` table): Modifiable at runtime via `/settings` commands, persisted in the database across restarts
+
+Runtime resolution order (most specific wins):
+1. **Thread Settings** (via `/thread`) - Thread-specific configs
+2. **Channel Overrides** (via `/channel`) - Per-channel customization
+3. **Global Settings** (via `/settings`) - Default for all channels
 
 ### Conversation Context Management
 - Messages are stored in `MESSAGES` table with timestamps
@@ -288,6 +308,26 @@ When `INTENT_DISCOVERY=TRUE`:
 8. Updates `TRIVIA_LEADERBOARD` stats
 9. Checks for achievements (e.g., "Perfect Game", "Speed Demon")
 10. Posts final results, closes game session
+
+## Error Handling and Logging
+
+Three-layer error handling strategy:
+1. **Command-level**: `try/except` blocks in individual command functions catch specific exceptions and return user-friendly messages
+2. **Cog-level**: `@commands.Cog.listener("on_application_command_error")` handlers catch errors from commands within that cog
+3. **Global**: `@bot.event` error handler in `bot.py` catches any unhandled exceptions, preventing crashes
+
+Logging uses Python's standard `logging` module:
+- Each module uses `logging.getLogger(__name__)` for its own logger
+- Levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+- Tracebacks logged via `logger.exception()` for error diagnosis
+- Output to console; Docker users view via `docker-compose logs -f`
+
+## Security
+
+- **API Keys**: Stored exclusively in `.env`, loaded via `config.py`, never hardcoded in source
+- **Permission Controls**: Enforced via Py-Cord decorators (`@commands.is_owner()`, `@commands.has_permissions(administrator=True)`)
+- **Input Validation**: Command inputs and external API responses are validated to prevent injection or malformed data issues
+- **Data Protection**: SQLite database stores conversation history; recommend filesystem-level encryption on the host. Automatic pruning (configurable via `time_window_hours` and `max_channel_history`) limits stored data volume
 
 ## Common Workflows
 
