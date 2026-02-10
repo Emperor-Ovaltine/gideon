@@ -76,6 +76,10 @@ DEFAULT_DIFFICULTY = 'medium'
 # Timeouts
 QUESTION_TIMEOUT_SECONDS = 60  # How long to wait for an answer
 NEXT_QUESTION_DELAY_SECONDS = 3  # Delay before posting next question
+COMPETITIVE_ANSWER_WINDOW_SECONDS = 10  # Window after first correct answer for others to respond
+
+# Competitive mode scoring
+LATE_ANSWER_POINT_MULTIPLIER = 0.5  # Late answers in competitive earn 50% points
 
 # Rate limiting
 MAX_GAMES_PER_HOUR_PER_USER = 10
