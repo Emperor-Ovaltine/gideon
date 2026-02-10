@@ -106,10 +106,14 @@ class OpenRouterImageClient:
             ]
 
             # Build the payload
+            # Modalities can be overridden via kwargs (from dashboard config)
+            # Default: ["image", "text"] which works with most image-capable models
+            modalities = kwargs.get("modalities", ["image", "text"])
+
             payload = {
                 "model": model,
                 "messages": messages,
-                "modalities": ["image", "text"]  # Critical: tells OpenRouter we want image output
+                "modalities": modalities,
             }
 
             # Add OpenRouter-specific parameters if provided

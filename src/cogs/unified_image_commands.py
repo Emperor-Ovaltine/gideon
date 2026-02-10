@@ -4,6 +4,7 @@ from discord import option # Use discord.option for type hinting
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import Optional, Literal, Dict, Any
 
 # Import clients and config
@@ -21,7 +22,8 @@ from ..config import (
     OPENAI_API_KEY,
     OPENROUTER_API_KEY,
     COMFYUI_URL,
-    DATA_DIRECTORY # Needed for DatabaseManager default path
+    DATA_DIRECTORY, # Needed for DatabaseManager default path
+    DASHBOARD_ENABLED,
 )
 
 # Configure logging
@@ -156,6 +158,52 @@ class UnifiedImageCommands(commands.Cog):
 
     # --- User Command ---
 
+    def _store_dream_messages(self, channel_id: str, user_id: str, prompt: str,
+                               negative_prompt: Optional[str], result: dict,
+                               provider_name: str):
+        """Store /dream interaction in channel history for dashboard visibility."""
+        try:
+            state = getattr(self.bot, 'state_manager', None)
+            if not state:
+                return
+
+            # Store user's prompt
+            user_content = f"/dream: {prompt}"
+            if negative_prompt:
+                user_content += f" (negative: {negative_prompt})"
+
+            state.db_manager.add_message(
+                role="user",
+                content=user_content,
+                timestamp=datetime.now(),
+                channel_id=channel_id,
+                user_id=user_id,
+            )
+
+            # Store assistant response with image reference
+            if result.get("success"):
+                image_url = result.get("image_url", "")
+                model_used = result.get("model_used", "")
+                # Use a marker format the dashboard can detect and render
+                if image_url:
+                    assistant_content = f"[image:{image_url}] Generated image for: {prompt} | Provider: {provider_name}"
+                else:
+                    # image_data or local_path - no persistent URL available
+                    assistant_content = f"[image:attachment] Generated image for: {prompt} | Provider: {provider_name}"
+                if model_used:
+                    assistant_content += f" | Model: {model_used}"
+            else:
+                assistant_content = f"[image generation failed] {result.get('error', 'Unknown error')} | Provider: {provider_name}"
+
+            state.db_manager.add_message(
+                role="assistant",
+                content=assistant_content,
+                timestamp=datetime.now(),
+                channel_id=channel_id,
+            )
+        except Exception as e:
+            logger.error(f"Error storing dream messages: {e}", exc_info=True)
+
     @discord.slash_command(
         name="dream",
         description="Generate an image using the configured AI backend."
@@ -274,6 +322,13 @@ class UnifiedImageCommands(commands.Cog):
                 })
                 if negative_prompt:
                     params["negative_prompt"] = negative_prompt
+                # Load modalities from database config (allows dashboard override)
+                modalities_json = self.db.get_global_config('image_openrouter_modalities')
+                if modalities_json:
+                    try:
+                        params["modalities"] = json.loads(modalities_json)
+                    except json.JSONDecodeError:
+                        pass  # Fall back to client default ["image", "text"]
             else:
                 await ctx.respond("⚠️ OpenRouter client is not configured (missing API key). Please contact an admin.", ephemeral=True)
                 return
@@ -332,6 +387,16 @@ class UnifiedImageCommands(commands.Cog):
                 error_msg = result.get("error", "Unknown error")
                 # Specific error handling (e.g., AI Horde Kudos) can be added here if needed
                 await thinking_msg.edit(content=f"⚠️ Failed to generate image via {provider_display_name}: {error_msg}")
+
+            # Store the interaction in channel history for dashboard visibility
+            self._store_dream_messages(
+                channel_id=str(ctx.channel_id),
+                user_id=str(ctx.author.id),
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                result=result,
+                provider_name=provider_display_name,
+            )
 
         except Exception as e:
             logger.exception(f"Error during image generation with {active_provider}: {e}")
@@ -725,7 +790,17 @@ class UnifiedImageCommands(commands.Cog):
 
 
 def setup(bot):
-    # Ensure DatabaseManager is initialized before adding cog if it relies on it heavily at init
-    # (In this case, DB is initialized within the cog's __init__)
-    bot.add_cog(UnifiedImageCommands(bot))
+    cog = UnifiedImageCommands(bot)
+
+    # When dashboard is enabled, remove admin-only /dream_manage commands
+    # since those settings are managed through the web dashboard instead
+    if DASHBOARD_ENABLED:
+        # Remove the manage command group so it doesn't register with Discord
+        cog.__cog_commands__ = [
+            cmd for cmd in cog.__cog_commands__
+            if not (hasattr(cmd, 'name') and cmd.name == 'dream_manage')
+        ]
+        logger.info("Dashboard enabled - /dream_manage commands hidden from Discord.")
+
+    bot.add_cog(cog)
     logger.info("UnifiedImageCommands cog loaded.")

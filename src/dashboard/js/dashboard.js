@@ -200,6 +200,7 @@
             case 'settings': loadSettings(); break;
             case 'channels': loadChannels(); break;
             case 'threads': loadThreads(); break;
+            case 'image-gen': loadImageSettings(); break;
             case 'messages': loadMessageSources(); break;
             case 'diagnostics': break;
             case 'activity': break;
@@ -568,6 +569,26 @@
                 }
 
                 var content = msg.content || '';
+
+                // Check for image markers: [image:url] or [image:attachment]
+                var imageHtml = '';
+                var imageMatch = content.match(/^\[image:(.*?)\]\s*/);
+                if (imageMatch) {
+                    var imageRef = imageMatch[1];
+                    content = content.substring(imageMatch[0].length);
+                    if (imageRef && imageRef !== 'attachment' && imageRef.startsWith('http')) {
+                        imageHtml = '<div class="msg-image"><a href="' + escapeHtml(imageRef) + '" target="_blank" rel="noopener"><img src="' + escapeHtml(imageRef) + '" alt="Generated image" loading="lazy"></a></div>';
+                    } else {
+                        imageHtml = '<div class="msg-image-placeholder">Generated image (attachment - not available in dashboard)</div>';
+                    }
+                }
+
+                // Check for failed generation marker
+                var isFailedGen = content.startsWith('[image generation failed]');
+                if (isFailedGen) {
+                    content = content.substring('[image generation failed] '.length);
+                }
+
                 // Truncate very long messages for display
                 var truncated = false;
                 if (content.length > 1000) {
@@ -591,6 +612,9 @@
                     html += '<span class="msg-truncated">... (truncated)</span>';
                 }
                 html += '</div>';
+                if (imageHtml) {
+                    html += imageHtml;
+                }
                 html += '</div>';
             });
 
@@ -686,6 +710,214 @@
         return '<span class="dot ' + type + '"></span>';
     }
 
+    // ── Image Generation ─────────────────────────────────────
+
+    var imageModelsCache = null;
+
+    async function loadImageSettings() {
+        try {
+            var data = await api('GET', '/api/image/settings');
+
+            // Set active provider
+            $('#image-active-provider').value = data.active_provider || 'ai_horde';
+
+            // Show available providers
+            var badgesHtml = '';
+            var allProviders = ['ai_horde', 'cloudflare', 'openai', 'comfyui', 'openrouter'];
+            var available = data.available_providers || [];
+            allProviders.forEach(function(p) {
+                var isAvail = available.indexOf(p) !== -1;
+                badgesHtml += '<span class="provider-badge ' + (isAvail ? 'available' : 'unavailable') + '">' + escapeHtml(p) + '</span>';
+            });
+            $('#image-available-providers').innerHTML = badgesHtml;
+
+            // Load provider configs
+            var configs = data.configs || {};
+            loadProviderConfigValues(configs);
+
+            // Load modalities
+            var modalities = data.openrouter_modalities || ['image', 'text'];
+            $('#mod-image').checked = modalities.indexOf('image') !== -1;
+            $('#mod-text').checked = modalities.indexOf('text') !== -1;
+            $('#mod-audio').checked = modalities.indexOf('audio') !== -1;
+            updateModalitiesPreview();
+
+            // Show correct config panel
+            showProviderConfigPanel($('#image-config-provider').value);
+
+            // Load OpenRouter image models
+            loadOpenRouterImageModels(configs.openrouter ? configs.openrouter.model : null);
+        } catch (e) {
+            console.error('Failed to load image settings:', e);
+        }
+    }
+
+    function loadProviderConfigValues(configs) {
+        // AI Horde
+        var horde = configs.ai_horde || {};
+        $('#horde-model').value = horde.model || 'stable_diffusion_xl';
+        $('#horde-size').value = horde.size || '1024x1024';
+        $('#horde-steps').value = horde.steps || 30;
+
+        // Cloudflare
+        var cf = configs.cloudflare || {};
+        $('#cf-size').value = cf.size || '768x768';
+        $('#cf-steps').value = cf.steps || 25;
+
+        // OpenAI
+        var oai = configs.openai || {};
+        $('#oai-model').value = oai.model || 'dall-e-3';
+        $('#oai-quality').value = oai.quality || 'standard';
+        $('#oai-style').value = oai.style || 'vivid';
+
+        // ComfyUI
+        var comfy = configs.comfyui || {};
+        $('#comfy-model').value = comfy.model || '';
+        $('#comfy-size').value = comfy.size || '512x512';
+        $('#comfy-steps').value = comfy.steps || 20;
+
+        // OpenRouter
+        var or = configs.openrouter || {};
+        $('#or-aspect').value = or.aspect_ratio || '1:1';
+        $('#or-image-size').value = or.image_size || '1K';
+    }
+
+    function showProviderConfigPanel(provider) {
+        var panels = ['ai_horde', 'cloudflare', 'openai', 'comfyui', 'openrouter'];
+        panels.forEach(function(p) {
+            var el = document.getElementById('config-' + p);
+            if (el) el.style.display = (p === provider) ? 'block' : 'none';
+        });
+    }
+
+    async function loadOpenRouterImageModels(currentModel) {
+        var selectEl = $('#or-model');
+        if (!selectEl) return;
+
+        if (imageModelsCache) {
+            populateImageModelSelect(selectEl, imageModelsCache, currentModel);
+            return;
+        }
+
+        selectEl.innerHTML = '<option value="">Loading image models...</option>';
+        try {
+            var models = await api('GET', '/api/image/models');
+            imageModelsCache = models;
+            populateImageModelSelect(selectEl, models, currentModel);
+        } catch (e) {
+            selectEl.innerHTML = '<option value="">Failed to load models</option>';
+        }
+    }
+
+    function populateImageModelSelect(selectEl, models, currentValue) {
+        var html = '';
+        models.forEach(function(m) {
+            var id = m.id || m;
+            var name = m.name || id;
+            var selected = (id === currentValue) ? ' selected' : '';
+            var label = (id === currentValue) ? '> ' + name + ' (current)' : name;
+            html += '<option value="' + escapeHtml(id) + '"' + selected + '>' + escapeHtml(label) + '</option>';
+        });
+        if (!html) {
+            html = '<option value="">No image models available</option>';
+        }
+        selectEl.innerHTML = html;
+    }
+
+    function updateModalitiesPreview() {
+        var modalities = [];
+        if ($('#mod-image').checked) modalities.push('image');
+        if ($('#mod-text').checked) modalities.push('text');
+        if ($('#mod-audio').checked) modalities.push('audio');
+        var preview = $('#modalities-preview');
+        if (preview) preview.textContent = JSON.stringify(modalities);
+    }
+
+    async function saveImageProvider(e) {
+        e.preventDefault();
+        try {
+            await api('PUT', '/api/image/settings', {
+                active_provider: $('#image-active-provider').value,
+            });
+            showSaveStatus('image-provider-save-status', 'Provider saved', false);
+        } catch (e) {
+            showSaveStatus('image-provider-save-status', 'Error: ' + e.message, true);
+        }
+    }
+
+    async function saveModalities(e) {
+        e.preventDefault();
+        var modalities = [];
+        if ($('#mod-image').checked) modalities.push('image');
+        if ($('#mod-text').checked) modalities.push('text');
+        if ($('#mod-audio').checked) modalities.push('audio');
+
+        if (modalities.length === 0) {
+            showSaveStatus('modalities-save-status', 'Select at least one modality', true);
+            return;
+        }
+
+        try {
+            await api('PUT', '/api/image/settings', {
+                openrouter_modalities: modalities,
+            });
+            showSaveStatus('modalities-save-status', 'Modalities saved', false);
+        } catch (e) {
+            showSaveStatus('modalities-save-status', 'Error: ' + e.message, true);
+        }
+    }
+
+    async function saveProviderConfig(provider) {
+        var config = {};
+
+        switch (provider) {
+            case 'ai_horde':
+                config = {
+                    model: $('#horde-model').value,
+                    size: $('#horde-size').value,
+                    steps: parseInt($('#horde-steps').value),
+                };
+                break;
+            case 'cloudflare':
+                config = {
+                    size: $('#cf-size').value,
+                    steps: parseInt($('#cf-steps').value),
+                };
+                break;
+            case 'openai':
+                config = {
+                    model: $('#oai-model').value,
+                    quality: $('#oai-quality').value,
+                    style: $('#oai-style').value,
+                };
+                break;
+            case 'comfyui':
+                config = {
+                    size: $('#comfy-size').value,
+                    steps: parseInt($('#comfy-steps').value),
+                };
+                if ($('#comfy-model').value) config.model = $('#comfy-model').value;
+                break;
+            case 'openrouter':
+                config = {
+                    model: $('#or-model').value,
+                    aspect_ratio: $('#or-aspect').value,
+                    image_size: $('#or-image-size').value,
+                };
+                break;
+        }
+
+        try {
+            await api('PUT', '/api/image/settings', {
+                provider: provider,
+                config: config,
+            });
+            showSaveStatus('config-save-' + provider, 'Config saved', false);
+        } catch (e) {
+            showSaveStatus('config-save-' + provider, 'Error: ' + e.message, true);
+        }
+    }
+
     // ── WebSocket ────────────────────────────────────────────
 
     function connectWs() {
@@ -737,6 +969,9 @@
             }
             if (data.type === 'thread_updated' || data.type === 'thread_deleted') {
                 if (tab === 'threads') loadThreads();
+            }
+            if (data.type === 'image_settings_updated') {
+                if (tab === 'image-gen') loadImageSettings();
             }
         };
 
@@ -919,6 +1154,34 @@
         });
         $('#msg-next').addEventListener('click', function () {
             if (msgCurrentPage < msgTotalPages) loadMessages(msgCurrentPage + 1);
+        });
+
+        // Image Generation
+        $('#image-provider-form').addEventListener('submit', saveImageProvider);
+        $('#modalities-form').addEventListener('submit', saveModalities);
+        $('#image-config-provider').addEventListener('change', function() {
+            showProviderConfigPanel(this.value);
+        });
+
+        // Modality checkbox preview
+        ['mod-image', 'mod-text', 'mod-audio'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.addEventListener('change', updateModalitiesPreview);
+        });
+
+        // OpenRouter image model search filter
+        setupModelSearch('or-model-search', 'or-model');
+
+        // Provider config forms
+        var providerForms = ['ai_horde', 'cloudflare', 'openai', 'comfyui', 'openrouter'];
+        providerForms.forEach(function(p) {
+            var form = document.getElementById('config-form-' + p);
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    saveProviderConfig(p);
+                });
+            }
         });
 
         // Diagnostics

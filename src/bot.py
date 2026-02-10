@@ -11,7 +11,7 @@ import traceback
 import pytz
 
 # Import configuration
-from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY, OPENAI_API_KEY, AI_HORDE_API_KEY
+from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY, OPENAI_API_KEY, AI_HORDE_API_KEY, DASHBOARD_ENABLED
 # Removed: from .utils.model_sync import sync_models
 from .utils.state_manager import BotStateManager
 
@@ -108,25 +108,32 @@ async def on_ready():
         existing_command_names = set()
 
     # Load modular cogs
+    # When dashboard is enabled, hide admin-oriented slash commands from Discord
+    # since those settings are managed through the web dashboard instead
     cogs = [
         "src.cogs.chat_commands",
         "src.cogs.thread_commands",
         "src.cogs.config_commands",
         "src.cogs.diagnostic_commands",
         "src.cogs.mention_commands",
-        # "src.cogs.image_commands", # Replaced by unified_image_commands
-        # "src.cogs.cloudflare_image_commands", # Replaced by unified_image_commands
-        "src.cogs.unified_image_commands", # New unified image cog
+        "src.cogs.unified_image_commands", # /dream (user) + /dream_manage (admin)
         "src.cogs.url_commands",
-        # New grouped command cogs
-        "src.cogs.settings_commands",
-        "src.cogs.channel_commands",
-        "src.cogs.admin_commands",
         "src.cogs.reminder_commands",
         "src.cogs.trivia_commands",
         "src.cogs.help_commands",  # Interactive help system
         "src.cogs.dashboard_commands",  # Web admin dashboard
     ]
+
+    # These cogs provide slash commands that duplicate dashboard functionality.
+    # When the dashboard is enabled, skip them to reduce Discord command clutter.
+    if not DASHBOARD_ENABLED:
+        cogs.extend([
+            "src.cogs.settings_commands",   # /settings (model, provider, system, memory, etc.)
+            "src.cogs.channel_commands",     # /channel (model, provider, system, reset, list)
+            "src.cogs.admin_commands",       # /admin (state, diagnostic, prune, vision_models)
+        ])
+    else:
+        print("Dashboard is enabled - hiding admin slash commands (/settings, /channel, /admin) from Discord.")
 
     for cog in cogs:
         try:
