@@ -265,6 +265,7 @@ Gideon includes a web-based admin dashboard that provides a browser interface fo
 - **Settings** - Edit global model, provider, system prompt, memory limits, and intent detection
 - **Channels** - View and edit channel-specific configuration overrides
 - **Threads** - Manage AI conversation threads (rename, configure, delete)
+- **Messages** - Browse stored conversation history with channel/thread/role filtering and pagination
 - **Diagnostics** - System health checks, provider status, manual data pruning
 - **Live Activity** - Real-time WebSocket feed of bot events and message activity
 

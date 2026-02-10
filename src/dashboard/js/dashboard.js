@@ -13,6 +13,11 @@
     // Model cache: { provider: [model_ids] }
     var modelCache = {};
 
+    // Messages state
+    var msgCurrentPage = 1;
+    var msgTotalPages = 1;
+    var msgSources = null; // cached sources data
+
     // ── Helpers ──────────────────────────────────────────────
 
     async function api(method, path, body) {
@@ -64,6 +69,13 @@
 
     function formatTime(date) {
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function formatDateTime(str) {
+        if (!str) return 'N/A';
+        var d = new Date(str);
+        if (isNaN(d.getTime())) return str;
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     function escapeHtml(str) {
@@ -188,8 +200,9 @@
             case 'settings': loadSettings(); break;
             case 'channels': loadChannels(); break;
             case 'threads': loadThreads(); break;
-            case 'diagnostics': break; // Load on demand
-            case 'activity': break; // Real-time via WS
+            case 'messages': loadMessageSources(); break;
+            case 'diagnostics': break;
+            case 'activity': break;
         }
     }
 
@@ -210,7 +223,6 @@
             $('#info-provider').textContent = data.global_provider;
             $('#info-db-size').textContent = formatBytes(data.database_size_bytes);
 
-            // Update status badge
             var badge = $('#bot-status-badge');
             badge.textContent = 'Online';
             badge.className = 'badge badge-success';
@@ -232,10 +244,8 @@
             $('#setting-prune').value = data.prune_frequency_hours || 24;
             $('#setting-system-prompt').value = data.global_system_prompt || '';
 
-            // Load models for the current provider and select current model
             await loadModelsForProvider(provider, 'setting-model', data.global_model, null);
 
-            // Clear search
             var searchEl = document.getElementById('setting-model-search');
             if (searchEl) searchEl.value = '';
 
@@ -243,7 +253,6 @@
             $('#intent-enabled').value = intent.enabled ? 'true' : 'false';
             $('#intent-threshold').value = intent.threshold !== undefined ? intent.threshold : 0.7;
 
-            // Load models for intent model select too
             await loadModelsForProvider(provider, 'intent-model', intent.model, null);
             var intentSearchEl = document.getElementById('intent-model-search');
             if (intentSearchEl) intentSearchEl.value = '';
@@ -285,7 +294,6 @@
 
     async function onProviderChange() {
         var provider = $('#setting-provider').value;
-        // Clear cache to force reload if switching providers
         delete modelCache[provider];
         await loadModelsForProvider(provider, 'setting-model', null, null);
         await loadModelsForProvider(provider, 'intent-model', null, null);
@@ -310,8 +318,8 @@
                 html += '<tr>' +
                     '<td>' + escapeHtml(ch.channel_name || ch.channel_id) + '</td>' +
                     '<td>' + escapeHtml(ch.guild_name || 'Unknown') + '</td>' +
-                    '<td>' + (ch.model ? '<span class="code">' + escapeHtml(ch.model) + '</span>' : '<span style="color:var(--text-muted)">Global</span>') + '</td>' +
-                    '<td>' + (ch.provider ? escapeHtml(ch.provider) : '<span style="color:var(--text-muted)">Global</span>') + '</td>' +
+                    '<td>' + (ch.model ? '<span class="code">' + escapeHtml(ch.model) + '</span>' : '<span class="text-muted">Global</span>') + '</td>' +
+                    '<td>' + (ch.provider ? escapeHtml(ch.provider) : '<span class="text-muted">Global</span>') + '</td>' +
                     '<td><button class="btn btn-small btn-secondary" onclick="window._editChannel(\'' + escapeHtml(ch.channel_id) + '\')">Edit</button></td>' +
                     '</tr>';
             });
@@ -331,7 +339,6 @@
             $('#channel-edit-provider').value = data.provider || '';
             $('#channel-edit-prompt').value = data.system_prompt || '';
 
-            // Load models for the channel's provider (or global)
             var settings = await api('GET', '/api/settings');
             var provider = data.provider || settings.global_provider || 'openrouter';
             await loadModelsForProvider(provider, 'channel-edit-model', data.model, 'Use Global Default');
@@ -395,7 +402,7 @@
                     '<td>' + escapeHtml(t.name || 'Unnamed') + '</td>' +
                     '<td>' + escapeHtml(t.channel_id) + '</td>' +
                     '<td>' + (t.message_count || 0) + '</td>' +
-                    '<td>' + (t.model ? '<span class="code">' + escapeHtml(t.model) + '</span>' : '<span style="color:var(--text-muted)">Default</span>') + '</td>' +
+                    '<td>' + (t.model ? '<span class="code">' + escapeHtml(t.model) + '</span>' : '<span class="text-muted">Default</span>') + '</td>' +
                     '<td>' + created + '</td>' +
                     '<td><button class="btn btn-small btn-secondary" onclick="window._editThread(\'' + escapeHtml(t.thread_id) + '\')">Edit</button></td>' +
                     '</tr>';
@@ -416,7 +423,6 @@
             $('#thread-edit-name').value = data.name || '';
             $('#thread-edit-prompt').value = data.system_prompt || '';
 
-            // Load models for the global provider
             var settings = await api('GET', '/api/settings');
             var provider = settings.global_provider || 'openrouter';
             await loadModelsForProvider(provider, 'thread-edit-model', data.model, 'Use Channel/Global Default');
@@ -459,6 +465,150 @@
         }
     }
 
+    // ── Messages ─────────────────────────────────────────────
+
+    async function loadMessageSources() {
+        if (msgSources) return; // Already loaded
+        try {
+            msgSources = await api('GET', '/api/messages/sources');
+        } catch (e) {
+            console.error('Failed to load message sources:', e);
+        }
+    }
+
+    function onSourceTypeChange() {
+        var type = $('#msg-source-type').value;
+        var group = $('#msg-source-select-group');
+        var sel = $('#msg-source-id');
+
+        if (type === 'all') {
+            group.style.display = 'none';
+            return;
+        }
+
+        group.style.display = '';
+        sel.innerHTML = '<option value="">Loading...</option>';
+
+        if (!msgSources) {
+            loadMessageSources().then(function() { populateSourceSelect(type); });
+        } else {
+            populateSourceSelect(type);
+        }
+    }
+
+    function populateSourceSelect(type) {
+        var sel = $('#msg-source-id');
+        var html = '';
+
+        if (type === 'channel' && msgSources && msgSources.channels) {
+            msgSources.channels.forEach(function(ch) {
+                var label = (ch.name || ch.id);
+                if (ch.guild) label += ' (' + ch.guild + ')';
+                label += ' - ' + ch.message_count + ' msgs';
+                html += '<option value="' + escapeHtml(ch.id) + '">' + escapeHtml(label) + '</option>';
+            });
+        } else if (type === 'thread' && msgSources && msgSources.threads) {
+            msgSources.threads.forEach(function(t) {
+                var label = (t.name || t.id) + ' - ' + t.message_count + ' msgs';
+                html += '<option value="' + escapeHtml(t.id) + '">' + escapeHtml(label) + '</option>';
+            });
+        }
+
+        if (!html) {
+            html = '<option value="">No ' + type + 's with messages</option>';
+        }
+        sel.innerHTML = html;
+    }
+
+    async function loadMessages(page) {
+        if (!page) page = 1;
+        msgCurrentPage = page;
+
+        var container = $('#messages-container');
+        container.innerHTML = '<div class="loading-text">Loading messages...</div>';
+
+        var params = 'page=' + page + '&per_page=50';
+
+        var sourceType = $('#msg-source-type').value;
+        var sourceId = $('#msg-source-id').value;
+
+        if (sourceType === 'channel' && sourceId) {
+            params += '&channel_id=' + encodeURIComponent(sourceId);
+        } else if (sourceType === 'thread' && sourceId) {
+            params += '&thread_id=' + encodeURIComponent(sourceId);
+        }
+
+        var roleFilter = $('#msg-role-filter').value;
+        if (roleFilter) {
+            params += '&role=' + encodeURIComponent(roleFilter);
+        }
+
+        try {
+            var data = await api('GET', '/api/messages?' + params);
+            msgTotalPages = data.total_pages;
+
+            if (data.messages.length === 0) {
+                container.innerHTML = '<div class="empty-state">No messages found.</div>';
+                $('#messages-pagination').style.display = 'none';
+                return;
+            }
+
+            var html = '';
+            data.messages.forEach(function(msg) {
+                var roleClass = 'msg-role-' + (msg.role || 'user');
+                var roleBadge = msg.role || 'unknown';
+                var timeStr = formatDateTime(msg.timestamp);
+                var channelInfo = '';
+                if (msg.channel_name) {
+                    channelInfo = '#' + msg.channel_name;
+                } else if (msg.channel_id) {
+                    channelInfo = '#' + msg.channel_id;
+                } else if (msg.thread_id) {
+                    channelInfo = 'Thread ' + msg.thread_id;
+                }
+
+                var content = msg.content || '';
+                // Truncate very long messages for display
+                var truncated = false;
+                if (content.length > 1000) {
+                    content = content.substring(0, 1000);
+                    truncated = true;
+                }
+
+                html += '<div class="msg-bubble ' + roleClass + '">';
+                html += '<div class="msg-header">';
+                html += '<span class="msg-role-badge ' + roleClass + '">' + escapeHtml(roleBadge) + '</span>';
+                if (msg.user_id) {
+                    html += '<span class="msg-user">' + escapeHtml(msg.user_id) + '</span>';
+                }
+                if (channelInfo) {
+                    html += '<span class="msg-channel">' + escapeHtml(channelInfo) + '</span>';
+                }
+                html += '<span class="msg-time">' + escapeHtml(timeStr) + '</span>';
+                html += '</div>';
+                html += '<div class="msg-content">' + escapeHtml(content);
+                if (truncated) {
+                    html += '<span class="msg-truncated">... (truncated)</span>';
+                }
+                html += '</div>';
+                html += '</div>';
+            });
+
+            container.innerHTML = html;
+
+            // Update pagination
+            var pagination = $('#messages-pagination');
+            pagination.style.display = 'flex';
+            $('#msg-page-info').textContent = 'Page ' + data.page + ' of ' + data.total_pages + ' (' + data.total + ' messages)';
+            $('#msg-prev').disabled = (data.page <= 1);
+            $('#msg-next').disabled = (data.page >= data.total_pages);
+
+        } catch (e) {
+            container.innerHTML = '<div class="empty-state">Error loading messages: ' + escapeHtml(e.message) + '</div>';
+            $('#messages-pagination').style.display = 'none';
+        }
+    }
+
     // ── Diagnostics ──────────────────────────────────────────
 
     async function runDiagnostics() {
@@ -469,7 +619,6 @@
             const data = await api('GET', '/api/diagnostics');
             var html = '';
 
-            // Bot status
             html += '<div class="diag-section"><h4>Bot Status</h4>';
             html += diagItem('Status', statusDot(data.bot_status === 'online' ? 'ok' : 'warn') + ' ' + data.bot_status);
             html += diagItem('Latency', data.latency_ms !== null ? data.latency_ms + ' ms' : 'N/A');
@@ -477,7 +626,6 @@
             html += diagItem('Uptime', formatUptime(data.uptime_seconds));
             html += '</div>';
 
-            // Database
             if (data.database) {
                 html += '<div class="diag-section"><h4>Database</h4>';
                 html += diagItem('Status', statusDot(data.database.status === 'ok' ? 'ok' : 'error') + ' ' + data.database.status);
@@ -487,7 +635,6 @@
                 html += '</div>';
             }
 
-            // Providers
             if (data.providers) {
                 html += '<div class="diag-section"><h4>AI Providers</h4>';
                 Object.keys(data.providers).forEach(function(name) {
@@ -499,7 +646,6 @@
                 html += '</div>';
             }
 
-            // Settings
             if (data.settings) {
                 html += '<div class="diag-section"><h4>Current Settings</h4>';
                 html += diagItem('Model', data.settings.global_model);
@@ -547,8 +693,6 @@
             return;
         }
 
-        // Need a token for WS auth. The httponly cookie isn't readable from JS,
-        // so we must use the authToken we stored from login.
         if (!authToken) {
             console.warn('No auth token available for WebSocket connection');
             updateWsStatus('No Token', 'badge-warning');
@@ -578,10 +722,8 @@
 
             if (data.type === 'pong') return;
 
-            // Add to activity feed
             addActivityEntry(data);
 
-            // Refresh relevant tab data on updates
             var activeTab = document.querySelector('.nav-item.active');
             if (!activeTab) return;
             var tab = activeTab.dataset.tab;
@@ -641,7 +783,6 @@
         var feed = $('#activity-feed');
         if (!feed) return;
 
-        // Clear placeholder
         var placeholder = feed.querySelector('.loading-text');
         if (placeholder) placeholder.remove();
 
@@ -687,7 +828,6 @@
 
         feed.insertBefore(entry, feed.firstChild);
 
-        // Limit feed entries
         while (feed.children.length > 200) {
             feed.removeChild(feed.lastChild);
         }
@@ -701,9 +841,8 @@
             if (activeTab && activeTab.dataset.tab === 'overview') {
                 loadOverview();
             }
-        }, 30000); // Refresh overview every 30s
+        }, 30000);
 
-        // WebSocket keepalive
         setInterval(function () {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'ping' }));
@@ -769,6 +908,18 @@
             $('#thread-modal').style.display = 'none';
         });
         $('#thread-delete-btn').addEventListener('click', deleteThread);
+
+        // Messages
+        $('#msg-source-type').addEventListener('change', onSourceTypeChange);
+        $('#msg-filter-btn').addEventListener('click', function () {
+            loadMessages(1);
+        });
+        $('#msg-prev').addEventListener('click', function () {
+            if (msgCurrentPage > 1) loadMessages(msgCurrentPage - 1);
+        });
+        $('#msg-next').addEventListener('click', function () {
+            if (msgCurrentPage < msgTotalPages) loadMessages(msgCurrentPage + 1);
+        });
 
         // Diagnostics
         $('#run-diagnostics-btn').addEventListener('click', runDiagnostics);

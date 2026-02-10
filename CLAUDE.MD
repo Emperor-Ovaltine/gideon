@@ -183,7 +183,7 @@ The admin dashboard is an optional web-based interface for managing all bot sett
   - REST API endpoints for all CRUD operations (settings, channels, threads, diagnostics)
   - WebSocket handler for real-time event broadcasting
   - Serves static frontend files from `src/dashboard/`
-  - API routes: `/api/overview`, `/api/settings`, `/api/channels`, `/api/threads`, `/api/diagnostics`
+  - API routes: `/api/overview`, `/api/settings`, `/api/channels`, `/api/threads`, `/api/messages`, `/api/models`, `/api/providers`, `/api/diagnostics`
 - **`auth.py`** - Authentication middleware
   - Session token generation and validation
   - Constant-time secret comparison
@@ -199,8 +199,9 @@ The admin dashboard is an optional web-based interface for managing all bot sett
 2. **Settings** - Global model, provider, system prompt, memory, intent detection
 3. **Channels** - Channel-specific configuration overrides (edit/reset)
 4. **Threads** - Thread management (rename, configure model/prompt, delete)
-5. **Diagnostics** - Provider health checks, DB stats, manual prune trigger
-6. **Live Activity** - Real-time WebSocket feed of bot events
+5. **Messages** - Browse stored conversation history (filter by channel/thread/role, paginated)
+6. **Diagnostics** - Provider health checks, DB stats, manual prune trigger
+7. **Live Activity** - Real-time WebSocket feed of bot events
 
 ### AI Provider Clients (`src/utils/`)
 
@@ -420,6 +421,6 @@ docker-compose down
 
 ---
 
-**Last Updated**: 2026-02-06
+**Last Updated**: 2026-02-10
 **Version**: Based on current main branch
 **Maintainer**: eoko-dev

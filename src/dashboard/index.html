@@ -11,6 +11,7 @@
     <div id="login-screen" class="login-screen">
         <div class="login-card">
             <div class="login-header">
+                <div class="login-logo">G</div>
                 <h1>Gideon</h1>
                 <p>Admin Dashboard</p>
             </div>
@@ -30,31 +31,35 @@
         <!-- Sidebar -->
         <nav class="sidebar">
             <div class="sidebar-header">
+                <div class="sidebar-logo">G</div>
                 <h2>Gideon</h2>
                 <span class="badge" id="bot-status-badge">Connecting...</span>
             </div>
             <ul class="nav-menu">
                 <li class="nav-item active" data-tab="overview">
-                    <span class="nav-icon">&#9634;</span> Overview
+                    <span class="nav-icon">&#9634;</span> <span class="nav-label">Overview</span>
                 </li>
                 <li class="nav-item" data-tab="settings">
-                    <span class="nav-icon">&#9881;</span> Settings
+                    <span class="nav-icon">&#9881;</span> <span class="nav-label">Settings</span>
                 </li>
                 <li class="nav-item" data-tab="channels">
-                    <span class="nav-icon">&#9776;</span> Channels
+                    <span class="nav-icon">&#9776;</span> <span class="nav-label">Channels</span>
                 </li>
                 <li class="nav-item" data-tab="threads">
-                    <span class="nav-icon">&#8801;</span> Threads
+                    <span class="nav-icon">&#8801;</span> <span class="nav-label">Threads</span>
+                </li>
+                <li class="nav-item" data-tab="messages">
+                    <span class="nav-icon">&#9993;</span> <span class="nav-label">Messages</span>
                 </li>
                 <li class="nav-item" data-tab="diagnostics">
-                    <span class="nav-icon">&#9889;</span> Diagnostics
+                    <span class="nav-icon">&#9889;</span> <span class="nav-label">Diagnostics</span>
                 </li>
                 <li class="nav-item" data-tab="activity">
-                    <span class="nav-icon">&#9679;</span> Live Activity
+                    <span class="nav-icon pulse-dot">&#9679;</span> <span class="nav-label">Live Activity</span>
                 </li>
             </ul>
             <div class="sidebar-footer">
-                <button id="logout-btn" class="btn btn-secondary btn-small">Sign Out</button>
+                <button id="logout-btn" class="btn btn-secondary btn-small btn-full">Sign Out</button>
             </div>
         </nav>
 
@@ -62,118 +67,161 @@
         <main class="main-content">
             <!-- Overview Tab -->
             <section id="tab-overview" class="tab-content active">
-                <h2>Dashboard Overview</h2>
+                <div class="tab-header">
+                    <h2>Dashboard Overview</h2>
+                </div>
                 <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-value" id="stat-guilds">--</div>
-                        <div class="stat-label">Servers</div>
+                    <div class="stat-card stat-accent-blue">
+                        <div class="stat-icon">&#127760;</div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-guilds">--</div>
+                            <div class="stat-label">Servers</div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="stat-messages">--</div>
-                        <div class="stat-label">Stored Messages</div>
+                    <div class="stat-card stat-accent-purple">
+                        <div class="stat-icon">&#128172;</div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-messages">--</div>
+                            <div class="stat-label">Stored Messages</div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="stat-threads">--</div>
-                        <div class="stat-label">Active Threads</div>
+                    <div class="stat-card stat-accent-green">
+                        <div class="stat-icon">&#128279;</div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-threads">--</div>
+                            <div class="stat-label">Active Threads</div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="stat-channels">--</div>
-                        <div class="stat-label">Custom Channels</div>
+                    <div class="stat-card stat-accent-amber">
+                        <div class="stat-icon">&#128226;</div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-channels">--</div>
+                            <div class="stat-label">Custom Channels</div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="stat-latency">--</div>
-                        <div class="stat-label">Latency (ms)</div>
+                    <div class="stat-card stat-accent-cyan">
+                        <div class="stat-icon">&#9889;</div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-latency">--</div>
+                            <div class="stat-label">Latency (ms)</div>
+                        </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-value" id="stat-uptime">--</div>
-                        <div class="stat-label">Uptime</div>
+                    <div class="stat-card stat-accent-rose">
+                        <div class="stat-icon">&#9200;</div>
+                        <div class="stat-body">
+                            <div class="stat-value" id="stat-uptime">--</div>
+                            <div class="stat-label">Uptime</div>
+                        </div>
                     </div>
                 </div>
-                <div class="info-panel">
-                    <h3>Bot Information</h3>
-                    <div class="info-row"><span>Bot Name:</span> <span id="info-bot-name">--</span></div>
-                    <div class="info-row"><span>Bot ID:</span> <span id="info-bot-id">--</span></div>
-                    <div class="info-row"><span>Global Model:</span> <span id="info-model">--</span></div>
-                    <div class="info-row"><span>Global Provider:</span> <span id="info-provider">--</span></div>
-                    <div class="info-row"><span>Database Size:</span> <span id="info-db-size">--</span></div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Bot Information</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-row"><span>Bot Name</span> <span id="info-bot-name">--</span></div>
+                        <div class="info-row"><span>Bot ID</span> <span id="info-bot-id">--</span></div>
+                        <div class="info-row"><span>Global Model</span> <span id="info-model" class="code">--</span></div>
+                        <div class="info-row"><span>Global Provider</span> <span id="info-provider">--</span></div>
+                        <div class="info-row"><span>Database Size</span> <span id="info-db-size">--</span></div>
+                    </div>
                 </div>
             </section>
 
             <!-- Settings Tab -->
             <section id="tab-settings" class="tab-content">
-                <h2>Global Settings</h2>
-                <div class="settings-panel">
-                    <form id="settings-form">
-                        <div class="form-group">
-                            <label for="setting-provider">AI Provider</label>
-                            <select id="setting-provider">
-                                <option value="openrouter">OpenRouter</option>
-                                <option value="openai">OpenAI</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-model">Global Model</label>
-                            <div class="model-select-wrapper">
-                                <input type="text" id="setting-model-search" class="model-search" placeholder="Type to filter models..." autocomplete="off">
-                                <select id="setting-model" size="8" class="model-select">
-                                    <option value="">Loading models...</option>
-                                </select>
+                <div class="tab-header">
+                    <h2>Global Settings</h2>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h3>AI Configuration</h3></div>
+                    <div class="card-body">
+                        <form id="settings-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="setting-provider">AI Provider</label>
+                                    <select id="setting-provider">
+                                        <option value="openrouter">OpenRouter</option>
+                                        <option value="openai">OpenAI</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-memory">History Limit (1-100)</label>
+                                    <input type="number" id="setting-memory" min="1" max="100">
+                                </div>
                             </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-memory">Message History Limit (1-100)</label>
-                            <input type="number" id="setting-memory" min="1" max="100">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-window">Time Window (hours, 1-96)</label>
-                            <input type="number" id="setting-window" min="1" max="96">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-prune">Prune Frequency (hours)</label>
-                            <input type="number" id="setting-prune" min="1" max="168">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-system-prompt">System Prompt</label>
-                            <textarea id="setting-system-prompt" rows="4"></textarea>
-                        </div>
-                        <button type="submit" class="btn btn-primary">Save Settings</button>
-                        <span id="settings-save-status" class="save-status"></span>
-                    </form>
+                            <div class="form-group">
+                                <label for="setting-model">Global Model</label>
+                                <div class="model-select-wrapper">
+                                    <input type="text" id="setting-model-search" class="model-search" placeholder="Type to filter models..." autocomplete="off">
+                                    <select id="setting-model" size="8" class="model-select">
+                                        <option value="">Loading models...</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="setting-window">Time Window (hours)</label>
+                                    <input type="number" id="setting-window" min="1" max="96">
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-prune">Prune Frequency (hours)</label>
+                                    <input type="number" id="setting-prune" min="1" max="168">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-system-prompt">System Prompt</label>
+                                <textarea id="setting-system-prompt" rows="4"></textarea>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Settings</button>
+                                <span id="settings-save-status" class="save-status"></span>
+                            </div>
+                        </form>
+                    </div>
                 </div>
 
-                <h3>Intent Detection</h3>
-                <div class="settings-panel">
-                    <form id="intent-form">
-                        <div class="form-group">
-                            <label for="intent-enabled">Intent Detection</label>
-                            <select id="intent-enabled">
-                                <option value="true">Enabled</option>
-                                <option value="false">Disabled</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="intent-model">Intent Model</label>
-                            <div class="model-select-wrapper">
-                                <input type="text" id="intent-model-search" class="model-search" placeholder="Type to filter models..." autocomplete="off">
-                                <select id="intent-model" size="6" class="model-select">
-                                    <option value="">Loading models...</option>
-                                </select>
+                <div class="card">
+                    <div class="card-header"><h3>Intent Detection</h3></div>
+                    <div class="card-body">
+                        <form id="intent-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="intent-enabled">Intent Detection</label>
+                                    <select id="intent-enabled">
+                                        <option value="true">Enabled</option>
+                                        <option value="false">Disabled</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="intent-threshold">Confidence Threshold</label>
+                                    <input type="number" id="intent-threshold" min="0" max="1" step="0.05">
+                                </div>
                             </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="intent-threshold">Confidence Threshold (0.0 - 1.0)</label>
-                            <input type="number" id="intent-threshold" min="0" max="1" step="0.05">
-                        </div>
-                        <button type="submit" class="btn btn-primary">Save Intent Settings</button>
-                        <span id="intent-save-status" class="save-status"></span>
-                    </form>
+                            <div class="form-group">
+                                <label for="intent-model">Intent Model</label>
+                                <div class="model-select-wrapper">
+                                    <input type="text" id="intent-model-search" class="model-search" placeholder="Type to filter models..." autocomplete="off">
+                                    <select id="intent-model" size="6" class="model-select">
+                                        <option value="">Loading models...</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Intent Settings</button>
+                                <span id="intent-save-status" class="save-status"></span>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </section>
 
             <!-- Channels Tab -->
             <section id="tab-channels" class="tab-content">
-                <h2>Channel Configurations</h2>
-                <p class="tab-description">Channels with custom model, provider, or system prompt overrides.</p>
+                <div class="tab-header">
+                    <h2>Channel Configurations</h2>
+                    <p class="tab-description">Channels with custom model, provider, or system prompt overrides.</p>
+                </div>
                 <div id="channels-list" class="table-container">
                     <p class="loading-text">Loading channels...</p>
                 </div>
@@ -219,8 +267,10 @@
 
             <!-- Threads Tab -->
             <section id="tab-threads" class="tab-content">
-                <h2>Thread Management</h2>
-                <p class="tab-description">Active AI conversation threads and their configurations.</p>
+                <div class="tab-header">
+                    <h2>Thread Management</h2>
+                    <p class="tab-description">Active AI conversation threads and their configurations.</p>
+                </div>
                 <div id="threads-list" class="table-container">
                     <p class="loading-text">Loading threads...</p>
                 </div>
@@ -260,9 +310,56 @@
                 </div>
             </section>
 
+            <!-- Messages Tab -->
+            <section id="tab-messages" class="tab-content">
+                <div class="tab-header">
+                    <h2>Stored Messages</h2>
+                    <p class="tab-description">Browse conversation history stored in Gideon's database.</p>
+                </div>
+                <div class="messages-controls">
+                    <div class="messages-filters">
+                        <div class="filter-group">
+                            <label for="msg-source-type">Source</label>
+                            <select id="msg-source-type">
+                                <option value="all">All Messages</option>
+                                <option value="channel">By Channel</option>
+                                <option value="thread">By Thread</option>
+                            </select>
+                        </div>
+                        <div class="filter-group" id="msg-source-select-group" style="display:none;">
+                            <label for="msg-source-id">Select</label>
+                            <select id="msg-source-id">
+                                <option value="">Loading...</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="msg-role-filter">Role</label>
+                            <select id="msg-role-filter">
+                                <option value="">All Roles</option>
+                                <option value="user">User</option>
+                                <option value="assistant">Assistant</option>
+                                <option value="system">System</option>
+                                <option value="tool">Tool</option>
+                            </select>
+                        </div>
+                        <button id="msg-filter-btn" class="btn btn-primary btn-small">Load</button>
+                    </div>
+                </div>
+                <div id="messages-container" class="messages-viewer">
+                    <div class="empty-state">Select a source and click Load to browse messages.</div>
+                </div>
+                <div id="messages-pagination" class="pagination" style="display:none;">
+                    <button id="msg-prev" class="btn btn-secondary btn-small" disabled>Previous</button>
+                    <span id="msg-page-info" class="page-info">Page 1 of 1</span>
+                    <button id="msg-next" class="btn btn-secondary btn-small" disabled>Next</button>
+                </div>
+            </section>
+
             <!-- Diagnostics Tab -->
             <section id="tab-diagnostics" class="tab-content">
-                <h2>System Diagnostics</h2>
+                <div class="tab-header">
+                    <h2>System Diagnostics</h2>
+                </div>
                 <div class="diagnostics-actions">
                     <button id="run-diagnostics-btn" class="btn btn-primary">Run Diagnostics</button>
                     <button id="run-prune-btn" class="btn btn-secondary">Trigger Data Prune</button>
@@ -274,7 +371,9 @@
 
             <!-- Live Activity Tab -->
             <section id="tab-activity" class="tab-content">
-                <h2>Live Activity</h2>
+                <div class="tab-header">
+                    <h2>Live Activity</h2>
+                </div>
                 <div class="activity-controls">
                     <span id="ws-status" class="badge badge-warning">Disconnected</span>
                     <button id="clear-activity-btn" class="btn btn-small btn-secondary">Clear</button>

@@ -104,6 +104,10 @@ class DashboardServer:
         router.add_put('/api/threads/{thread_id}', self._handle_update_thread)
         router.add_delete('/api/threads/{thread_id}', self._handle_delete_thread)
 
+        # Messages API
+        router.add_get('/api/messages', self._handle_get_messages)
+        router.add_get('/api/messages/sources', self._handle_get_message_sources)
+
         # Models API
         router.add_get('/api/models/{provider}', self._handle_get_models)
         router.add_get('/api/providers', self._handle_get_providers)
@@ -479,6 +483,128 @@ class DashboardServer:
 
         await self._broadcast_ws({'type': 'thread_deleted', 'thread_id': thread_id})
         return web.json_response({'status': 'ok', 'deleted': result})
+
+    # ── Message Handlers ─────────────────────────────────────────────
+
+    async def _handle_get_messages(self, request):
+        """Get paginated messages with optional channel/thread/role filters."""
+        state = self.bot.state_manager
+        page = int(request.query.get('page', '1'))
+        per_page = min(int(request.query.get('per_page', '50')), 100)
+        channel_id = request.query.get('channel_id')
+        thread_id = request.query.get('thread_id')
+        role_filter = request.query.get('role')
+
+        try:
+            cursor = state.db_manager._get_cursor()
+
+            # Build query with filters
+            where_clauses = []
+            params = []
+
+            if channel_id:
+                where_clauses.append("channel_id = ?")
+                params.append(channel_id)
+            if thread_id:
+                where_clauses.append("thread_id = ?")
+                params.append(thread_id)
+            if role_filter:
+                where_clauses.append("role = ?")
+                params.append(role_filter)
+
+            where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+            # Count total
+            cursor.execute(f"SELECT COUNT(*) FROM MESSAGES{where_sql}", tuple(params))
+            total = cursor.fetchone()[0]
+
+            # Fetch page (newest first)
+            offset = (page - 1) * per_page
+            cursor.execute(
+                f"SELECT message_pk, channel_id, thread_id, user_id, role, content, timestamp "
+                f"FROM MESSAGES{where_sql} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                tuple(params) + (per_page, offset)
+            )
+            columns = [desc[0] for desc in cursor.description]
+            rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            # Enrich with channel/thread names
+            for row in rows:
+                if row.get('channel_id'):
+                    try:
+                        ch = self.bot.get_channel(int(row['channel_id']))
+                        row['channel_name'] = ch.name if ch else None
+                    except (ValueError, AttributeError):
+                        row['channel_name'] = None
+                # Convert timestamp to string if it's a datetime
+                if row.get('timestamp') and not isinstance(row['timestamp'], str):
+                    row['timestamp'] = str(row['timestamp'])
+
+            return web.json_response({
+                'messages': rows,
+                'total': total,
+                'page': page,
+                'per_page': per_page,
+                'total_pages': max(1, (total + per_page - 1) // per_page),
+            })
+        except Exception as e:
+            logger.error(f"Error fetching messages: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_get_message_sources(self, request):
+        """Get list of channels and threads that have stored messages."""
+        state = self.bot.state_manager
+        try:
+            cursor = state.db_manager._get_cursor()
+
+            # Channels with messages
+            cursor.execute(
+                "SELECT DISTINCT channel_id, COUNT(*) as msg_count "
+                "FROM MESSAGES WHERE channel_id IS NOT NULL "
+                "GROUP BY channel_id ORDER BY msg_count DESC"
+            )
+            channels = []
+            for row in cursor.fetchall():
+                ch_id = row[0]
+                ch_name = None
+                guild_name = None
+                try:
+                    ch = self.bot.get_channel(int(ch_id))
+                    if ch:
+                        ch_name = ch.name
+                        if hasattr(ch, 'guild') and ch.guild:
+                            guild_name = ch.guild.name
+                except (ValueError, AttributeError):
+                    pass
+                channels.append({
+                    'id': ch_id,
+                    'name': ch_name,
+                    'guild': guild_name,
+                    'message_count': row[1],
+                })
+
+            # Threads with messages
+            cursor.execute(
+                "SELECT DISTINCT m.thread_id, COUNT(*) as msg_count, t.name "
+                "FROM MESSAGES m LEFT JOIN THREADS t ON m.thread_id = t.thread_id "
+                "WHERE m.thread_id IS NOT NULL "
+                "GROUP BY m.thread_id ORDER BY msg_count DESC"
+            )
+            threads = []
+            for row in cursor.fetchall():
+                threads.append({
+                    'id': row[0],
+                    'name': row[2],
+                    'message_count': row[1],
+                })
+
+            return web.json_response({
+                'channels': channels,
+                'threads': threads,
+            })
+        except Exception as e:
+            logger.error(f"Error fetching message sources: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
 
     # ── Models Handlers ─────────────────────────────────────────────
 
