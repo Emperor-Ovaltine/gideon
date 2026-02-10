@@ -4,6 +4,7 @@ from discord import option # Use discord.option for type hinting
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import Optional, Literal, Dict, Any
 
 # Import clients and config
@@ -21,7 +22,8 @@ from ..config import (
     OPENAI_API_KEY,
     OPENROUTER_API_KEY,
     COMFYUI_URL,
-    DATA_DIRECTORY # Needed for DatabaseManager default path
+    DATA_DIRECTORY, # Needed for DatabaseManager default path
+    DASHBOARD_ENABLED,
 )
 
 # Configure logging
@@ -81,8 +83,26 @@ class UnifiedImageCommands(commands.Cog):
         self.comfyui_client = ComfyUIClient(COMFYUI_URL) if COMFYUI_URL else None
         self.openrouter_image_client = OpenRouterImageClient(OPENROUTER_API_KEY) if OPENROUTER_API_KEY else None
 
-        # Initialize OpenRouter image models list (will be populated on bot ready)
-        self.openrouter_image_models = ["google/gemini-2.0-flash-exp"]  # Default fallback
+        # Hardcoded list of OpenRouter image-capable models.
+        # The OpenRouter /models API does not reliably expose image generation
+        # capability, so we maintain this list manually.
+        self.openrouter_image_models = [
+            "sourceful/riverflow-v2-pro",
+            "sourceful/riverflow-v2-fast",
+            "black-forest-labs/flux.2-klein-4b",
+            "bytedance-seed/seedream-4.5",
+            "black-forest-labs/flux.2-max",
+            "sourceful/riverflow-v2-max-preview",
+            "sourceful/riverflow-v2-standard-preview",
+            "sourceful/riverflow-v2-fast-preview",
+            "black-forest-labs/flux.2-flex",
+            "black-forest-labs/flux.2-pro",
+            "google/gemini-3-pro-image-preview",
+            "openai/gpt-5-image-mini",
+            "openai/gpt-5-image",
+            "google/gemini-2.5-flash-image",
+            "google/gemini-2.5-flash-image-preview",
+        ]
 
         # Log which clients are available
         if not self.horde_client: logger.warning("AI Horde client not initialized (API key missing).")
@@ -90,29 +110,6 @@ class UnifiedImageCommands(commands.Cog):
         if not self.openai_client: logger.warning("OpenAI client not initialized (API key missing).")
         if not self.comfyui_client: logger.warning("ComfyUI client not initialized (URL missing).")
         if not self.openrouter_image_client: logger.warning("OpenRouter Image client not initialized (API key missing).")
-
-        # Schedule model list fetch
-        if self.openrouter_image_client:
-            bot.loop.create_task(self.initialize_openrouter_models())
-
-    async def initialize_openrouter_models(self):
-        """Fetch available OpenRouter image models when the bot starts."""
-        await self.bot.wait_until_ready()
-        try:
-            logger.info("Fetching available OpenRouter image generation models...")
-            result = await self.openrouter_image_client.get_image_models()
-            if result.get("success"):
-                models = result.get("models", [])
-                if models:
-                    # Extract just the model IDs for autocomplete
-                    self.openrouter_image_models = [model["id"] for model in models]
-                    logger.info(f"Successfully loaded {len(self.openrouter_image_models)} image models from OpenRouter")
-                else:
-                    logger.warning("OpenRouter returned empty model list, using defaults")
-            else:
-                logger.error(f"Failed to fetch OpenRouter image models: {result.get('error')}")
-        except Exception as e:
-            logger.error(f"Error initializing OpenRouter image models: {str(e)}")
 
     async def openrouter_model_autocomplete(self, ctx):
         """Autocomplete for OpenRouter image generation models."""
@@ -155,6 +152,52 @@ class UnifiedImageCommands(commands.Cog):
         return filtered_models if filtered_models else formatted_models[:25]
 
     # --- User Command ---
+
+    def _store_dream_messages(self, channel_id: str, user_id: str, prompt: str,
+                               negative_prompt: Optional[str], result: dict,
+                               provider_name: str):
+        """Store /dream interaction in channel history for dashboard visibility."""
+        try:
+            state = getattr(self.bot, 'state_manager', None)
+            if not state:
+                return
+
+            # Store user's prompt
+            user_content = f"/dream: {prompt}"
+            if negative_prompt:
+                user_content += f" (negative: {negative_prompt})"
+
+            state.db_manager.add_message(
+                role="user",
+                content=user_content,
+                timestamp=datetime.now(),
+                channel_id=channel_id,
+                user_id=user_id,
+            )
+
+            # Store assistant response with image reference
+            if result.get("success"):
+                image_url = result.get("image_url", "")
+                model_used = result.get("model_used", "")
+                # Use a marker format the dashboard can detect and render
+                if image_url:
+                    assistant_content = f"[image:{image_url}] Generated image for: {prompt} | Provider: {provider_name}"
+                else:
+                    # image_data or local_path - no persistent URL available
+                    assistant_content = f"[image:attachment] Generated image for: {prompt} | Provider: {provider_name}"
+                if model_used:
+                    assistant_content += f" | Model: {model_used}"
+            else:
+                assistant_content = f"[image generation failed] {result.get('error', 'Unknown error')} | Provider: {provider_name}"
+
+            state.db_manager.add_message(
+                role="assistant",
+                content=assistant_content,
+                timestamp=datetime.now(),
+                channel_id=channel_id,
+            )
+        except Exception as e:
+            logger.error(f"Error storing dream messages: {e}", exc_info=True)
 
     @discord.slash_command(
         name="dream",
@@ -274,6 +317,13 @@ class UnifiedImageCommands(commands.Cog):
                 })
                 if negative_prompt:
                     params["negative_prompt"] = negative_prompt
+                # Load modalities from database config (allows dashboard override)
+                modalities_json = self.db.get_global_config('image_openrouter_modalities')
+                if modalities_json:
+                    try:
+                        params["modalities"] = json.loads(modalities_json)
+                    except json.JSONDecodeError:
+                        pass  # Fall back to client default ["image", "text"]
             else:
                 await ctx.respond("⚠️ OpenRouter client is not configured (missing API key). Please contact an admin.", ephemeral=True)
                 return
@@ -332,6 +382,16 @@ class UnifiedImageCommands(commands.Cog):
                 error_msg = result.get("error", "Unknown error")
                 # Specific error handling (e.g., AI Horde Kudos) can be added here if needed
                 await thinking_msg.edit(content=f"⚠️ Failed to generate image via {provider_display_name}: {error_msg}")
+
+            # Store the interaction in channel history for dashboard visibility
+            self._store_dream_messages(
+                channel_id=str(ctx.channel_id),
+                user_id=str(ctx.author.id),
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                result=result,
+                provider_name=provider_display_name,
+            )
 
         except Exception as e:
             logger.exception(f"Error during image generation with {active_provider}: {e}")
@@ -725,7 +785,17 @@ class UnifiedImageCommands(commands.Cog):
 
 
 def setup(bot):
-    # Ensure DatabaseManager is initialized before adding cog if it relies on it heavily at init
-    # (In this case, DB is initialized within the cog's __init__)
-    bot.add_cog(UnifiedImageCommands(bot))
+    cog = UnifiedImageCommands(bot)
+
+    # When dashboard is enabled, remove admin-only /dream_manage commands
+    # since those settings are managed through the web dashboard instead
+    if DASHBOARD_ENABLED:
+        # Remove the manage command group so it doesn't register with Discord
+        cog.__cog_commands__ = [
+            cmd for cmd in cog.__cog_commands__
+            if not (hasattr(cmd, 'name') and cmd.name == 'dream_manage')
+        ]
+        logger.info("Dashboard enabled - /dream_manage commands hidden from Discord.")
+
+    bot.add_cog(cog)
     logger.info("UnifiedImageCommands cog loaded.")

@@ -112,6 +112,11 @@ class DashboardServer:
         router.add_get('/api/models/{provider}', self._handle_get_models)
         router.add_get('/api/providers', self._handle_get_providers)
 
+        # Image Generation API
+        router.add_get('/api/image/settings', self._handle_get_image_settings)
+        router.add_put('/api/image/settings', self._handle_update_image_settings)
+        router.add_get('/api/image/models', self._handle_get_image_models)
+
         # Diagnostics API
         router.add_get('/api/diagnostics', self._handle_diagnostics)
         router.add_post('/api/diagnostics/prune', self._handle_prune)
@@ -630,6 +635,151 @@ class DashboardServer:
         except Exception as e:
             logger.error(f"Error fetching models for {provider}: {e}", exc_info=True)
             return web.json_response({'error': f'Failed to fetch models: {str(e)}'}, status=500)
+
+    # ── Image Generation Handlers ─────────────────────────────────
+
+    async def _handle_get_image_settings(self, request):
+        """Get image generation settings (provider, configs, modalities)."""
+        try:
+            from ...utils.database import DatabaseManager
+            db = DatabaseManager()
+
+            # Get active provider
+            active_provider = db.get_global_config('image_active_provider', 'ai_horde')
+
+            # Get all provider configs
+            providers = ['ai_horde', 'cloudflare', 'openai', 'comfyui', 'openrouter']
+            configs = {}
+            default_configs = {
+                'ai_horde': {"model": "stable_diffusion_xl", "size": "1024x1024", "steps": 30},
+                'cloudflare': {"size": "768x768", "steps": 25, "seed": None},
+                'openai': {"model": "dall-e-3", "size": "1024x1024", "quality": "standard", "style": "vivid"},
+                'comfyui': {"model": None, "size": "512x512", "steps": 20, "seed": None, "workflow": None},
+                'openrouter': {"model": "google/gemini-2.0-flash-exp", "aspect_ratio": "1:1", "image_size": "1K"},
+            }
+
+            for provider in providers:
+                config_json = db.get_global_config(f'image_config_{provider}')
+                if config_json:
+                    try:
+                        config = json.loads(config_json)
+                    except json.JSONDecodeError:
+                        config = default_configs.get(provider, {})
+                else:
+                    config = default_configs.get(provider, {})
+                configs[provider] = config
+
+            # Get modalities setting for OpenRouter (defaults to ["image", "text"])
+            modalities_json = db.get_global_config('image_openrouter_modalities')
+            if modalities_json:
+                try:
+                    modalities = json.loads(modalities_json)
+                except json.JSONDecodeError:
+                    modalities = ["image", "text"]
+            else:
+                modalities = ["image", "text"]
+
+            # Check which clients are available
+            image_cog = self.bot.get_cog("UnifiedImageCommands")
+            available_providers = []
+            if image_cog:
+                if image_cog.horde_client: available_providers.append('ai_horde')
+                if image_cog.cf_client: available_providers.append('cloudflare')
+                if image_cog.openai_client: available_providers.append('openai')
+                if image_cog.comfyui_client: available_providers.append('comfyui')
+                if image_cog.openrouter_image_client: available_providers.append('openrouter')
+
+            return web.json_response({
+                'active_provider': active_provider,
+                'configs': configs,
+                'available_providers': available_providers,
+                'openrouter_modalities': modalities,
+            })
+        except Exception as e:
+            logger.error(f"Error fetching image settings: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_update_image_settings(self, request):
+        """Update image generation settings."""
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+        try:
+            from ...utils.database import DatabaseManager
+            db = DatabaseManager()
+            updated = []
+
+            # Update active provider
+            if 'active_provider' in data:
+                provider = data['active_provider']
+                valid_providers = ['ai_horde', 'cloudflare', 'openai', 'comfyui', 'openrouter']
+                if provider not in valid_providers:
+                    return web.json_response({'error': f'Invalid provider: {provider}'}, status=400)
+                db.set_global_config('image_active_provider', provider, 'string')
+                updated.append('active_provider')
+
+            # Update provider-specific config
+            if 'config' in data and 'provider' in data:
+                provider = data['provider']
+                config = data['config']
+                config_key = f'image_config_{provider}'
+
+                # Merge with existing config
+                existing_json = db.get_global_config(config_key)
+                if existing_json:
+                    try:
+                        existing = json.loads(existing_json)
+                    except json.JSONDecodeError:
+                        existing = {}
+                else:
+                    existing = {}
+
+                merged = {**existing, **config}
+                db.set_global_config(config_key, json.dumps(merged), 'json')
+                updated.append(f'config_{provider}')
+
+            # Update OpenRouter modalities
+            if 'openrouter_modalities' in data:
+                modalities = data['openrouter_modalities']
+                if not isinstance(modalities, list):
+                    return web.json_response({'error': 'modalities must be an array'}, status=400)
+                db.set_global_config('image_openrouter_modalities', json.dumps(modalities), 'json')
+                updated.append('openrouter_modalities')
+
+            await self._broadcast_ws({'type': 'image_settings_updated', 'fields': updated})
+            return web.json_response({'status': 'ok', 'updated': updated})
+        except Exception as e:
+            logger.error(f"Error updating image settings: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_get_image_models(self, request):
+        """Get available OpenRouter image generation models (hardcoded list).
+
+        Only image gen models are hardcoded. Text LLMs continue to be
+        polled dynamically via the /api/models/<provider> endpoint.
+        """
+        # The OpenRouter /models API does not reliably expose image generation
+        # capability, so we maintain this list manually.
+        models = [
+            {"id": "sourceful/riverflow-v2-pro", "name": "Riverflow v2 Pro"},
+            {"id": "sourceful/riverflow-v2-fast", "name": "Riverflow v2 Fast"},
+            {"id": "black-forest-labs/flux.2-klein-4b", "name": "FLUX.2 Klein 4B"},
+            {"id": "bytedance-seed/seedream-4.5", "name": "SeedDream 4.5"},
+            {"id": "black-forest-labs/flux.2-max", "name": "FLUX.2 Max"},
+            {"id": "sourceful/riverflow-v2-max-preview", "name": "Riverflow v2 Max Preview"},
+            {"id": "sourceful/riverflow-v2-standard-preview", "name": "Riverflow v2 Standard Preview"},
+            {"id": "sourceful/riverflow-v2-fast-preview", "name": "Riverflow v2 Fast Preview"},
+            {"id": "black-forest-labs/flux.2-flex", "name": "FLUX.2 Flex"},
+            {"id": "black-forest-labs/flux.2-pro", "name": "FLUX.2 Pro"},
+            {"id": "google/gemini-3-pro-image-preview", "name": "Gemini 3 Pro Image Preview"},
+            {"id": "openai/gpt-5-image-mini", "name": "GPT-5 Image Mini"},
+            {"id": "openai/gpt-5-image", "name": "GPT-5 Image"},
+            {"id": "google/gemini-2.5-flash-image", "name": "Gemini 2.5 Flash Image"},
+            {"id": "google/gemini-2.5-flash-image-preview", "name": "Gemini 2.5 Flash Image Preview"},
+        ]
+        return web.json_response(models)
 
     # ── Diagnostics Handlers ───────────────────────────────────────
 

@@ -1067,6 +1067,96 @@ select {
     font-style: italic;
 }
 
+.msg-image {
+    margin-top: var(--space-3);
+}
+
+.msg-image img {
+    max-width: 320px;
+    max-height: 320px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: opacity var(--duration) var(--ease);
+}
+
+.msg-image img:hover {
+    opacity: 0.85;
+}
+
+.msg-image-placeholder {
+    margin-top: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-tertiary);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* ── Image Generation Panel ────────────────────────────── */
+
+.provider-badges {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    padding-top: var(--space-2);
+}
+
+.provider-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.provider-badge.available {
+    background: var(--success-subtle);
+    color: var(--success);
+}
+
+.provider-badge.unavailable {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+.provider-config-panel {
+    margin-top: var(--space-5);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.modality-checkboxes {
+    display: flex;
+    gap: var(--space-5);
+    margin-bottom: var(--space-3);
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.modality-preview {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: var(--space-2);
+}
+
 /* ── Pagination ────────────────────────────────────────── */
 
 .pagination {
