@@ -223,7 +223,21 @@
             <section id="tab-channels" class="tab-content">
                 <div class="tab-header">
                     <h2>Channel Configurations</h2>
-                    <p class="tab-description">Channels with custom model, provider, or system prompt overrides.</p>
+                    <p class="tab-description">All channels across all servers. Set per-channel model, provider, or system prompt overrides.</p>
+                </div>
+                <div class="channels-filters">
+                    <div class="filter-group">
+                        <label for="channel-filter-input">Search</label>
+                        <input type="text" id="channel-filter-input" placeholder="Filter by name, server, model..." autocomplete="off" oninput="window._filterChannels()">
+                    </div>
+                    <div class="filter-group">
+                        <label for="channel-filter-override">Status</label>
+                        <select id="channel-filter-override" onchange="window._filterChannels()">
+                            <option value="all">All Channels</option>
+                            <option value="customized">Customized Only</option>
+                            <option value="default">Global Default Only</option>
+                        </select>
+                    </div>
                 </div>
                 <div id="channels-list" class="table-container">
                     <p class="loading-text">Loading channels...</p>

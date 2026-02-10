@@ -302,35 +302,102 @@
 
     // ── Channels ─────────────────────────────────────────────
 
+    var allChannelsData = []; // Cache for filtering
+
     async function loadChannels() {
         var container = $('#channels-list');
         try {
-            const channels = await api('GET', '/api/channels');
-            if (channels.length === 0) {
-                container.innerHTML = '<div class="empty-state">No channels with custom configurations.</div>';
-                return;
-            }
+            allChannelsData = await api('GET', '/api/channels/all');
+            renderChannels();
+        } catch (e) {
+            container.innerHTML = '<div class="empty-state">Error loading channels: ' + escapeHtml(e.message) + '</div>';
+        }
+    }
 
-            var html = '<table class="data-table"><thead><tr>' +
-                '<th>Channel</th><th>Server</th><th>Model</th><th>Provider</th><th>Actions</th>' +
+    function renderChannels() {
+        var container = $('#channels-list');
+        var channels = allChannelsData;
+
+        if (channels.length === 0) {
+            container.innerHTML = '<div class="empty-state">No channels found. Is the bot connected to any servers?</div>';
+            return;
+        }
+
+        // Apply filters
+        var filterEl = document.getElementById('channel-filter-input');
+        var filterOverrideEl = document.getElementById('channel-filter-override');
+        var filterText = filterEl ? filterEl.value.toLowerCase() : '';
+        var filterOverride = filterOverrideEl ? filterOverrideEl.value : 'all';
+
+        var filtered = channels.filter(function(ch) {
+            // Text filter
+            if (filterText) {
+                var searchable = (ch.channel_name || '').toLowerCase() + ' ' +
+                    (ch.guild_name || '').toLowerCase() + ' ' +
+                    (ch.model || '').toLowerCase() + ' ' +
+                    (ch.category || '').toLowerCase();
+                if (searchable.indexOf(filterText) === -1) return false;
+            }
+            // Override filter
+            if (filterOverride === 'customized' && !ch.has_override) return false;
+            if (filterOverride === 'default' && ch.has_override) return false;
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="empty-state">No channels match the current filters.</div>';
+            return;
+        }
+
+        // Group by guild
+        var guilds = {};
+        filtered.forEach(function(ch) {
+            var guildKey = ch.guild_name || 'Unknown Server';
+            if (!guilds[guildKey]) guilds[guildKey] = [];
+            guilds[guildKey].push(ch);
+        });
+
+        var html = '';
+        var guildNames = Object.keys(guilds).sort();
+
+        guildNames.forEach(function(guildName) {
+            var guildChannels = guilds[guildName];
+            var customCount = guildChannels.filter(function(c) { return c.has_override; }).length;
+
+            html += '<div class="channel-guild-group">';
+            html += '<div class="guild-header">';
+            html += '<h4>' + escapeHtml(guildName) + '</h4>';
+            html += '<span class="badge badge-info">' + guildChannels.length + ' channels';
+            if (customCount > 0) html += ', ' + customCount + ' customized';
+            html += '</span>';
+            html += '</div>';
+
+            html += '<table class="data-table"><thead><tr>' +
+                '<th>Channel</th><th>Category</th><th>Model</th><th>Provider</th><th>Status</th><th>Actions</th>' +
                 '</tr></thead><tbody>';
 
-            channels.forEach(function(ch) {
-                html += '<tr>' +
-                    '<td>' + escapeHtml(ch.channel_name || ch.channel_id) + '</td>' +
-                    '<td>' + escapeHtml(ch.guild_name || 'Unknown') + '</td>' +
+            guildChannels.forEach(function(ch) {
+                var statusClass = ch.has_override ? 'badge-accent' : 'badge-default';
+                var statusLabel = ch.has_override ? 'Customized' : 'Global';
+
+                html += '<tr class="' + (ch.has_override ? 'row-customized' : '') + '">' +
+                    '<td><span class="channel-name">#' + escapeHtml(ch.channel_name || ch.channel_id) + '</span></td>' +
+                    '<td>' + (ch.category ? escapeHtml(ch.category) : '<span class="text-muted">None</span>') + '</td>' +
                     '<td>' + (ch.model ? '<span class="code">' + escapeHtml(ch.model) + '</span>' : '<span class="text-muted">Global</span>') + '</td>' +
                     '<td>' + (ch.provider ? escapeHtml(ch.provider) : '<span class="text-muted">Global</span>') + '</td>' +
+                    '<td><span class="badge ' + statusClass + '">' + statusLabel + '</span></td>' +
                     '<td><button class="btn btn-small btn-secondary" onclick="window._editChannel(\'' + escapeHtml(ch.channel_id) + '\')">Edit</button></td>' +
                     '</tr>';
             });
 
             html += '</tbody></table>';
-            container.innerHTML = html;
-        } catch (e) {
-            container.innerHTML = '<div class="empty-state">Error loading channels: ' + escapeHtml(e.message) + '</div>';
-        }
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
     }
+
+    window._filterChannels = renderChannels;
 
     async function editChannel(channelId) {
         try {
@@ -394,14 +461,17 @@
             }
 
             var html = '<table class="data-table"><thead><tr>' +
-                '<th>Name</th><th>Channel</th><th>Messages</th><th>Model</th><th>Created</th><th>Actions</th>' +
+                '<th>Name</th><th>Channel</th><th>Server</th><th>Messages</th><th>Model</th><th>Created</th><th>Actions</th>' +
                 '</tr></thead><tbody>';
 
             threads.forEach(function(t) {
                 var created = t.created_at ? new Date(t.created_at).toLocaleDateString() : 'N/A';
+                var channelDisplay = t.channel_name ? '#' + t.channel_name : (t.channel_id || 'N/A');
+
                 html += '<tr>' +
                     '<td>' + escapeHtml(t.name || 'Unnamed') + '</td>' +
-                    '<td>' + escapeHtml(t.channel_id) + '</td>' +
+                    '<td>' + escapeHtml(channelDisplay) + '</td>' +
+                    '<td>' + escapeHtml(t.guild_name || 'Unknown') + '</td>' +
                     '<td>' + (t.message_count || 0) + '</td>' +
                     '<td>' + (t.model ? '<span class="code">' + escapeHtml(t.model) + '</span>' : '<span class="text-muted">Default</span>') + '</td>' +
                     '<td>' + created + '</td>' +

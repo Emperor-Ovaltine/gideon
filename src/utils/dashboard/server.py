@@ -94,6 +94,7 @@ class DashboardServer:
 
         # Channel API
         router.add_get('/api/channels', self._handle_get_channels)
+        router.add_get('/api/channels/all', self._handle_get_all_channels)
         router.add_get('/api/channels/{channel_id}', self._handle_get_channel)
         router.add_put('/api/channels/{channel_id}', self._handle_update_channel)
         router.add_delete('/api/channels/{channel_id}', self._handle_reset_channel)
@@ -342,6 +343,46 @@ class DashboardServer:
 
         return web.json_response(enriched)
 
+    async def _handle_get_all_channels(self, request):
+        """Get ALL channels the bot is in across all guilds, with config overrides."""
+        import discord
+        state = self.bot.state_manager
+
+        # Build a map of existing channel configs
+        configs = state.get_all_channel_configs()
+        config_map = {}
+        for cfg in configs:
+            config_map[cfg.get('channel_id', '')] = cfg
+
+        channels = []
+        for guild in self.bot.guilds:
+            for ch in guild.channels:
+                # Only include text-based channels where the bot can respond
+                if not isinstance(ch, (discord.TextChannel, discord.ForumChannel)):
+                    continue
+
+                ch_id = str(ch.id)
+                cfg = config_map.get(ch_id, {})
+                has_override = bool(cfg.get('model') or cfg.get('provider') or cfg.get('system_prompt'))
+
+                channels.append({
+                    'channel_id': ch_id,
+                    'channel_name': ch.name,
+                    'guild_id': str(guild.id),
+                    'guild_name': guild.name,
+                    'category': ch.category.name if ch.category else None,
+                    'model': cfg.get('model'),
+                    'provider': cfg.get('provider'),
+                    'system_prompt': cfg.get('system_prompt'),
+                    'has_override': has_override,
+                    'type': str(ch.type).replace('ChannelType.', ''),
+                })
+
+        # Sort: channels with overrides first, then alphabetically by guild then channel name
+        channels.sort(key=lambda c: (not c['has_override'], c['guild_name'].lower(), c['channel_name'].lower()))
+
+        return web.json_response(channels)
+
     async def _handle_get_channel(self, request):
         """Get configuration for a specific channel."""
         channel_id = request.match_info['channel_id']
@@ -413,7 +454,6 @@ class DashboardServer:
     async def _handle_get_threads(self, request):
         """Get all threads."""
         state = self.bot.state_manager
-        # Get threads from all channels with configs
         all_threads = []
 
         # Query all threads from the database directly
@@ -426,6 +466,20 @@ class DashboardServer:
                 thread_data = dict(zip(columns, row))
                 # Add message count
                 thread_data['message_count'] = state.get_thread_message_count(thread_data['thread_id'])
+                # Enrich with channel/guild names from Discord
+                channel_name = None
+                guild_name = None
+                if thread_data.get('channel_id'):
+                    try:
+                        ch = self.bot.get_channel(int(thread_data['channel_id']))
+                        if ch:
+                            channel_name = ch.name
+                            if hasattr(ch, 'guild') and ch.guild:
+                                guild_name = ch.guild.name
+                    except (ValueError, AttributeError):
+                        pass
+                thread_data['channel_name'] = channel_name
+                thread_data['guild_name'] = guild_name
                 all_threads.append(thread_data)
         except Exception as e:
             logger.error(f"Error fetching threads: {e}", exc_info=True)
