@@ -755,19 +755,31 @@ class DashboardServer:
             return web.json_response({'error': str(e)}, status=500)
 
     async def _handle_get_image_models(self, request):
-        """Get available image generation models from OpenRouter."""
-        try:
-            image_cog = self.bot.get_cog("UnifiedImageCommands")
-            if not image_cog or not image_cog.openrouter_image_client:
-                return web.json_response([])
+        """Get available OpenRouter image generation models (hardcoded list).
 
-            result = await image_cog.openrouter_image_client.get_image_models()
-            if result.get("success"):
-                return web.json_response(result.get("models", []))
-            return web.json_response([])
-        except Exception as e:
-            logger.error(f"Error fetching image models: {e}", exc_info=True)
-            return web.json_response({'error': str(e)}, status=500)
+        Only image gen models are hardcoded. Text LLMs continue to be
+        polled dynamically via the /api/models/<provider> endpoint.
+        """
+        # The OpenRouter /models API does not reliably expose image generation
+        # capability, so we maintain this list manually.
+        models = [
+            {"id": "sourceful/riverflow-v2-pro", "name": "Riverflow v2 Pro"},
+            {"id": "sourceful/riverflow-v2-fast", "name": "Riverflow v2 Fast"},
+            {"id": "black-forest-labs/flux.2-klein-4b", "name": "FLUX.2 Klein 4B"},
+            {"id": "bytedance-seed/seedream-4.5", "name": "SeedDream 4.5"},
+            {"id": "black-forest-labs/flux.2-max", "name": "FLUX.2 Max"},
+            {"id": "sourceful/riverflow-v2-max-preview", "name": "Riverflow v2 Max Preview"},
+            {"id": "sourceful/riverflow-v2-standard-preview", "name": "Riverflow v2 Standard Preview"},
+            {"id": "sourceful/riverflow-v2-fast-preview", "name": "Riverflow v2 Fast Preview"},
+            {"id": "black-forest-labs/flux.2-flex", "name": "FLUX.2 Flex"},
+            {"id": "black-forest-labs/flux.2-pro", "name": "FLUX.2 Pro"},
+            {"id": "google/gemini-3-pro-image-preview", "name": "Gemini 3 Pro Image Preview"},
+            {"id": "openai/gpt-5-image-mini", "name": "GPT-5 Image Mini"},
+            {"id": "openai/gpt-5-image", "name": "GPT-5 Image"},
+            {"id": "google/gemini-2.5-flash-image", "name": "Gemini 2.5 Flash Image"},
+            {"id": "google/gemini-2.5-flash-image-preview", "name": "Gemini 2.5 Flash Image Preview"},
+        ]
+        return web.json_response(models)
 
     # ── Diagnostics Handlers ───────────────────────────────────────
 

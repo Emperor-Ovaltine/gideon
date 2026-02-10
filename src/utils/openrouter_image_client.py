@@ -322,18 +322,21 @@ class OpenRouterImageClient:
                         # of confirmed image-generation models from https://openrouter.ai/models?output_modalities=image
                         elif model_id:
                             known_image_models = {
-                                "google/gemini-3-pro-image-preview",
-                                "google/gemini-2.5-flash-image",
-                                "google/gemini-2.5-flash-image-preview",
+                                "sourceful/riverflow-v2-pro",
+                                "sourceful/riverflow-v2-fast",
+                                "black-forest-labs/flux.2-klein-4b",
                                 "bytedance-seed/seedream-4.5",
+                                "black-forest-labs/flux.2-max",
+                                "sourceful/riverflow-v2-max-preview",
+                                "sourceful/riverflow-v2-standard-preview",
+                                "sourceful/riverflow-v2-fast-preview",
+                                "black-forest-labs/flux.2-flex",
+                                "black-forest-labs/flux.2-pro",
+                                "google/gemini-3-pro-image-preview",
                                 "openai/gpt-5-image-mini",
                                 "openai/gpt-5-image",
-                                "sourceful/riverflow-v2-standard-preview",
-                                "sourceful/riverflow-v2-max-preview",
-                                "sourceful/riverflow-v2-fast-preview",
-                                "black-forest-labs/flux.2-pro",
-                                "black-forest-labs/flux.2-max",
-                                "black-forest-labs/flux.2-flex",
+                                "google/gemini-2.5-flash-image",
+                                "google/gemini-2.5-flash-image-preview",
                             }
                             if model_id in known_image_models:
                                 supports_images = True

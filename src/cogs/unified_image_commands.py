@@ -83,8 +83,26 @@ class UnifiedImageCommands(commands.Cog):
         self.comfyui_client = ComfyUIClient(COMFYUI_URL) if COMFYUI_URL else None
         self.openrouter_image_client = OpenRouterImageClient(OPENROUTER_API_KEY) if OPENROUTER_API_KEY else None
 
-        # Initialize OpenRouter image models list (will be populated on bot ready)
-        self.openrouter_image_models = ["google/gemini-2.0-flash-exp"]  # Default fallback
+        # Hardcoded list of OpenRouter image-capable models.
+        # The OpenRouter /models API does not reliably expose image generation
+        # capability, so we maintain this list manually.
+        self.openrouter_image_models = [
+            "sourceful/riverflow-v2-pro",
+            "sourceful/riverflow-v2-fast",
+            "black-forest-labs/flux.2-klein-4b",
+            "bytedance-seed/seedream-4.5",
+            "black-forest-labs/flux.2-max",
+            "sourceful/riverflow-v2-max-preview",
+            "sourceful/riverflow-v2-standard-preview",
+            "sourceful/riverflow-v2-fast-preview",
+            "black-forest-labs/flux.2-flex",
+            "black-forest-labs/flux.2-pro",
+            "google/gemini-3-pro-image-preview",
+            "openai/gpt-5-image-mini",
+            "openai/gpt-5-image",
+            "google/gemini-2.5-flash-image",
+            "google/gemini-2.5-flash-image-preview",
+        ]
 
         # Log which clients are available
         if not self.horde_client: logger.warning("AI Horde client not initialized (API key missing).")
@@ -92,29 +110,6 @@ class UnifiedImageCommands(commands.Cog):
         if not self.openai_client: logger.warning("OpenAI client not initialized (API key missing).")
         if not self.comfyui_client: logger.warning("ComfyUI client not initialized (URL missing).")
         if not self.openrouter_image_client: logger.warning("OpenRouter Image client not initialized (API key missing).")
-
-        # Schedule model list fetch
-        if self.openrouter_image_client:
-            bot.loop.create_task(self.initialize_openrouter_models())
-
-    async def initialize_openrouter_models(self):
-        """Fetch available OpenRouter image models when the bot starts."""
-        await self.bot.wait_until_ready()
-        try:
-            logger.info("Fetching available OpenRouter image generation models...")
-            result = await self.openrouter_image_client.get_image_models()
-            if result.get("success"):
-                models = result.get("models", [])
-                if models:
-                    # Extract just the model IDs for autocomplete
-                    self.openrouter_image_models = [model["id"] for model in models]
-                    logger.info(f"Successfully loaded {len(self.openrouter_image_models)} image models from OpenRouter")
-                else:
-                    logger.warning("OpenRouter returned empty model list, using defaults")
-            else:
-                logger.error(f"Failed to fetch OpenRouter image models: {result.get('error')}")
-        except Exception as e:
-            logger.error(f"Error initializing OpenRouter image models: {str(e)}")
 
     async def openrouter_model_autocomplete(self, ctx):
         """Autocomplete for OpenRouter image generation models."""
