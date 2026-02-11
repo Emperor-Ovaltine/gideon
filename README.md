@@ -56,10 +56,12 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 ### 🖥️ Admin Dashboard
 - **Web-Based Management** - Full browser-based admin dashboard as an alternative to Discord slash commands
 - **Real-Time Monitoring** - Live activity feed with WebSocket-powered updates
+- **API Key Management** - Add, edit, validate, and delete API keys for all providers via the dashboard, with Fernet-encrypted database storage and full audit logging
 - **Settings Management** - Edit global settings, channel overrides, and intent detection from the browser
 - **Thread & Channel Management** - View, edit, and delete threads and channel configurations
 - **System Diagnostics** - Run diagnostics, check provider status, and trigger data pruning
 - **Secure Authentication** - Token-based authentication with configurable secret key
+- **Theme Support** - Dark and light mode toggle with persistent preference
 
 ### 🛠️ Customization
 - **Model Switching** - Change AI models on-the-fly with simple commands
@@ -208,8 +210,22 @@ Gideon includes a web-based admin dashboard that provides a browser interface fo
 
 **Docker:** The dashboard port is automatically exposed via docker-compose. Access it at `http://your-server:8080`.
 
+**API Key Management (Optional):**
+
+The dashboard supports encrypted API key storage in the database, allowing you to manage all provider keys through the web UI instead of editing `.env` files.
+
+1. Generate an encryption master key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+2. Add to `.env`:
+   ```bash
+   ENCRYPTION_MASTER_KEY=your_generated_key
+   ```
+3. In the dashboard, go to the **API Keys** tab to add, validate, or import keys from `.env`
+
+Keys stored in the database take priority over `.env` values. If no database key exists for a provider, the `.env` value is used as a fallback. This is fully backward compatible — the bot works identically without `ENCRYPTION_MASTER_KEY` set.
+
 **Dashboard Features:**
-- **Overview** - Bot status, server count, message stats, uptime, and latency
+- **Overview** - Bot status, server count, message stats, uptime, latency, and provider usage links
+- **API Keys** - Encrypted API key management with validation, import from `.env`, and audit logging
 - **Settings** - Edit global model, provider, system prompt, memory limits, and intent detection
 - **Channels** - View and edit channel-specific configuration overrides
 - **Threads** - Manage AI conversation threads (rename, configure, delete)
@@ -444,7 +460,9 @@ gideon/
 │   │   └── js/dashboard.js   # Dashboard application logic
 │   └── utils/              # Utility classes and functions
 │       ├── ai_horde_client.py    # API client for AI Horde
+│       ├── api_key_service.py    # Encrypted API key management service
 │       ├── cloudflare_client.py  # API client for Cloudflare Worker
+│       ├── encryption.py         # Fernet encryption/decryption utility
 │       ├── game_session.py       # In-memory trivia game state
 │       ├── model_manager.py      # AI model management
 │       ├── openai_client.py      # API client for OpenAI
@@ -459,6 +477,7 @@ gideon/
 │       ├── database/             # Modular database managers
 │       │   ├── core.py           # Database manager initialization
 │       │   ├── schema.py         # Table definitions
+│       │   ├── api_key_manager.py # API key encrypted storage
 │       │   ├── trivia_manager.py # Trivia data persistence
 │       │   └── ...
 │       └── ...

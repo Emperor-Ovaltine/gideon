@@ -83,6 +83,26 @@ class UnifiedImageCommands(commands.Cog):
         self.comfyui_client = ComfyUIClient(COMFYUI_URL) if COMFYUI_URL else None
         self.openrouter_image_client = OpenRouterImageClient(OPENROUTER_API_KEY) if OPENROUTER_API_KEY else None
 
+        # Override with DB-stored keys if API key service is available
+        if hasattr(bot, 'api_key_service') and bot.api_key_service:
+            svc = bot.api_key_service
+            or_key = svc.get_key_for_provider('openrouter')
+            if or_key:
+                self.openrouter_image_client = OpenRouterImageClient(or_key)
+            cf_key = svc.get_key_for_provider('cloudflare')
+            cf_url = svc.get_key_for_provider('cloudflare_url') or CLOUDFLARE_WORKER_URL
+            if cf_key and cf_url:
+                self.cf_client = CloudflareWorkerClient(cf_url, cf_key)
+            oa_key = svc.get_key_for_provider('openai')
+            if oa_key:
+                self.openai_client = OpenAIClient(oa_key)
+            horde_key = svc.get_key_for_provider('ai_horde')
+            if horde_key:
+                self.horde_client = AIHordeClient(horde_key)
+            comfyui_url = svc.get_key_for_provider('comfyui')
+            if comfyui_url:
+                self.comfyui_client = ComfyUIClient(comfyui_url)
+
         # Hardcoded list of OpenRouter image-capable models.
         # The OpenRouter /models API does not reliably expose image generation
         # capability, so we maintain this list manually.

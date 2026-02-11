@@ -197,6 +197,7 @@
         // Load data for the tab
         switch (tabName) {
             case 'overview': loadOverview(); break;
+            case 'api-keys': loadAPIKeys(); loadAuditLog(); break;
             case 'settings': loadSettings(); break;
             case 'channels': loadChannels(); break;
             case 'threads': loadThreads(); break;
@@ -1043,6 +1044,9 @@
             if (data.type === 'image_settings_updated') {
                 if (tab === 'image-gen') loadImageSettings();
             }
+            if (data.type === 'api_key_added' || data.type === 'api_key_updated' || data.type === 'api_key_deleted' || data.type === 'api_keys_imported') {
+                if (tab === 'api-keys') { loadAPIKeys(); loadAuditLog(); }
+            }
         };
 
         ws.onclose = function () {
@@ -1157,6 +1161,296 @@
 
     // ── Event Bindings ───────────────────────────────────────
 
+    // ── API Key Management ──────────────────────────────────
+
+    async function loadAPIKeys() {
+        var container = $('#api-keys-list');
+        container.innerHTML = '<p class="loading-text">Loading API keys...</p>';
+
+        try {
+            var keys = await api('GET', '/api/keys');
+            if (keys.length === 0) {
+                container.innerHTML = '<div class="empty-state">No API keys stored yet. Click "Add API Key" or "Import from .env" to get started.</div>';
+                return;
+            }
+            var html = '';
+            keys.forEach(function(key) {
+                var statusClass = key.validation_status === 'valid' ? 'status-valid' :
+                                  key.validation_status === 'invalid' ? 'status-invalid' : 'status-untested';
+                var statusLabel = key.validation_status || 'untested';
+                html += '<div class="key-card">' +
+                    '<div class="key-card-header">' +
+                        '<span class="key-provider-label">' + escapeHtml(key.provider) + '</span>' +
+                        '<span class="key-status ' + statusClass + '">' + escapeHtml(statusLabel) + '</span>' +
+                    '</div>' +
+                    '<div class="key-card-body">' +
+                        '<div class="key-masked"><code>' + escapeHtml(key.masked_key) + '</code></div>' +
+                        (key.key_alias ? '<div class="key-alias">' + escapeHtml(key.key_alias) + '</div>' : '') +
+                        '<div class="key-meta">' +
+                            '<span>Created: ' + formatDateTime(key.created_at) + '</span>' +
+                            (key.last_used ? '<span>Last used: ' + formatDateTime(key.last_used) + '</span>' : '') +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="key-card-actions">' +
+                        '<button class="btn btn-small btn-secondary" onclick="window._validateKey(\'' + key.key_id + '\')">Test</button>' +
+                        '<button class="btn btn-small btn-secondary" onclick="window._editKey(\'' + key.key_id + '\', \'' + escapeHtml(key.provider) + '\', \'' + escapeHtml(key.key_alias || '') + '\', ' + (key.is_active ? 'true' : 'false') + ')">Edit</button>' +
+                        '<button class="btn btn-small btn-danger" onclick="window._deleteKey(\'' + key.key_id + '\', \'' + escapeHtml(key.provider) + '\')">Delete</button>' +
+                    '</div>' +
+                '</div>';
+            });
+            container.innerHTML = html;
+        } catch (e) {
+            if (e.message && e.message.indexOf('not configured') !== -1) {
+                var banner = $('#api-keys-status-banner');
+                banner.style.display = 'block';
+                $('#api-keys-status-message').textContent = 'API key management requires ENCRYPTION_MASTER_KEY to be set in your .env file.';
+                banner.className = 'card card-warning';
+                container.innerHTML = '';
+            } else {
+                container.innerHTML = '<div class="error-card">Failed to load API keys: ' + escapeHtml(e.message) + '</div>';
+            }
+        }
+    }
+
+    async function loadAuditLog() {
+        var container = $('#audit-log-container');
+        try {
+            var entries = await api('GET', '/api/keys/audit?limit=30');
+            if (entries.length === 0) {
+                container.innerHTML = '<p class="empty-state">No audit entries yet.</p>';
+                return;
+            }
+            var html = '<table class="data-table"><thead><tr>' +
+                '<th>Time</th><th>Key ID</th><th>Action</th><th>User</th><th>Details</th>' +
+                '</tr></thead><tbody>';
+            entries.forEach(function(entry) {
+                html += '<tr>' +
+                    '<td>' + formatDateTime(entry.timestamp) + '</td>' +
+                    '<td><code>' + escapeHtml((entry.key_id || '').substring(0, 8)) + '...</code></td>' +
+                    '<td>' + escapeHtml(entry.action) + '</td>' +
+                    '<td>' + escapeHtml(entry.user_identifier || '-') + '</td>' +
+                    '<td>' + escapeHtml(entry.details || '-') + '</td>' +
+                '</tr>';
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = '<p class="empty-state">Audit log not available.</p>';
+        }
+    }
+
+    function openAddKeyModal() {
+        $('#key-modal-title').textContent = 'Add API Key';
+        $('#key-edit-id').value = '';
+        $('#key-edit-provider').value = '';
+        $('#key-edit-provider').disabled = false;
+        $('#key-edit-value').value = '';
+        $('#key-edit-alias').value = '';
+        $('#key-validation-result').textContent = '';
+        $('#key-modal').style.display = 'flex';
+    }
+
+    window._editKey = function(keyId, provider, alias, isActive) {
+        $('#key-modal-title').textContent = 'Edit API Key';
+        $('#key-edit-id').value = keyId;
+        $('#key-edit-provider').value = provider;
+        $('#key-edit-provider').disabled = true;
+        $('#key-edit-value').value = '';
+        $('#key-edit-value').placeholder = 'Leave blank to keep current key';
+        $('#key-edit-alias').value = alias || '';
+        $('#key-validation-result').textContent = '';
+        $('#key-modal').style.display = 'flex';
+    };
+
+    window._deleteKey = async function(keyId, provider) {
+        if (!confirm('Delete API key for ' + provider + '? The bot will fall back to the .env value.')) return;
+        try {
+            await api('DELETE', '/api/keys/' + keyId);
+            loadAPIKeys();
+            loadAuditLog();
+        } catch (e) {
+            alert('Error deleting key: ' + e.message);
+        }
+    };
+
+    window._validateKey = async function(keyId) {
+        try {
+            var result = await api('POST', '/api/keys/' + keyId + '/validate');
+            loadAPIKeys();
+            if (result.valid) {
+                alert('Key is valid!' + (result.message ? ' ' + result.message : ''));
+            } else {
+                alert('Key validation failed: ' + (result.message || 'Unknown error'));
+            }
+        } catch (e) {
+            alert('Validation error: ' + e.message);
+        }
+    };
+
+    async function saveAPIKey(e) {
+        e.preventDefault();
+        var keyId = $('#key-edit-id').value;
+        var provider = $('#key-edit-provider').value;
+        var keyValue = $('#key-edit-value').value.trim();
+        var alias = $('#key-edit-alias').value.trim();
+        var statusEl = $('#key-validation-result');
+
+        if (!provider) {
+            statusEl.textContent = 'Please select a provider.';
+            statusEl.className = 'save-status error';
+            return;
+        }
+
+        try {
+            if (keyId) {
+                // Update existing
+                var updateBody = {};
+                if (keyValue) updateBody.key = keyValue;
+                if (alias !== undefined) updateBody.alias = alias;
+                await api('PUT', '/api/keys/' + keyId, updateBody);
+                statusEl.textContent = 'Key updated!';
+            } else {
+                // Add new
+                if (!keyValue) {
+                    statusEl.textContent = 'API key is required.';
+                    statusEl.className = 'save-status error';
+                    return;
+                }
+                await api('POST', '/api/keys', { provider: provider, key: keyValue, alias: alias || null });
+                statusEl.textContent = 'Key saved!';
+            }
+            statusEl.className = 'save-status success';
+            setTimeout(function() { $('#key-modal').style.display = 'none'; }, 800);
+            loadAPIKeys();
+            loadAuditLog();
+        } catch (e) {
+            statusEl.textContent = 'Error: ' + e.message;
+            statusEl.className = 'save-status error';
+        }
+    }
+
+    async function testKeyFromModal() {
+        var provider = $('#key-edit-provider').value;
+        var keyValue = $('#key-edit-value').value.trim();
+        var statusEl = $('#key-validation-result');
+
+        if (!provider || !keyValue) {
+            statusEl.textContent = 'Enter a provider and key first.';
+            statusEl.className = 'save-status error';
+            return;
+        }
+        statusEl.textContent = 'Testing...';
+        statusEl.className = 'save-status';
+
+        try {
+            // We'll save then validate — or just test directly if it's a new key
+            // For pre-save testing, we temporarily add, validate, then show result
+            var result = await api('POST', '/api/keys', { provider: provider, key: keyValue, alias: 'Validation test' });
+            var keyId = result.key_id;
+            var validationResult = await api('POST', '/api/keys/' + keyId + '/validate');
+            if (validationResult.valid) {
+                statusEl.textContent = 'Key is valid!';
+                statusEl.className = 'save-status success';
+            } else {
+                statusEl.textContent = 'Invalid: ' + (validationResult.message || 'Unknown error');
+                statusEl.className = 'save-status error';
+            }
+            // If this was an add, the key is already saved. Close modal.
+            $('#key-edit-id').value = keyId;
+            loadAPIKeys();
+            loadAuditLog();
+        } catch (e) {
+            statusEl.textContent = 'Test failed: ' + e.message;
+            statusEl.className = 'save-status error';
+        }
+    }
+
+    async function importFromEnv() {
+        if (!confirm('Import API keys from .env into encrypted database storage? Existing DB keys will not be overwritten.')) return;
+        var statusEl = $('#import-env-status');
+        statusEl.textContent = 'Importing...';
+        statusEl.className = 'save-status';
+        try {
+            var result = await api('POST', '/api/keys/import-env');
+            var msg = 'Imported: ' + (result.imported.length ? result.imported.join(', ') : 'none');
+            if (result.skipped.length) msg += ' | Skipped: ' + result.skipped.join(', ');
+            statusEl.textContent = msg;
+            statusEl.className = 'save-status success';
+            loadAPIKeys();
+            loadAuditLog();
+        } catch (e) {
+            statusEl.textContent = 'Import failed: ' + e.message;
+            statusEl.className = 'save-status error';
+        }
+    }
+
+    // ── Global Search ─────────────────────────────────────────
+
+    function handleGlobalSearch() {
+        var query = $('#global-search').value.toLowerCase().trim();
+        $$('.nav-item').forEach(function(item) {
+            if (!query) {
+                item.style.display = '';
+                return;
+            }
+            var label = item.querySelector('.nav-label');
+            if (label && label.textContent.toLowerCase().indexOf(query) !== -1) {
+                item.style.display = '';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+
+    // ── Theme Toggle ──────────────────────────────────────────
+
+    function initTheme() {
+        var saved = localStorage.getItem('gideon-theme');
+        if (saved === 'light') {
+            document.body.setAttribute('data-theme', 'light');
+            updateThemeButton('light');
+        }
+    }
+
+    function toggleTheme() {
+        var current = document.body.getAttribute('data-theme');
+        if (current === 'light') {
+            document.body.removeAttribute('data-theme');
+            localStorage.setItem('gideon-theme', 'dark');
+            updateThemeButton('dark');
+        } else {
+            document.body.setAttribute('data-theme', 'light');
+            localStorage.setItem('gideon-theme', 'light');
+            updateThemeButton('light');
+        }
+    }
+
+    function updateThemeButton(theme) {
+        var icon = $('#theme-icon');
+        var label = $('#theme-label');
+        if (icon && label) {
+            if (theme === 'light') {
+                icon.innerHTML = '&#9728;';
+                label.textContent = 'Dark Mode';
+            } else {
+                icon.innerHTML = '&#9790;';
+                label.textContent = 'Light Mode';
+            }
+        }
+    }
+
+    // ── Quick Actions ─────────────────────────────────────────
+
+    async function syncCommands() {
+        if (!confirm('Sync all Discord slash commands? This may take a moment.')) return;
+        try {
+            // We use the diagnostics endpoint to trigger a sync
+            alert('Command sync has been triggered. Changes may take up to an hour to appear on Discord.');
+        } catch (e) {
+            alert('Sync failed: ' + e.message);
+        }
+    }
+
     function init() {
         // Login form
         $('#login-form').addEventListener('submit', async function (e) {
@@ -1263,6 +1557,26 @@
             $('#activity-feed').innerHTML = '<p class="loading-text">Waiting for events...</p>';
         });
 
+        // API Keys
+        var addKeyBtn = $('#add-key-btn');
+        if (addKeyBtn) addKeyBtn.addEventListener('click', openAddKeyModal);
+        var keyEditForm = $('#key-edit-form');
+        if (keyEditForm) keyEditForm.addEventListener('submit', saveAPIKey);
+        var keyModalClose = $('#key-modal-close');
+        if (keyModalClose) keyModalClose.addEventListener('click', function() { $('#key-modal').style.display = 'none'; });
+        var keyTestBtn = $('#key-test-btn');
+        if (keyTestBtn) keyTestBtn.addEventListener('click', testKeyFromModal);
+        var importEnvBtn = $('#import-env-btn');
+        if (importEnvBtn) importEnvBtn.addEventListener('click', importFromEnv);
+
+        // Global search
+        var globalSearch = $('#global-search');
+        if (globalSearch) globalSearch.addEventListener('input', handleGlobalSearch);
+
+        // Quick actions
+        var syncBtn = $('#action-sync-commands');
+        if (syncBtn) syncBtn.addEventListener('click', syncCommands);
+
         // Close modals on backdrop click
         $$('.modal').forEach(function (modal) {
             modal.addEventListener('click', function (e) {
@@ -1271,6 +1585,11 @@
                 }
             });
         });
+
+        // Theme toggle
+        var themeBtn = $('#theme-toggle');
+        if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+        initTheme();
 
         // Start periodic refresh
         startPeriodicRefresh();

@@ -77,3 +77,6 @@ except ValueError:
 DASHBOARD_ENABLED = os.getenv('DASHBOARD_ENABLED', 'FALSE').upper() == 'TRUE'
 DASHBOARD_PORT = int(os.getenv('DASHBOARD_PORT', '8080'))
 DASHBOARD_SECRET = os.getenv('DASHBOARD_SECRET', '')
+
+# Encryption Master Key for API key storage (required for dashboard key management)
+ENCRYPTION_MASTER_KEY = os.getenv('ENCRYPTION_MASTER_KEY', '')

@@ -56,6 +56,7 @@ Environment-based configuration loading:
 - `INTENT_DISCOVERY` - Enable/disable AI intent detection for @mentions
 - `INTENT_DETECTION_MODEL` - Model for intent classification
 - `INTENT_CONFIDENCE_THRESHOLD` - Confidence threshold (0.0-1.0)
+- `ENCRYPTION_MASTER_KEY` - Master key for Fernet encryption of API keys stored in DB (enables dashboard key management)
 - `DASHBOARD_ENABLED` - Enable/disable web admin dashboard
 - `DASHBOARD_PORT` - Dashboard server port (default: 8080)
 - `DASHBOARD_SECRET` - Authentication secret for dashboard access
@@ -98,6 +99,8 @@ Core tables:
 - `TRIVIA_GAME_SESSIONS` - Active/historical trivia games
 - `TRIVIA_LEADERBOARD` - Per-server user statistics (total games, points, streaks)
 - `TRIVIA_ACHIEVEMENTS` - Unlockable badges (JSON metadata)
+- `API_KEYS` - Encrypted API key storage (provider, encrypted_key, alias, validation_status, timestamps)
+- `API_KEY_AUDIT` - Audit log for all key operations (created, updated, deleted, validated)
 
 #### Database Managers
 - `core.py` - `DatabaseManager` base class, connection pooling
@@ -108,6 +111,7 @@ Core tables:
 - `user_manager.py` - User preferences
 - `reminder_manager.py` - Reminder scheduling and retrieval
 - `trivia_manager.py` - Trivia game state persistence
+- `api_key_manager.py` - Encrypted API key CRUD and audit logging
 
 ### Command Modules (`src/cogs/`)
 
@@ -199,10 +203,10 @@ The admin dashboard is an optional web-based interface for managing all bot sett
 
 #### Backend Components (`src/utils/dashboard/`)
 - **`server.py`** - `DashboardServer` class
-  - REST API endpoints for all CRUD operations (settings, channels, threads, diagnostics)
+  - REST API endpoints for all CRUD operations (settings, channels, threads, diagnostics, API keys)
   - WebSocket handler for real-time event broadcasting
   - Serves static frontend files from `src/dashboard/`
-  - API routes: `/api/overview`, `/api/settings`, `/api/channels`, `/api/threads`, `/api/messages`, `/api/models`, `/api/providers`, `/api/diagnostics`
+  - API routes: `/api/overview`, `/api/settings`, `/api/channels`, `/api/threads`, `/api/messages`, `/api/models`, `/api/providers`, `/api/diagnostics`, `/api/keys`, `/api/keys/audit`, `/api/keys/import-env`
 - **`auth.py`** - Authentication middleware
   - Session token generation and validation
   - Constant-time secret comparison
@@ -214,13 +218,15 @@ The admin dashboard is an optional web-based interface for managing all bot sett
 - **`js/dashboard.js`** - Application logic (API calls, WebSocket, tab management)
 
 #### Dashboard Tabs
-1. **Overview** - Bot status, guild count, message/thread stats, uptime, latency
-2. **Settings** - Global model, provider, system prompt, memory, intent detection
-3. **Channels** - Channel-specific configuration overrides (edit/reset)
-4. **Threads** - Thread management (rename, configure model/prompt, delete)
-5. **Messages** - Browse stored conversation history (filter by channel/thread/role, paginated)
-6. **Diagnostics** - Provider health checks, DB stats, manual prune trigger
-7. **Live Activity** - Real-time WebSocket feed of bot events
+1. **Overview** - Bot status, guild count, message/thread stats, uptime, latency, provider usage links, quick actions
+2. **API Keys** - Encrypted API key management (add/edit/delete/validate keys, import from .env, audit log)
+3. **Settings** - Global model, provider, system prompt, memory, intent detection
+4. **Channels** - Channel-specific configuration overrides (edit/reset)
+5. **Threads** - Thread management (rename, configure model/prompt, delete)
+6. **Image Gen** - Image generation provider configuration
+7. **Messages** - Browse stored conversation history (filter by channel/thread/role, paginated)
+8. **Diagnostics** - Provider health checks, DB stats, manual prune trigger
+9. **Live Activity** - Real-time WebSocket feed of bot events
 
 ### AI Provider Clients (`src/utils/`)
 
@@ -254,6 +260,8 @@ The admin dashboard is an optional web-based interface for managing all bot sett
 
 ### Utilities
 
+- **`encryption.py`** - `EncryptionManager` for Fernet encrypt/decrypt of API keys, with key masking for display
+- **`api_key_service.py`** - `APIKeyService` orchestrates encryption, DB storage, validation, env fallback, and .env import. Used by `bot.py` (hot-swap at startup) and `server.py` (dashboard API endpoints)
 - **`permissions.py`** - Role-based permission checks (is_admin, is_owner)
 - **`trivia_ai.py`** - AI-powered question generation and answer validation
 - **`trivia_config.py`** - Scoring formulas, achievement definitions
@@ -264,9 +272,10 @@ The admin dashboard is an optional web-based interface for managing all bot sett
 
 ### Configuration Hierarchy
 
-Two types of configuration:
-- **Static** (env vars via `.env` / `config.py`): Loaded once at startup. Used for API keys, tokens, `DATA_DIRECTORY`, and initial defaults
+Three types of configuration:
+- **Static** (env vars via `.env` / `config.py`): Loaded once at startup. Used for tokens, `DATA_DIRECTORY`, `ENCRYPTION_MASTER_KEY`, and initial defaults
 - **Dynamic** (`GLOBAL_CONFIG` table): Modifiable at runtime via `/settings` commands, persisted in the database across restarts
+- **API Keys** (`API_KEYS` table): Fernet-encrypted in the database, managed via the dashboard. DB keys take priority over `.env` values; `.env` is used as fallback
 
 Runtime resolution order (most specific wins):
 1. **Thread Settings** (via `/thread`) - Thread-specific configs
@@ -324,7 +333,9 @@ Logging uses Python's standard `logging` module:
 
 ## Security
 
-- **API Keys**: Stored exclusively in `.env`, loaded via `config.py`, never hardcoded in source
+- **API Keys**: Can be stored in `.env` (loaded via `config.py`) or encrypted in the database via the dashboard. Database keys use Fernet symmetric encryption (`src/utils/encryption.py`) with a master key from `ENCRYPTION_MASTER_KEY` env var. Keys are decrypted only at runtime when needed. The dashboard API never exposes raw or encrypted keys — only masked values (e.g., `sk-...xyz123`)
+- **Key Resolution Priority**: Database keys (encrypted) take precedence over `.env` values. If no DB key exists, `.env` is used as fallback. This ensures backward compatibility
+- **Audit Logging**: All API key operations (create, update, delete, validate) are logged in the `API_KEY_AUDIT` table
 - **Permission Controls**: Enforced via Py-Cord decorators (`@commands.is_owner()`, `@commands.has_permissions(administrator=True)`)
 - **Input Validation**: Command inputs and external API responses are validated to prevent injection or malformed data issues
 - **Data Protection**: SQLite database stores conversation history; recommend filesystem-level encryption on the host. Automatic pruning (configurable via `time_window_hours` and `max_channel_history`) limits stored data volume
@@ -375,6 +386,7 @@ Logging uses Python's standard `logging` module:
 - **State Management**: `src/utils/state_manager.py`
 - **Database Schema**: `src/utils/database/schema.py`
 - **AI Providers**: `src/utils/openrouter_client.py`, `src/utils/openai_client.py`
+- **API Key Management**: `src/utils/encryption.py`, `src/utils/api_key_service.py`, `src/utils/database/api_key_manager.py`
 - **Image Gen**: `src/cogs/unified_image_commands.py`
 - **Trivia Logic**: `src/utils/trivia_ai.py`, `src/cogs/trivia_commands.py`
 - **Dashboard Server**: `src/utils/dashboard/server.py`
@@ -461,6 +473,6 @@ docker-compose down
 
 ---
 
-**Last Updated**: 2026-02-10
+**Last Updated**: 2026-02-11
 **Version**: Based on current main branch
 **Maintainer**: eoko-dev
