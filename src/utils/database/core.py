@@ -13,6 +13,7 @@ from .message_manager import MessageManager
 from .user_manager import UserManager
 from .reminder_manager import ReminderManager
 from .trivia_manager import TriviaManager
+from .api_key_manager import APIKeyManager
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class DatabaseManager:
             self._users = UserManager(self._conn)
             self._reminders = ReminderManager(self._conn)
             self._trivia = TriviaManager(self._conn)
+            self._api_keys = APIKeyManager(self._conn)
 
         except sqlite3.Error as e:
             logger.error(f"Database connection error to {self.db_path}: {e}", exc_info=True)
@@ -309,12 +311,62 @@ class DatabaseManager:
         """Deletes inactive trivia sessions older than specified days."""
         return self._trivia.prune_old_sessions(days_old)
 
-    # Note: The following methods were removed as they were part of the news feed system:
-    # - All news feed management methods
-    # - All news subscription methods
-    # - All article history methods
-    # - All article summary methods (both channel and user-specific)
-    # - prune_old_articles, prune_old_summaries, prune_old_user_summaries
-    # - get_news_article_history_count
-    # - set_last_digest_content, get_last_digest_content
-    # - get_users_with_personal_feeds
+    # --- API Key Methods (delegate to APIKeyManager) ---
+
+    def add_api_key(self, key_id: str, provider: str, encrypted_key: str,
+                    key_alias: Optional[str] = None) -> bool:
+        """Adds a new encrypted API key."""
+        return self._api_keys.add_key(key_id, provider, encrypted_key, key_alias)
+
+    def update_api_key(self, key_id: str, encrypted_key: Optional[str] = None,
+                       key_alias: Optional[str] = None) -> bool:
+        """Updates an existing API key."""
+        return self._api_keys.update_key(key_id, encrypted_key, key_alias)
+
+    def delete_api_key(self, key_id: str) -> bool:
+        """Deletes an API key."""
+        return self._api_keys.delete_key(key_id)
+
+    def get_api_key(self, key_id: str) -> Optional[Dict[str, Any]]:
+        """Gets an API key by ID."""
+        return self._api_keys.get_key(key_id)
+
+    def get_api_keys_by_provider(self, provider: str) -> List[Dict[str, Any]]:
+        """Gets all API keys for a provider."""
+        return self._api_keys.get_keys_by_provider(provider)
+
+    def get_active_api_key_for_provider(self, provider: str) -> Optional[Dict[str, Any]]:
+        """Gets the active API key for a provider."""
+        return self._api_keys.get_active_key_for_provider(provider)
+
+    def get_all_api_keys(self) -> List[Dict[str, Any]]:
+        """Gets all API keys."""
+        return self._api_keys.get_all_keys()
+
+    def set_api_key_active(self, key_id: str, is_active: bool) -> bool:
+        """Sets the active state of an API key."""
+        return self._api_keys.set_key_active(key_id, is_active)
+
+    def update_api_key_last_used(self, key_id: str) -> bool:
+        """Updates the last_used timestamp for an API key."""
+        return self._api_keys.update_last_used(key_id)
+
+    def update_api_key_validation_status(self, key_id: str, status: str,
+                                          timestamp: Optional[str] = None) -> bool:
+        """Updates the validation status of an API key."""
+        return self._api_keys.update_validation_status(key_id, status, timestamp)
+
+    def add_api_key_audit_entry(self, key_id: str, action: str,
+                                user_identifier: Optional[str] = None,
+                                details: Optional[str] = None) -> int:
+        """Adds an audit log entry for an API key operation."""
+        return self._api_keys.add_audit_entry(key_id, action, user_identifier, details)
+
+    def get_api_key_audit_log(self, key_id: Optional[str] = None,
+                              limit: int = 50) -> List[Dict[str, Any]]:
+        """Gets the API key audit log."""
+        return self._api_keys.get_audit_log(key_id, limit)
+
+    def prune_old_api_key_audit_entries(self, cutoff_timestamp: datetime) -> int:
+        """Deletes old API key audit entries."""
+        return self._api_keys.prune_old_audit_entries(cutoff_timestamp)

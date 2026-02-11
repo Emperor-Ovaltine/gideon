@@ -35,9 +35,15 @@
                 <h2>Gideon</h2>
                 <span class="badge" id="bot-status-badge">Connecting...</span>
             </div>
+            <div class="sidebar-search">
+                <input type="text" id="global-search" placeholder="Search tabs..." autocomplete="off">
+            </div>
             <ul class="nav-menu">
                 <li class="nav-item active" data-tab="overview">
                     <span class="nav-icon">&#9634;</span> <span class="nav-label">Overview</span>
+                </li>
+                <li class="nav-item" data-tab="api-keys">
+                    <span class="nav-icon">&#128273;</span> <span class="nav-label">API Keys</span>
                 </li>
                 <li class="nav-item" data-tab="settings">
                     <span class="nav-icon">&#9881;</span> <span class="nav-label">Settings</span>
@@ -62,6 +68,9 @@
                 </li>
             </ul>
             <div class="sidebar-footer">
+                <button id="theme-toggle" class="theme-toggle">
+                    <span id="theme-icon">&#9790;</span> <span id="theme-label">Light Mode</span>
+                </button>
                 <button id="logout-btn" class="btn btn-secondary btn-small btn-full">Sign Out</button>
             </div>
         </nav>
@@ -127,6 +136,105 @@
                         <div class="info-row"><span>Global Model</span> <span id="info-model" class="code">--</span></div>
                         <div class="info-row"><span>Global Provider</span> <span id="info-provider">--</span></div>
                         <div class="info-row"><span>Database Size</span> <span id="info-db-size">--</span></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h3>Provider Usage Dashboards</h3></div>
+                    <div class="card-body">
+                        <p class="tab-description" style="margin-bottom:12px;">Check costs and usage directly on each provider's dashboard.</p>
+                        <div class="provider-links-grid">
+                            <a href="https://openrouter.ai/usage" target="_blank" rel="noopener" class="provider-link-card">
+                                <span class="provider-link-name">OpenRouter</span>
+                                <span class="provider-link-url">openrouter.ai/usage</span>
+                            </a>
+                            <a href="https://platform.openai.com/usage" target="_blank" rel="noopener" class="provider-link-card">
+                                <span class="provider-link-name">OpenAI</span>
+                                <span class="provider-link-url">platform.openai.com/usage</span>
+                            </a>
+                            <a href="https://stablehorde.net" target="_blank" rel="noopener" class="provider-link-card">
+                                <span class="provider-link-name">AI Horde</span>
+                                <span class="provider-link-url">stablehorde.net</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h3>Quick Actions</h3></div>
+                    <div class="card-body">
+                        <div class="quick-actions-grid">
+                            <button id="action-sync-commands" class="btn btn-secondary">Sync Discord Commands</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- API Keys Tab -->
+            <section id="tab-api-keys" class="tab-content">
+                <div class="tab-header">
+                    <h2>API Key Management</h2>
+                    <p class="tab-description">Manage encrypted API keys for all providers. Keys are stored encrypted and never displayed in full.</p>
+                </div>
+
+                <div id="api-keys-status-banner" class="card" style="display:none;">
+                    <div class="card-body">
+                        <p id="api-keys-status-message" class="status-message"></p>
+                    </div>
+                </div>
+
+                <div class="api-keys-toolbar">
+                    <button id="add-key-btn" class="btn btn-primary">Add API Key</button>
+                    <button id="import-env-btn" class="btn btn-secondary">Import from .env</button>
+                    <span id="import-env-status" class="save-status"></span>
+                </div>
+
+                <div id="api-keys-list" class="api-keys-grid">
+                    <p class="loading-text">Loading API keys...</p>
+                </div>
+
+                <!-- Add/Edit Key Modal -->
+                <div id="key-modal" class="modal" style="display:none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="key-modal-title">Add API Key</h3>
+                            <button class="modal-close" id="key-modal-close">&times;</button>
+                        </div>
+                        <form id="key-edit-form">
+                            <input type="hidden" id="key-edit-id">
+                            <div class="form-group">
+                                <label for="key-edit-provider">Provider</label>
+                                <select id="key-edit-provider">
+                                    <option value="">Select provider...</option>
+                                    <option value="openrouter">OpenRouter</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="ai_horde">AI Horde</option>
+                                    <option value="cloudflare">Cloudflare API Key</option>
+                                    <option value="cloudflare_url">Cloudflare Worker URL</option>
+                                    <option value="comfyui">ComfyUI URL</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="key-edit-value">API Key / URL</label>
+                                <input type="password" id="key-edit-value" placeholder="Enter API key or URL" autocomplete="off">
+                            </div>
+                            <div class="form-group">
+                                <label for="key-edit-alias">Alias (optional)</label>
+                                <input type="text" id="key-edit-alias" placeholder="e.g., Production Key">
+                            </div>
+                            <div id="key-validation-result" class="save-status"></div>
+                            <div class="modal-actions">
+                                <button type="submit" class="btn btn-primary">Save Key</button>
+                                <button type="button" class="btn btn-secondary" id="key-test-btn">Test Key</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top:var(--space-4);">
+                    <div class="card-header"><h3>Audit Log</h3></div>
+                    <div class="card-body">
+                        <div id="audit-log-container" class="table-container">
+                            <p class="loading-text">Loading audit log...</p>
+                        </div>
                     </div>
                 </div>
             </section>

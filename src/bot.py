@@ -11,7 +11,7 @@ import traceback
 import pytz
 
 # Import configuration
-from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY, OPENAI_API_KEY, AI_HORDE_API_KEY, DASHBOARD_ENABLED
+from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY, OPENAI_API_KEY, AI_HORDE_API_KEY, DASHBOARD_ENABLED, ENCRYPTION_MASTER_KEY
 # Removed: from .utils.model_sync import sync_models
 from .utils.state_manager import BotStateManager
 
@@ -96,6 +96,48 @@ async def on_ready():
         # Optionally, exit if DB connection fails critically
         # await bot.close()
         # return # Stop further execution in on_ready
+
+    # Initialize API Key Service (encrypted DB-backed key management)
+    bot.api_key_service = None
+    if ENCRYPTION_MASTER_KEY:
+        try:
+            from .utils.encryption import EncryptionManager
+            from .utils.api_key_service import APIKeyService
+            encryption_mgr = EncryptionManager(ENCRYPTION_MASTER_KEY)
+            api_key_service = APIKeyService(state.db_manager, encryption_mgr)
+            bot.api_key_service = api_key_service
+            print("API Key Service initialized.")
+
+            # Hot-swap provider keys from DB if available
+            for provider, client_attr in [
+                ('openrouter', 'openrouter_client'),
+                ('openai', 'openai_client'),
+                ('ai_horde', 'ai_horde_client'),
+            ]:
+                db_key = api_key_service.get_key_for_provider(provider)
+                client = getattr(bot, client_attr, None)
+                if client and db_key:
+                    if provider == 'openai':
+                        # OpenAI SDK caches key internally — recreate client
+                        bot.openai_client = OpenAIClient(api_key=db_key)
+                        bot.model_manager.providers['openai'] = bot.openai_client
+                        logger.info("OpenAI client re-initialized with DB key")
+                    else:
+                        client.api_key = db_key
+                        logger.info(f"{provider} client key updated from DB")
+                elif not client and db_key and provider == 'openai':
+                    # Client wasn't initialized because .env had no key, but DB has one
+                    bot.openai_client = OpenAIClient(api_key=db_key)
+                    bot.model_manager.providers['openai'] = bot.openai_client
+                    logger.info("OpenAI client initialized with DB key (was missing from .env)")
+                elif not client and db_key and provider == 'ai_horde':
+                    bot.ai_horde_client = AIHordeClient(api_key=db_key)
+                    logger.info("AI Horde client initialized with DB key (was missing from .env)")
+        except Exception as e:
+            print(f"Warning: API Key Service initialization failed: {e}")
+            traceback.print_exc()
+    else:
+        logger.info("ENCRYPTION_MASTER_KEY not set — API key management disabled")
 
     # Get set of existing command names
     try:

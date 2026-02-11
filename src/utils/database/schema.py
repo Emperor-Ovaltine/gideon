@@ -114,6 +114,30 @@ class SchemaManager:
             earned_at DATETIME NOT NULL,
             metadata_json TEXT
         );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS API_KEYS (
+            key_id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            encrypted_key TEXT NOT NULL,
+            key_alias TEXT,
+            created_at DATETIME NOT NULL,
+            last_used DATETIME,
+            last_validated DATETIME,
+            is_active BOOLEAN DEFAULT 1,
+            validation_status TEXT DEFAULT 'untested'
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS API_KEY_AUDIT (
+            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            timestamp DATETIME NOT NULL,
+            user_identifier TEXT,
+            details TEXT,
+            FOREIGN KEY (key_id) REFERENCES API_KEYS(key_id) ON DELETE CASCADE
+        );
         """
     ]
 
@@ -128,7 +152,11 @@ class SchemaManager:
         """CREATE INDEX IF NOT EXISTS idx_trivia_sessions_thread_id ON TRIVIA_GAME_SESSIONS (thread_id);""",
         """CREATE INDEX IF NOT EXISTS idx_trivia_sessions_is_active ON TRIVIA_GAME_SESSIONS (is_active);""",
         """CREATE INDEX IF NOT EXISTS idx_trivia_leaderboard_server_id ON TRIVIA_LEADERBOARD (server_id);""",
-        """CREATE INDEX IF NOT EXISTS idx_trivia_achievements_user_server ON TRIVIA_ACHIEVEMENTS (user_id, server_id);"""
+        """CREATE INDEX IF NOT EXISTS idx_trivia_achievements_user_server ON TRIVIA_ACHIEVEMENTS (user_id, server_id);""",
+        """CREATE INDEX IF NOT EXISTS idx_api_keys_provider ON API_KEYS (provider);""",
+        """CREATE INDEX IF NOT EXISTS idx_api_keys_active ON API_KEYS (is_active);""",
+        """CREATE INDEX IF NOT EXISTS idx_api_key_audit_key_id ON API_KEY_AUDIT (key_id);""",
+        """CREATE INDEX IF NOT EXISTS idx_api_key_audit_timestamp ON API_KEY_AUDIT (timestamp);"""
     ]
 
     @staticmethod

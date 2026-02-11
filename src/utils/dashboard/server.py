@@ -122,6 +122,16 @@ class DashboardServer:
         router.add_get('/api/diagnostics', self._handle_diagnostics)
         router.add_post('/api/diagnostics/prune', self._handle_prune)
 
+        # API Key Management
+        router.add_get('/api/keys', self._handle_get_keys)
+        router.add_post('/api/keys', self._handle_add_key)
+        router.add_put('/api/keys/{key_id}', self._handle_update_key)
+        router.add_delete('/api/keys/{key_id}', self._handle_delete_key)
+        router.add_post('/api/keys/{key_id}/validate', self._handle_validate_key)
+        router.add_post('/api/keys/import-env', self._handle_import_env)
+        router.add_get('/api/keys/audit', self._handle_get_audit_log)
+        router.add_get('/api/keys/providers', self._handle_get_key_providers)
+
         # WebSocket for real-time updates
         router.add_get('/ws', self._handle_websocket)
 
@@ -905,6 +915,161 @@ class DashboardServer:
         except Exception as e:
             logger.error(f"Error during manual prune: {e}", exc_info=True)
             return web.json_response({'error': str(e)}, status=500)
+
+    # ── API Key Management Handlers ─────────────────────────────────
+
+    def _get_api_key_service(self):
+        """Get the API key service, or None if not configured."""
+        return getattr(self.bot, 'api_key_service', None)
+
+    async def _handle_get_keys(self, request):
+        """List all API keys (masked, never exposes full keys)."""
+        service = self._get_api_key_service()
+        if not service:
+            return web.json_response(
+                {'error': 'API key management not configured. Set ENCRYPTION_MASTER_KEY in .env.'},
+                status=501)
+        provider_filter = request.query.get('provider')
+        keys = service.list_keys(provider=provider_filter)
+        return web.json_response(keys)
+
+    async def _handle_add_key(self, request):
+        """Add a new API key."""
+        service = self._get_api_key_service()
+        if not service:
+            return web.json_response(
+                {'error': 'API key management not configured'}, status=501)
+        try:
+            data = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+        provider = data.get('provider', '').strip()
+        key_value = data.get('key', '').strip()
+        alias = data.get('alias', '').strip() or None
+
+        if not provider or not key_value:
+            return web.json_response(
+                {'error': 'provider and key are required'}, status=400)
+        if provider not in service.PROVIDER_ENV_MAP:
+            return web.json_response(
+                {'error': f'Unknown provider: {provider}'}, status=400)
+
+        try:
+            result = service.add_key(provider, key_value, alias)
+            await self._broadcast_ws({'type': 'api_key_added', 'provider': provider})
+            return web.json_response(result, status=201)
+        except Exception as e:
+            logger.error(f"Error adding API key: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_update_key(self, request):
+        """Update an existing API key."""
+        service = self._get_api_key_service()
+        if not service:
+            return web.json_response(
+                {'error': 'API key management not configured'}, status=501)
+
+        key_id = request.match_info['key_id']
+        try:
+            data = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+        key_value = data.get('key', '').strip() or None
+        alias = data.get('alias')
+        is_active = data.get('is_active')
+
+        try:
+            updated = service.update_key(key_id, key_value, alias)
+            if is_active is not None:
+                service.db.set_api_key_active(key_id, bool(is_active))
+                updated = True
+            if updated:
+                await self._broadcast_ws({'type': 'api_key_updated', 'key_id': key_id})
+            return web.json_response({'updated': updated})
+        except Exception as e:
+            logger.error(f"Error updating API key: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_delete_key(self, request):
+        """Delete an API key."""
+        service = self._get_api_key_service()
+        if not service:
+            return web.json_response(
+                {'error': 'API key management not configured'}, status=501)
+
+        key_id = request.match_info['key_id']
+        try:
+            deleted = service.delete_key(key_id)
+            if deleted:
+                await self._broadcast_ws({'type': 'api_key_deleted', 'key_id': key_id})
+            return web.json_response({'deleted': deleted})
+        except Exception as e:
+            logger.error(f"Error deleting API key: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_validate_key(self, request):
+        """Validate a stored key by testing the provider API."""
+        service = self._get_api_key_service()
+        if not service:
+            return web.json_response(
+                {'error': 'API key management not configured'}, status=501)
+
+        key_id = request.match_info['key_id']
+        try:
+            result = await service.validate_and_update_status(key_id)
+            await self._broadcast_ws({'type': 'api_key_updated', 'key_id': key_id})
+            return web.json_response(result)
+        except Exception as e:
+            logger.error(f"Error validating API key: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_import_env(self, request):
+        """One-time bulk import of keys from .env into encrypted DB storage."""
+        service = self._get_api_key_service()
+        if not service:
+            return web.json_response(
+                {'error': 'API key management not configured'}, status=501)
+
+        try:
+            result = await service.import_from_env()
+            if result['imported']:
+                await self._broadcast_ws({'type': 'api_keys_imported',
+                                          'imported': result['imported']})
+            return web.json_response(result)
+        except Exception as e:
+            logger.error(f"Error importing keys from .env: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_get_audit_log(self, request):
+        """Get the API key audit log."""
+        service = self._get_api_key_service()
+        if not service:
+            return web.json_response(
+                {'error': 'API key management not configured'}, status=501)
+
+        key_id = request.query.get('key_id')
+        limit = int(request.query.get('limit', '50'))
+        entries = service.get_audit_log(key_id, limit)
+        return web.json_response(entries)
+
+    async def _handle_get_key_providers(self, request):
+        """Get list of supported providers for API key management."""
+        service = self._get_api_key_service()
+        if not service:
+            return web.json_response(
+                {'error': 'API key management not configured'}, status=501)
+
+        providers = []
+        for key, label in service.PROVIDER_LABELS.items():
+            providers.append({
+                'id': key,
+                'label': label,
+                'usage_link': service.PROVIDER_USAGE_LINKS.get(key),
+                'env_var': service.PROVIDER_ENV_MAP.get(key),
+            })
+        return web.json_response(providers)
 
     # ── WebSocket Handler ──────────────────────────────────────────
 
