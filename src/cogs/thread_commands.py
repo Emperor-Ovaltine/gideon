@@ -155,7 +155,7 @@ class ThreadCommands(commands.Cog):
                 thread_system_prompt = thread_config.get("system_prompt") if thread_config else None
 
                 if not thread_system_prompt:
-                    thread_system_prompt = self.state.get_channel_system_prompt(channel_id)
+                    thread_system_prompt = self.state.get_effective_system_prompt(channel_id)
                     if not thread_system_prompt:
                          # Fallback to global system prompt if no channel or thread specific prompt
                          thread_system_prompt = self.openrouter_client.system_prompt # Use the default from client init
@@ -293,9 +293,9 @@ class ThreadCommands(commands.Cog):
                 await ctx.respond(f"**{ctx.author.display_name}** in **{thread_name}**: {message}\n\n_Processing response..._")
                 processing_msg = None
 
-            # Fall back to channel-specific prompt if no thread prompt
+            # Fall back to effective system prompt (persona > channel config > global)
             if not thread_system_prompt:
-                thread_system_prompt = self.state.get_channel_system_prompt(channel_id)
+                thread_system_prompt = self.state.get_effective_system_prompt(channel_id)
                 if not thread_system_prompt:
                      # Fallback to global system prompt
                      thread_system_prompt = self.openrouter_client.system_prompt # Use the default from client init
@@ -609,7 +609,7 @@ class ThreadCommands(commands.Cog):
             # Determine the system prompt to use (thread-specific > channel-specific > global)
             system_prompt_to_use = thread_system_prompt
             if not system_prompt_to_use:
-                system_prompt_to_use = self.state.get_channel_system_prompt(channel_id)
+                system_prompt_to_use = self.state.get_effective_system_prompt(channel_id)
                 if not system_prompt_to_use:
                      system_prompt_to_use = self.openrouter_client.system_prompt # Fallback to default
 

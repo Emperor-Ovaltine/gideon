@@ -259,8 +259,8 @@ class ChatCommands(commands.Cog):
                     image_embed.description = f"⚠️ Provider '{provider}' model '{model_name}' doesn't support image analysis."
                 # If client_to_use is None, the error will be handled later
 
-        # Get channel-specific system prompt if it exists
-        channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+        # Get effective system prompt (persona > channel config > global)
+        channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
 
         try:
             # Get recent channel context from state manager
@@ -480,8 +480,8 @@ class ChatCommands(commands.Cog):
                 "content": query
             }
 
-            # Get channel-specific system prompt if it exists
-            channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+            # Get effective system prompt (persona > channel config > global)
+            channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
 
             # Add a search-focused wrapper to the system prompt
             search_system_prompt = channel_system_prompt

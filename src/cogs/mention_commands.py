@@ -889,7 +889,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
             return
 
         # Get conversation context
-        channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+        channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
         conversation_context = self.state.get_channel_history(channel_id)
 
         # Add current message to context
@@ -978,7 +978,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 return
 
             # Get conversation context
-            channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+            channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
             conversation_context = self.state.get_channel_history(channel_id)
             conversation_context.append({
                 "role": "user",
@@ -1027,7 +1027,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
             return
 
         # Enhance system prompt for search
-        channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+        channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
         if channel_system_prompt:
             search_system_prompt = channel_system_prompt + "\n\nYou have access to web search. When answering, use the most current information available from searching the web."
         else:
@@ -1382,8 +1382,8 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                                 except Exception as e:
                                     await message.channel.send(f"⚠️ Failed to process image {attachment.filename}: {str(e)}")
 
-                # Get channel-specific system prompt if it exists
-                channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+                # Get effective system prompt (persona > channel config > global)
+                channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
 
                 # Get recent channel context from state manager
                 conversation_context = self.state.get_channel_history(channel_id)
