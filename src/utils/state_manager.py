@@ -578,21 +578,27 @@ class BotStateManager:
         return self.global_provider
 
     def get_effective_model(self, channel_id: str) -> str:
-        """Gets the effective model (channel override or global default) in provider/model_name format."""
+        """Gets the effective model (persona > channel override > global default) in provider/model_name format."""
         logger.debug(f"[get_effective_model] Checking channel ID: {channel_id}")
-        channel_model = self.db_manager.get_channel_model(str(channel_id))
-        logger.debug(f"[get_effective_model] DB result for channel_model: {channel_model}")
 
-        model_to_return = None
-        source = "unknown" # Initialize source
-        if channel_model is not None:
-            model_to_return = channel_model
-            source = f"channel override ({channel_id})"
-            logger.debug(f"[get_effective_model] Using channel override: {model_to_return}")
+        # Check persona model first
+        persona = self.get_effective_persona(channel_id)
+        if persona and persona.get('model'):
+            logger.debug(f"[get_effective_model] Using persona model: {persona['model']}")
+            model_to_return = persona['model']
+            source = f"persona ({channel_id})"
         else:
-            model_to_return = self.get_global_model() # get_global_model now ensures correct format
-            source = "global default"
-            logger.debug(f"[get_effective_model] Using global default: {model_to_return}")
+            channel_model = self.db_manager.get_channel_model(str(channel_id))
+            logger.debug(f"[get_effective_model] DB result for channel_model: {channel_model}")
+
+            if channel_model is not None:
+                model_to_return = channel_model
+                source = f"channel override ({channel_id})"
+                logger.debug(f"[get_effective_model] Using channel override: {model_to_return}")
+            else:
+                model_to_return = self.get_global_model()
+                source = "global default"
+                logger.debug(f"[get_effective_model] Using global default: {model_to_return}")
 
         logger.debug(f"[get_effective_model] Model before format check: {model_to_return} (Source: {source})")
         # Final check for format consistency (handle potential old data from channel config)
@@ -620,6 +626,60 @@ class BotStateManager:
     def reset_channel_config(self, channel_id: str) -> bool:
         """Resets channel configuration to use global defaults."""
         return self.db_manager.reset_channel_config(str(channel_id))
+
+    # --- Persona Methods ---
+
+    def get_channel_persona(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Gets the persona configuration for a channel, or None if not configured."""
+        return self.db_manager.get_channel_persona(str(channel_id))
+
+    def get_effective_persona(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Returns the active persona for a channel, or None if no active persona."""
+        persona = self.db_manager.get_channel_persona(str(channel_id))
+        if persona and persona.get('is_active'):
+            return persona
+        return None
+
+    def get_effective_system_prompt(self, channel_id: str) -> Optional[str]:
+        """Gets the effective system prompt: Persona > Channel Config > Global."""
+        persona = self.get_effective_persona(channel_id)
+        if persona and persona.get('system_prompt'):
+            return persona['system_prompt']
+        channel_prompt = self.get_channel_system_prompt(channel_id)
+        if channel_prompt:
+            return channel_prompt
+        return self.get_global_system_prompt()
+
+    def get_effective_provider(self, channel_id: str) -> str:
+        """Gets the effective provider: Persona > Channel Config > Global."""
+        persona = self.get_effective_persona(channel_id)
+        if persona and persona.get('provider'):
+            return persona['provider']
+        return self.get_channel_provider(channel_id)
+
+    def set_channel_persona(self, channel_id: str, display_name: str, **kwargs) -> bool:
+        """Sets or updates the persona for a channel."""
+        return self.db_manager.set_channel_persona(str(channel_id), display_name, **kwargs)
+
+    def remove_channel_persona(self, channel_id: str) -> bool:
+        """Removes the persona for a channel."""
+        return self.db_manager.remove_channel_persona(str(channel_id))
+
+    def toggle_channel_persona(self, channel_id: str) -> Optional[bool]:
+        """Toggles persona active state. Returns new state or None if not found."""
+        return self.db_manager.toggle_channel_persona(str(channel_id))
+
+    def get_all_channel_personas(self) -> List[Dict[str, Any]]:
+        """Gets all channel persona configurations."""
+        return self.db_manager.get_all_channel_personas()
+
+    def get_all_persona_templates(self) -> List[Dict[str, Any]]:
+        """Gets all persona templates."""
+        return self.db_manager.get_all_persona_templates()
+
+    def get_persona_template(self, template_id: str) -> Optional[Dict[str, Any]]:
+        """Gets a persona template by ID."""
+        return self.db_manager.get_persona_template(template_id)
 
     # --- News Feed Methods (Delegation) ---
     # COMMENTED OUT: News feeds feature removed

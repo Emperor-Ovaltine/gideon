@@ -14,6 +14,7 @@ import pytz
 from .config import DISCORD_TOKEN, OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL, DATA_DIRECTORY, OPENAI_API_KEY, AI_HORDE_API_KEY, DASHBOARD_ENABLED, ENCRYPTION_MASTER_KEY
 # Removed: from .utils.model_sync import sync_models
 from .utils.state_manager import BotStateManager
+from .utils.webhook_sender import WebhookSender
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -90,6 +91,16 @@ async def on_ready():
         print("State manager initialized successfully.")
         # Log initial state from DB if needed (e.g., global model)
         print(f"Loaded global model from DB: {bot.state_manager.get_global_model()}")
+
+        # Initialize webhook sender for per-channel personas
+        bot.webhook_sender = WebhookSender(bot)
+        print("Webhook sender initialized.")
+
+        # Seed built-in persona templates
+        from .utils.persona_templates import BUILTIN_TEMPLATES
+        seeded = state.db_manager.seed_builtin_persona_templates(BUILTIN_TEMPLATES)
+        if seeded > 0:
+            print(f"Seeded {seeded} built-in persona templates.")
     except Exception as e:
         print(f"FATAL: Failed to initialize state manager or database: {e}", file=sys.stderr)
         traceback.print_exc()
@@ -164,6 +175,7 @@ async def on_ready():
         "src.cogs.trivia_commands",
         "src.cogs.help_commands",  # Interactive help system
         "src.cogs.dashboard_commands",  # Web admin dashboard
+        "src.cogs.persona_commands",  # Per-channel personas with webhooks
     ]
 
     # These cogs provide slash commands that duplicate dashboard functionality.

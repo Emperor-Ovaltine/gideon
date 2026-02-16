@@ -132,6 +132,18 @@ class DashboardServer:
         router.add_get('/api/keys/audit', self._handle_get_audit_log)
         router.add_get('/api/keys/providers', self._handle_get_key_providers)
 
+        # Persona API
+        router.add_get('/api/personas/templates', self._handle_get_persona_templates)
+        router.add_post('/api/personas/templates', self._handle_create_persona_template)
+        router.add_put('/api/personas/templates/{template_id}', self._handle_update_persona_template)
+        router.add_delete('/api/personas/templates/{template_id}', self._handle_delete_persona_template)
+        router.add_get('/api/personas/channels', self._handle_get_channel_personas)
+        router.add_get('/api/personas/channels/{channel_id}', self._handle_get_channel_persona)
+        router.add_put('/api/personas/channels/{channel_id}', self._handle_set_channel_persona)
+        router.add_delete('/api/personas/channels/{channel_id}', self._handle_remove_channel_persona)
+        router.add_post('/api/personas/channels/{channel_id}/toggle', self._handle_toggle_channel_persona)
+        router.add_post('/api/personas/channels/{channel_id}/apply-template', self._handle_apply_template)
+
         # WebSocket for real-time updates
         router.add_get('/ws', self._handle_websocket)
 
@@ -1117,6 +1129,211 @@ class DashboardServer:
             logger.info(f"WebSocket client disconnected (total: {len(self._ws_clients)})")
 
         return ws
+
+    # ── Persona Handlers ─────────────────────────────────────────
+
+    async def _handle_get_persona_templates(self, request):
+        """Get all persona templates."""
+        state = self.bot.state_manager
+        templates = state.get_all_persona_templates()
+        return web.json_response(templates)
+
+    async def _handle_create_persona_template(self, request):
+        """Create a new persona template."""
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+        required = ['template_id', 'name', 'display_name']
+        for field in required:
+            if field not in data or not data[field]:
+                return web.json_response({'error': f'{field} is required'}, status=400)
+
+        state = self.bot.state_manager
+        try:
+            state.db_manager.add_persona_template(
+                template_id=data['template_id'],
+                name=data['name'],
+                display_name=data['display_name'],
+                avatar_url=data.get('avatar_url'),
+                system_prompt=data.get('system_prompt'),
+                model=data.get('model'),
+                provider=data.get('provider'),
+                response_style=data.get('response_style'),
+                description=data.get('description'),
+                is_builtin=False,
+            )
+        except Exception as e:
+            return web.json_response({'error': str(e)}, status=500)
+
+        await self._broadcast_ws({'type': 'persona_template_created', 'template_id': data['template_id']})
+        return web.json_response({'status': 'ok', 'template_id': data['template_id']})
+
+    async def _handle_update_persona_template(self, request):
+        """Update a persona template."""
+        template_id = request.match_info['template_id']
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+        state = self.bot.state_manager
+        template = state.get_persona_template(template_id)
+        if not template:
+            return web.json_response({'error': 'Template not found'}, status=404)
+
+        try:
+            state.db_manager.update_persona_template(template_id, **data)
+        except Exception as e:
+            return web.json_response({'error': str(e)}, status=500)
+
+        await self._broadcast_ws({'type': 'persona_template_updated', 'template_id': template_id})
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_delete_persona_template(self, request):
+        """Delete a persona template."""
+        template_id = request.match_info['template_id']
+        state = self.bot.state_manager
+
+        template = state.get_persona_template(template_id)
+        if not template:
+            return web.json_response({'error': 'Template not found'}, status=404)
+        if template.get('is_builtin'):
+            return web.json_response({'error': 'Cannot delete built-in templates'}, status=403)
+
+        deleted = state.db_manager.delete_persona_template(template_id)
+        await self._broadcast_ws({'type': 'persona_template_deleted', 'template_id': template_id})
+        return web.json_response({'status': 'ok', 'deleted': deleted})
+
+    async def _handle_get_channel_personas(self, request):
+        """Get all channel personas."""
+        state = self.bot.state_manager
+        personas = state.get_all_channel_personas()
+
+        # Enrich with channel names
+        for p in personas:
+            try:
+                ch = self.bot.get_channel(int(p['channel_id']))
+                p['channel_name'] = ch.name if ch else None
+            except (ValueError, AttributeError):
+                p['channel_name'] = None
+
+        return web.json_response(personas)
+
+    async def _handle_get_channel_persona(self, request):
+        """Get persona for a specific channel."""
+        channel_id = request.match_info['channel_id']
+        state = self.bot.state_manager
+        persona = state.get_channel_persona(channel_id)
+
+        if not persona:
+            return web.json_response({'error': 'No persona configured'}, status=404)
+
+        try:
+            ch = self.bot.get_channel(int(channel_id))
+            persona['channel_name'] = ch.name if ch else None
+        except (ValueError, AttributeError):
+            persona['channel_name'] = None
+
+        return web.json_response(persona)
+
+    async def _handle_set_channel_persona(self, request):
+        """Set or update a channel's persona."""
+        channel_id = request.match_info['channel_id']
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+        if 'display_name' not in data or not data['display_name']:
+            return web.json_response({'error': 'display_name is required'}, status=400)
+
+        state = self.bot.state_manager
+        try:
+            state.set_channel_persona(
+                channel_id=channel_id,
+                display_name=data['display_name'],
+                avatar_url=data.get('avatar_url'),
+                system_prompt=data.get('system_prompt'),
+                model=data.get('model'),
+                provider=data.get('provider'),
+                response_style=data.get('response_style'),
+                template_id=data.get('template_id'),
+            )
+        except Exception as e:
+            return web.json_response({'error': str(e)}, status=500)
+
+        # Invalidate webhook cache
+        if hasattr(self.bot, 'webhook_sender'):
+            self.bot.webhook_sender.invalidate_cache(channel_id)
+
+        await self._broadcast_ws({'type': 'persona_updated', 'channel_id': channel_id})
+        return web.json_response({'status': 'ok'})
+
+    async def _handle_remove_channel_persona(self, request):
+        """Remove persona from a channel."""
+        channel_id = request.match_info['channel_id']
+        state = self.bot.state_manager
+        removed = state.remove_channel_persona(channel_id)
+
+        if hasattr(self.bot, 'webhook_sender'):
+            self.bot.webhook_sender.invalidate_cache(channel_id)
+
+        await self._broadcast_ws({'type': 'persona_removed', 'channel_id': channel_id})
+        return web.json_response({'status': 'ok', 'removed': removed})
+
+    async def _handle_toggle_channel_persona(self, request):
+        """Toggle active state of a channel persona."""
+        channel_id = request.match_info['channel_id']
+        state = self.bot.state_manager
+        new_state = state.toggle_channel_persona(channel_id)
+
+        if new_state is None:
+            return web.json_response({'error': 'No persona configured for this channel'}, status=404)
+
+        if hasattr(self.bot, 'webhook_sender'):
+            self.bot.webhook_sender.invalidate_cache(channel_id)
+
+        await self._broadcast_ws({'type': 'persona_toggled', 'channel_id': channel_id, 'is_active': new_state})
+        return web.json_response({'status': 'ok', 'is_active': new_state})
+
+    async def _handle_apply_template(self, request):
+        """Apply a persona template to a channel."""
+        channel_id = request.match_info['channel_id']
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+        template_id = data.get('template_id')
+        if not template_id:
+            return web.json_response({'error': 'template_id is required'}, status=400)
+
+        state = self.bot.state_manager
+        template = state.get_persona_template(template_id)
+        if not template:
+            return web.json_response({'error': 'Template not found'}, status=404)
+
+        try:
+            state.set_channel_persona(
+                channel_id=channel_id,
+                display_name=template['display_name'],
+                avatar_url=template.get('avatar_url'),
+                system_prompt=template.get('system_prompt'),
+                model=template.get('model'),
+                provider=template.get('provider'),
+                response_style=template.get('response_style'),
+                template_id=template_id,
+            )
+        except Exception as e:
+            return web.json_response({'error': str(e)}, status=500)
+
+        if hasattr(self.bot, 'webhook_sender'):
+            self.bot.webhook_sender.invalidate_cache(channel_id)
+
+        await self._broadcast_ws({'type': 'persona_template_applied', 'channel_id': channel_id, 'template_id': template_id})
+        return web.json_response({'status': 'ok'})
 
     async def _broadcast_ws(self, data: dict):
         """Broadcast a message to all connected WebSocket clients."""

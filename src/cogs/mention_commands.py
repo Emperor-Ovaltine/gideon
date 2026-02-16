@@ -917,11 +917,11 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 "timestamp": datetime.now()
             })
 
-            # Send in chunks
+            # Send in chunks (via persona webhook if configured)
             max_length = 2000
             chunks = [full_response[i:i+max_length] for i in range(0, len(full_response), max_length)]
             for chunk in chunks:
-                await message.channel.send(chunk)
+                await self.bot.webhook_sender.send_response(message.channel, chunk, channel_id)
 
         except Exception as e:
             logger.exception(f"[Intent] Error in fallback conversation: {e}")
@@ -1003,11 +1003,11 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                     "timestamp": datetime.now()
                 })
 
-                # Send response in chunks
+                # Send response in chunks (via persona webhook if configured)
                 max_length = 2000
                 chunks = [full_response[i:i+max_length] for i in range(0, len(full_response), max_length)]
                 for chunk in chunks:
-                    await message.channel.send(chunk)
+                    await self.bot.webhook_sender.send_response(message.channel, chunk, channel_id)
 
                 logger.info(f"[Intent] Search intent detected but provider {provider} doesn't support search, used conversation fallback")
                 return
@@ -1440,9 +1440,9 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                     max_length = 2000
                     chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
 
-                    # Send each chunk as a separate message
+                    # Send each chunk via persona webhook if configured
                     for chunk in chunks:
-                        await message.channel.send(chunk)
+                        await self.bot.webhook_sender.send_response(message.channel, chunk, channel_id)
 
             except Exception as e:
                  logger.exception(f"[Mention] Error processing mention in channel {channel_id}: {e}")

@@ -54,6 +54,9 @@
                 <li class="nav-item" data-tab="threads">
                     <span class="nav-icon">&#8801;</span> <span class="nav-label">Threads</span>
                 </li>
+                <li class="nav-item" data-tab="personas">
+                    <span class="nav-icon">&#128125;</span> <span class="nav-label">Personas</span>
+                </li>
                 <li class="nav-item" data-tab="image-gen">
                     <span class="nav-icon">&#127912;</span> <span class="nav-label">Image Gen</span>
                 </li>
@@ -429,6 +432,134 @@
                             <div class="modal-actions">
                                 <button type="submit" class="btn btn-primary">Save</button>
                                 <button type="button" class="btn btn-danger" id="thread-delete-btn">Delete Thread</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Personas Tab -->
+            <section id="tab-personas" class="tab-content">
+                <div class="tab-header">
+                    <h2>Per-Channel Personas</h2>
+                    <p class="tab-description">Configure unique identities per channel using Discord webhooks. Each persona has its own display name, avatar, and system prompt.</p>
+                </div>
+
+                <!-- Persona Templates -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Persona Templates</h3>
+                        <button class="btn btn-primary btn-small" id="create-template-btn">Create Template</button>
+                    </div>
+                    <div id="persona-templates-grid" class="persona-templates-grid">
+                        <p class="loading-text">Loading templates...</p>
+                    </div>
+                </div>
+
+                <!-- Channel Personas -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Channel Personas</h3>
+                    </div>
+                    <div id="channel-personas-list" class="table-container">
+                        <p class="loading-text">Loading channel personas...</p>
+                    </div>
+                </div>
+
+                <!-- Persona Editor Modal -->
+                <div id="persona-modal" class="modal" style="display:none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="persona-modal-title">Edit Persona</h3>
+                            <button class="modal-close" id="persona-modal-close">&times;</button>
+                        </div>
+                        <form id="persona-edit-form">
+                            <input type="hidden" id="persona-edit-channel-id">
+                            <div class="form-group">
+                                <label for="persona-edit-display-name">Display Name *</label>
+                                <input type="text" id="persona-edit-display-name" placeholder="e.g. TechBot, Muse, Professor" required maxlength="80">
+                            </div>
+                            <div class="form-group">
+                                <label for="persona-edit-avatar-url">Avatar URL</label>
+                                <div class="avatar-preview-row">
+                                    <input type="text" id="persona-edit-avatar-url" placeholder="https://example.com/avatar.png">
+                                    <img id="persona-avatar-preview" class="persona-avatar-preview" style="display:none;" alt="Preview">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="persona-edit-system-prompt">System Prompt</label>
+                                <textarea id="persona-edit-system-prompt" rows="4" placeholder="Custom personality and behavior for this persona"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="persona-edit-model">Model Override</label>
+                                <input type="text" id="persona-edit-model" placeholder="Leave blank for channel/global default">
+                            </div>
+                            <div class="form-group">
+                                <label for="persona-edit-provider">Provider Override</label>
+                                <select id="persona-edit-provider">
+                                    <option value="">Use Default</option>
+                                    <option value="openrouter">OpenRouter</option>
+                                    <option value="openai">OpenAI</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="persona-edit-template">Apply Template</label>
+                                <select id="persona-edit-template">
+                                    <option value="">Custom (no template)</option>
+                                </select>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="submit" class="btn btn-primary">Save Persona</button>
+                                <button type="button" class="btn btn-danger" id="persona-remove-btn">Remove Persona</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Template Editor Modal -->
+                <div id="template-modal" class="modal" style="display:none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="template-modal-title">Create Template</h3>
+                            <button class="modal-close" id="template-modal-close">&times;</button>
+                        </div>
+                        <form id="template-edit-form">
+                            <input type="hidden" id="template-edit-id">
+                            <div class="form-group">
+                                <label for="template-edit-name">Template Name *</label>
+                                <input type="text" id="template-edit-name" placeholder="e.g. Tech Guru" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="template-edit-display-name">Display Name *</label>
+                                <input type="text" id="template-edit-display-name" placeholder="e.g. TechBot" required maxlength="80">
+                            </div>
+                            <div class="form-group">
+                                <label for="template-edit-avatar-url">Avatar URL</label>
+                                <input type="text" id="template-edit-avatar-url" placeholder="https://example.com/avatar.png">
+                            </div>
+                            <div class="form-group">
+                                <label for="template-edit-description">Description</label>
+                                <input type="text" id="template-edit-description" placeholder="Short description of this persona">
+                            </div>
+                            <div class="form-group">
+                                <label for="template-edit-system-prompt">System Prompt</label>
+                                <textarea id="template-edit-system-prompt" rows="4" placeholder="Personality and behavior instructions"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="template-edit-model">Model</label>
+                                <input type="text" id="template-edit-model" placeholder="Leave blank for default">
+                            </div>
+                            <div class="form-group">
+                                <label for="template-edit-provider">Provider</label>
+                                <select id="template-edit-provider">
+                                    <option value="">Default</option>
+                                    <option value="openrouter">OpenRouter</option>
+                                    <option value="openai">OpenAI</option>
+                                </select>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="submit" class="btn btn-primary">Save Template</button>
+                                <button type="button" class="btn btn-danger" id="template-delete-btn" style="display:none;">Delete Template</button>
                             </div>
                         </form>
                     </div>

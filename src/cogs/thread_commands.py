@@ -318,15 +318,28 @@ class ThreadCommands(commands.Cog):
             max_length = 2000
             chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
 
+            # Check if a persona is active for webhook-based sending
+            parent_id = str(ctx.channel.parent_id) if isinstance(ctx.channel, discord.Thread) else str(ctx.channel.id)
+            thread_persona_active = (hasattr(self.bot, 'webhook_sender')
+                                     and self.bot.state_manager.get_effective_persona(parent_id))
+
             # Process the first chunk differently if we have a processing message to edit
             for i, chunk in enumerate(chunks):
                 if i == 0:
-                    if processing_msg:
+                    if thread_persona_active and processing_msg:
+                        await processing_msg.delete()
+                        await self.bot.webhook_sender.send_response(
+                            ctx.channel, f"**Thread: {thread_name}**\n\n{chunk}", parent_id
+                        )
+                    elif processing_msg:
                         await processing_msg.edit(content=f"**Thread: {thread_name}**\n\n{chunk}")
                     else:
                         await ctx.followup.send(f"**Thread: {thread_name}**\n\n{chunk}")
                 else:
-                    await ctx.channel.send(chunk)
+                    if thread_persona_active:
+                        await self.bot.webhook_sender.send_response(ctx.channel, chunk, parent_id)
+                    else:
+                        await ctx.channel.send(chunk)
         finally:
             # Restore original model
             self.openrouter_client.model = current_model
@@ -641,12 +654,23 @@ class ThreadCommands(commands.Cog):
                 max_length = 2000
                 chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
 
-                # Update thinking message with first chunk
+                # Check if persona is active for the parent channel
+                auto_parent_id = str(message.channel.parent_id) if isinstance(message.channel, discord.Thread) else str(message.channel.id)
+                auto_persona_active = (hasattr(self.bot, 'webhook_sender')
+                                       and self.bot.state_manager.get_effective_persona(auto_parent_id))
+
+                # Update thinking message with first chunk or send via webhook
                 if chunks:
-                    await thinking_msg.edit(content=chunks[0])
-                    # Send remaining chunks
-                    for chunk in chunks[1:]:
-                        await message.channel.send(chunk)
+                    if auto_persona_active:
+                        await thinking_msg.delete()
+                        for chunk in chunks:
+                            await self.bot.webhook_sender.send_response(
+                                message.channel, chunk, auto_parent_id
+                            )
+                    else:
+                        await thinking_msg.edit(content=chunks[0])
+                        for chunk in chunks[1:]:
+                            await message.channel.send(chunk)
                 else:
                     await thinking_msg.edit(content="Received an empty response from the AI.")
 

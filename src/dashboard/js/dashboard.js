@@ -201,6 +201,7 @@
             case 'settings': loadSettings(); break;
             case 'channels': loadChannels(); break;
             case 'threads': loadThreads(); break;
+            case 'personas': loadPersonas(); break;
             case 'image-gen': loadImageSettings(); break;
             case 'messages': loadMessageSources(); break;
             case 'diagnostics': break;
@@ -779,6 +780,316 @@
 
     function statusDot(type) {
         return '<span class="dot ' + type + '"></span>';
+    }
+
+    // ── Personas ─────────────────────────────────────────────
+
+    var personaTemplatesData = [];
+    var channelPersonasData = [];
+
+    async function loadPersonas() {
+        await Promise.all([loadPersonaTemplates(), loadChannelPersonas()]);
+    }
+
+    async function loadPersonaTemplates() {
+        var container = $('#persona-templates-grid');
+        try {
+            personaTemplatesData = await api('GET', '/api/personas/templates');
+            renderPersonaTemplates();
+        } catch (e) {
+            container.innerHTML = '<div class="empty-state">Error loading templates: ' + escapeHtml(e.message) + '</div>';
+        }
+    }
+
+    function renderPersonaTemplates() {
+        var container = $('#persona-templates-grid');
+        if (personaTemplatesData.length === 0) {
+            container.innerHTML = '<div class="empty-state">No persona templates found.</div>';
+            return;
+        }
+
+        var html = '';
+        personaTemplatesData.forEach(function(t) {
+            var builtinBadge = t.is_builtin ? '<span class="badge badge-info">Built-in</span>' : '';
+            var avatarHtml = t.avatar_url
+                ? '<img src="' + escapeHtml(t.avatar_url) + '" class="persona-template-avatar" alt="avatar">'
+                : '<div class="persona-template-avatar persona-avatar-placeholder">' + escapeHtml(t.display_name.charAt(0).toUpperCase()) + '</div>';
+
+            html += '<div class="persona-template-card">';
+            html += '<div class="persona-template-card-header">';
+            html += avatarHtml;
+            html += '<div>';
+            html += '<strong>' + escapeHtml(t.name) + '</strong> ' + builtinBadge;
+            html += '<div class="text-muted">' + escapeHtml(t.display_name) + '</div>';
+            html += '</div>';
+            html += '</div>';
+            if (t.description) {
+                html += '<p class="persona-template-desc">' + escapeHtml(t.description) + '</p>';
+            }
+            html += '<div class="persona-template-actions">';
+            if (!t.is_builtin) {
+                html += '<button class="btn btn-small btn-secondary" onclick="window._editTemplate(\'' + escapeHtml(t.template_id) + '\')">Edit</button>';
+            }
+            html += '<button class="btn btn-small btn-primary" onclick="window._applyTemplatePrompt(\'' + escapeHtml(t.template_id) + '\')">Apply to Channel</button>';
+            html += '</div>';
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
+
+        // Populate template selector in persona modal
+        var sel = document.getElementById('persona-edit-template');
+        if (sel) {
+            sel.innerHTML = '<option value="">Custom (no template)</option>';
+            personaTemplatesData.forEach(function(t) {
+                sel.innerHTML += '<option value="' + escapeHtml(t.template_id) + '">' + escapeHtml(t.name) + ' (' + escapeHtml(t.display_name) + ')</option>';
+            });
+        }
+    }
+
+    async function loadChannelPersonas() {
+        var container = $('#channel-personas-list');
+        try {
+            channelPersonasData = await api('GET', '/api/personas/channels');
+            renderChannelPersonas();
+        } catch (e) {
+            container.innerHTML = '<div class="empty-state">Error loading personas: ' + escapeHtml(e.message) + '</div>';
+        }
+    }
+
+    function renderChannelPersonas() {
+        var container = $('#channel-personas-list');
+        if (channelPersonasData.length === 0) {
+            container.innerHTML = '<div class="empty-state">No channel personas configured. Use the templates above or click Edit on a channel.</div>';
+            return;
+        }
+
+        var html = '<table class="data-table"><thead><tr>' +
+            '<th>Channel</th><th>Persona</th><th>Template</th><th>Status</th><th>Actions</th>' +
+            '</tr></thead><tbody>';
+
+        channelPersonasData.forEach(function(p) {
+            var channelName = p.channel_name ? '#' + p.channel_name : 'ID:' + p.channel_id;
+            var statusClass = p.is_active ? 'badge-accent' : 'badge-default';
+            var statusLabel = p.is_active ? 'Active' : 'Inactive';
+            var templateName = p.template_name || '<span class="text-muted">Custom</span>';
+
+            html += '<tr>';
+            html += '<td>' + escapeHtml(channelName) + '</td>';
+            html += '<td><strong>' + escapeHtml(p.display_name) + '</strong></td>';
+            html += '<td>' + templateName + '</td>';
+            html += '<td><span class="badge ' + statusClass + '">' + statusLabel + '</span></td>';
+            html += '<td>';
+            html += '<button class="btn btn-small btn-secondary" onclick="window._editPersona(\'' + escapeHtml(p.channel_id) + '\')">Edit</button> ';
+            html += '<button class="btn btn-small btn-' + (p.is_active ? 'warning' : 'primary') + '" onclick="window._togglePersona(\'' + escapeHtml(p.channel_id) + '\')">' + (p.is_active ? 'Disable' : 'Enable') + '</button>';
+            html += '</td>';
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    // -- Persona Modal --
+
+    async function editPersona(channelId) {
+        try {
+            var data = await api('GET', '/api/personas/channels/' + channelId);
+            $('#persona-edit-channel-id').value = channelId;
+            $('#persona-modal-title').textContent = 'Edit Persona: ' + (data.channel_name ? '#' + data.channel_name : channelId);
+            $('#persona-edit-display-name').value = data.display_name || '';
+            $('#persona-edit-avatar-url').value = data.avatar_url || '';
+            $('#persona-edit-system-prompt').value = data.system_prompt || '';
+            $('#persona-edit-model').value = data.model || '';
+            $('#persona-edit-provider').value = data.provider || '';
+            $('#persona-edit-template').value = data.template_id || '';
+            $('#persona-remove-btn').style.display = '';
+
+            // Avatar preview
+            updatePersonaAvatarPreview();
+
+            $('#persona-modal').style.display = 'flex';
+        } catch (e) {
+            // If no persona exists, open blank
+            $('#persona-edit-channel-id').value = channelId;
+            $('#persona-modal-title').textContent = 'Set Persona for Channel ' + channelId;
+            $('#persona-edit-display-name').value = '';
+            $('#persona-edit-avatar-url').value = '';
+            $('#persona-edit-system-prompt').value = '';
+            $('#persona-edit-model').value = '';
+            $('#persona-edit-provider').value = '';
+            $('#persona-edit-template').value = '';
+            $('#persona-remove-btn').style.display = 'none';
+            $('#persona-modal').style.display = 'flex';
+        }
+    }
+    window._editPersona = editPersona;
+
+    function updatePersonaAvatarPreview() {
+        var url = $('#persona-edit-avatar-url').value;
+        var preview = $('#persona-avatar-preview');
+        if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+            preview.src = url;
+            preview.style.display = 'block';
+            preview.onerror = function() { preview.style.display = 'none'; };
+        } else {
+            preview.style.display = 'none';
+        }
+    }
+
+    async function savePersona(e) {
+        e.preventDefault();
+        var channelId = $('#persona-edit-channel-id').value;
+        var displayName = $('#persona-edit-display-name').value.trim();
+        if (!displayName) { alert('Display name is required.'); return; }
+
+        try {
+            await api('PUT', '/api/personas/channels/' + channelId, {
+                display_name: displayName,
+                avatar_url: $('#persona-edit-avatar-url').value || null,
+                system_prompt: $('#persona-edit-system-prompt').value || null,
+                model: $('#persona-edit-model').value || null,
+                provider: $('#persona-edit-provider').value || null,
+                template_id: $('#persona-edit-template').value || null,
+            });
+            $('#persona-modal').style.display = 'none';
+            loadPersonas();
+        } catch (e) {
+            alert('Error saving persona: ' + e.message);
+        }
+    }
+
+    async function removePersona() {
+        var channelId = $('#persona-edit-channel-id').value;
+        if (!confirm('Remove persona from this channel?')) return;
+        try {
+            await api('DELETE', '/api/personas/channels/' + channelId);
+            $('#persona-modal').style.display = 'none';
+            loadPersonas();
+        } catch (e) {
+            alert('Error removing persona: ' + e.message);
+        }
+    }
+
+    async function togglePersona(channelId) {
+        try {
+            await api('POST', '/api/personas/channels/' + channelId + '/toggle');
+            loadChannelPersonas();
+        } catch (e) {
+            alert('Error toggling persona: ' + e.message);
+        }
+    }
+    window._togglePersona = togglePersona;
+
+    // -- Template Modal --
+
+    function openCreateTemplate() {
+        $('#template-edit-id').value = '';
+        $('#template-modal-title').textContent = 'Create Template';
+        $('#template-edit-name').value = '';
+        $('#template-edit-display-name').value = '';
+        $('#template-edit-avatar-url').value = '';
+        $('#template-edit-description').value = '';
+        $('#template-edit-system-prompt').value = '';
+        $('#template-edit-model').value = '';
+        $('#template-edit-provider').value = '';
+        $('#template-delete-btn').style.display = 'none';
+        $('#template-modal').style.display = 'flex';
+    }
+
+    async function editTemplate(templateId) {
+        var t = personaTemplatesData.find(function(x) { return x.template_id === templateId; });
+        if (!t) { alert('Template not found.'); return; }
+        if (t.is_builtin) { alert('Built-in templates cannot be edited.'); return; }
+
+        $('#template-edit-id').value = t.template_id;
+        $('#template-modal-title').textContent = 'Edit Template: ' + t.name;
+        $('#template-edit-name').value = t.name || '';
+        $('#template-edit-display-name').value = t.display_name || '';
+        $('#template-edit-avatar-url').value = t.avatar_url || '';
+        $('#template-edit-description').value = t.description || '';
+        $('#template-edit-system-prompt').value = t.system_prompt || '';
+        $('#template-edit-model').value = t.model || '';
+        $('#template-edit-provider').value = t.provider || '';
+        $('#template-delete-btn').style.display = '';
+        $('#template-modal').style.display = 'flex';
+    }
+    window._editTemplate = editTemplate;
+
+    async function saveTemplate(e) {
+        e.preventDefault();
+        var templateId = $('#template-edit-id').value;
+        var name = $('#template-edit-name').value.trim();
+        var displayName = $('#template-edit-display-name').value.trim();
+        if (!name || !displayName) { alert('Name and display name are required.'); return; }
+
+        var payload = {
+            name: name,
+            display_name: displayName,
+            avatar_url: $('#template-edit-avatar-url').value || null,
+            description: $('#template-edit-description').value || null,
+            system_prompt: $('#template-edit-system-prompt').value || null,
+            model: $('#template-edit-model').value || null,
+            provider: $('#template-edit-provider').value || null,
+        };
+
+        try {
+            if (templateId) {
+                await api('PUT', '/api/personas/templates/' + templateId, payload);
+            } else {
+                // Generate slug-style ID
+                payload.template_id = 'custom-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+                await api('POST', '/api/personas/templates', payload);
+            }
+            $('#template-modal').style.display = 'none';
+            loadPersonaTemplates();
+        } catch (e) {
+            alert('Error saving template: ' + e.message);
+        }
+    }
+
+    async function deleteTemplate() {
+        var templateId = $('#template-edit-id').value;
+        if (!templateId) return;
+        if (!confirm('Delete this template?')) return;
+        try {
+            await api('DELETE', '/api/personas/templates/' + templateId);
+            $('#template-modal').style.display = 'none';
+            loadPersonaTemplates();
+        } catch (e) {
+            alert('Error deleting template: ' + e.message);
+        }
+    }
+
+    // -- Apply Template to Channel --
+
+    async function applyTemplatePrompt(templateId) {
+        var channelId = prompt('Enter the channel ID to apply this template to:');
+        if (!channelId) return;
+        try {
+            await api('POST', '/api/personas/channels/' + channelId + '/apply-template', {
+                template_id: templateId
+            });
+            loadChannelPersonas();
+            alert('Template applied successfully.');
+        } catch (e) {
+            alert('Error applying template: ' + e.message);
+        }
+    }
+    window._applyTemplatePrompt = applyTemplatePrompt;
+
+    // -- Template auto-fill in persona editor --
+    function onTemplateSelect() {
+        var templateId = $('#persona-edit-template').value;
+        if (!templateId) return;
+        var t = personaTemplatesData.find(function(x) { return x.template_id === templateId; });
+        if (!t) return;
+        $('#persona-edit-display-name').value = t.display_name || '';
+        $('#persona-edit-avatar-url').value = t.avatar_url || '';
+        $('#persona-edit-system-prompt').value = t.system_prompt || '';
+        $('#persona-edit-model').value = t.model || '';
+        $('#persona-edit-provider').value = t.provider || '';
+        updatePersonaAvatarPreview();
     }
 
     // ── Image Generation ─────────────────────────────────────
@@ -1500,6 +1811,23 @@
             $('#channel-modal').style.display = 'none';
         });
         $('#channel-reset-btn').addEventListener('click', resetChannel);
+
+        // Persona modals
+        $('#persona-edit-form').addEventListener('submit', savePersona);
+        $('#persona-modal-close').addEventListener('click', function () {
+            $('#persona-modal').style.display = 'none';
+        });
+        $('#persona-remove-btn').addEventListener('click', removePersona);
+        $('#persona-edit-avatar-url').addEventListener('input', updatePersonaAvatarPreview);
+        $('#persona-edit-template').addEventListener('change', onTemplateSelect);
+
+        // Template modal
+        $('#template-edit-form').addEventListener('submit', saveTemplate);
+        $('#template-modal-close').addEventListener('click', function () {
+            $('#template-modal').style.display = 'none';
+        });
+        $('#template-delete-btn').addEventListener('click', deleteTemplate);
+        $('#create-template-btn').addEventListener('click', openCreateTemplate);
 
         // Thread modal
         $('#thread-edit-form').addEventListener('submit', saveThread);
