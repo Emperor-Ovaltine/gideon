@@ -928,10 +928,20 @@
     }
     window._editPersona = editPersona;
 
+    function isSafeHttpUrl(url) {
+        if (!url || typeof url !== 'string') return false;
+        try {
+            var parsed = new URL(url);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch (e) {
+            return false;
+        }
+    }
+
     function updatePersonaAvatarPreview() {
         var url = $('#persona-edit-avatar-url').value;
         var preview = $('#persona-avatar-preview');
-        if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        if (isSafeHttpUrl(url)) {
             preview.src = url;
             preview.style.display = 'block';
             preview.onerror = function() { preview.style.display = 'none'; };
