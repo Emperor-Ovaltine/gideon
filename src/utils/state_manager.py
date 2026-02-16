@@ -634,11 +634,28 @@ class BotStateManager:
         return self.db_manager.get_channel_persona(str(channel_id))
 
     def get_effective_persona(self, channel_id: str) -> Optional[Dict[str, Any]]:
-        """Returns the active persona for a channel, or None if no active persona."""
+        """Returns the active persona for a channel, or None if no active persona.
+
+        If the persona is linked to a template, merges template values as fallbacks
+        for any fields the channel persona hasn't explicitly set. This means edits
+        to a template automatically propagate to all linked channel personas.
+        """
         persona = self.db_manager.get_channel_persona(str(channel_id))
-        if persona and persona.get('is_active'):
-            return persona
-        return None
+        if not persona or not persona.get('is_active'):
+            return None
+
+        # If linked to a template, merge template fields as fallbacks
+        template_id = persona.get('template_id')
+        if template_id:
+            template = self.db_manager.get_persona_template(template_id)
+            if template:
+                mergeable = ('display_name', 'avatar_url', 'system_prompt',
+                             'model', 'provider', 'response_style')
+                for field in mergeable:
+                    if not persona.get(field) and template.get(field):
+                        persona[field] = template[field]
+
+        return persona
 
     def get_effective_system_prompt(self, channel_id: str) -> Optional[str]:
         """Gets the effective system prompt: Persona > Channel Config > Global."""
