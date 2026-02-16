@@ -1727,3 +1727,58 @@ select {
 .btn-warning:hover {
     background: #c99015;
 }
+
+/* ── Channel Picker ──────────────────────────────────── */
+
+.channel-picker-list {
+    max-height: 360px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+}
+
+.channel-picker-group-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-subtle);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.channel-picker-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background var(--duration) var(--ease);
+    font-size: 14px;
+}
+
+.channel-picker-item:hover {
+    background: var(--bg-hover);
+}
+
+.channel-picker-item:last-child {
+    border-bottom: none;
+}
+
+.channel-picker-item .channel-picker-name {
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.channel-picker-item .channel-picker-category {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+}
