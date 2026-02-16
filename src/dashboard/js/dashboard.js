@@ -928,21 +928,25 @@
     }
     window._editPersona = editPersona;
 
-    function isSafeHttpUrl(url) {
-        if (!url || typeof url !== 'string') return false;
+    function sanitizeHttpUrl(url) {
+        if (!url || typeof url !== 'string') return null;
         try {
             var parsed = new URL(url);
-            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                return parsed.href;
+            }
+            return null;
         } catch (e) {
-            return false;
+            return null;
         }
     }
 
     function updatePersonaAvatarPreview() {
         var url = $('#persona-edit-avatar-url').value;
         var preview = $('#persona-avatar-preview');
-        if (isSafeHttpUrl(url)) {
-            preview.src = url;
+        var safeUrl = sanitizeHttpUrl(url);
+        if (safeUrl) {
+            preview.src = safeUrl;
             preview.style.display = 'block';
             preview.onerror = function() { preview.style.display = 'none'; };
         } else {
