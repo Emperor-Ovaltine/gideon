@@ -99,8 +99,8 @@ async def on_ready():
         # Seed built-in persona templates
         from .utils.persona_templates import BUILTIN_TEMPLATES
         seeded = state.db_manager.seed_builtin_persona_templates(BUILTIN_TEMPLATES)
-        if seeded > 0:
-            print(f"Seeded {seeded} built-in persona templates.")
+        existing = len(state.db_manager.get_all_persona_templates())
+        logger.info(f"Persona templates: {seeded} new seeded, {existing} total available")
     except Exception as e:
         print(f"FATAL: Failed to initialize state manager or database: {e}", file=sys.stderr)
         traceback.print_exc()

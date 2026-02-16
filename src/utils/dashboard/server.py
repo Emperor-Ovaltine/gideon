@@ -70,11 +70,11 @@ class DashboardServer:
         router.add_get('/', self._handle_index)
         router.add_get('/login', self._handle_login_page)
 
-        # Static asset routes
+        # Static asset routes (append_version busts browser cache on file changes)
         if os.path.isdir(css_dir):
-            router.add_static('/css/', css_dir)
+            router.add_static('/css/', css_dir, append_version=True)
         if os.path.isdir(js_dir):
-            router.add_static('/js/', js_dir)
+            router.add_static('/js/', js_dir, append_version=True)
 
         # Auth API
         router.add_post('/api/auth/login', self._handle_login)

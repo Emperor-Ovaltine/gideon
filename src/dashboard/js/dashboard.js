@@ -52,6 +52,11 @@
         return document.querySelectorAll(selector);
     }
 
+    function bindEvent(selector, event, handler) {
+        var el = document.querySelector(selector);
+        if (el) el.addEventListener(event, handler);
+    }
+
     function formatUptime(seconds) {
         const d = Math.floor(seconds / 86400);
         const h = Math.floor((seconds % 86400) / 3600);
@@ -1813,21 +1818,21 @@
         $('#channel-reset-btn').addEventListener('click', resetChannel);
 
         // Persona modals
-        $('#persona-edit-form').addEventListener('submit', savePersona);
-        $('#persona-modal-close').addEventListener('click', function () {
+        bindEvent('#persona-edit-form', 'submit', savePersona);
+        bindEvent('#persona-modal-close', 'click', function () {
             $('#persona-modal').style.display = 'none';
         });
-        $('#persona-remove-btn').addEventListener('click', removePersona);
-        $('#persona-edit-avatar-url').addEventListener('input', updatePersonaAvatarPreview);
-        $('#persona-edit-template').addEventListener('change', onTemplateSelect);
+        bindEvent('#persona-remove-btn', 'click', removePersona);
+        bindEvent('#persona-edit-avatar-url', 'input', updatePersonaAvatarPreview);
+        bindEvent('#persona-edit-template', 'change', onTemplateSelect);
 
         // Template modal
-        $('#template-edit-form').addEventListener('submit', saveTemplate);
-        $('#template-modal-close').addEventListener('click', function () {
+        bindEvent('#template-edit-form', 'submit', saveTemplate);
+        bindEvent('#template-modal-close', 'click', function () {
             $('#template-modal').style.display = 'none';
         });
-        $('#template-delete-btn').addEventListener('click', deleteTemplate);
-        $('#create-template-btn').addEventListener('click', openCreateTemplate);
+        bindEvent('#template-delete-btn', 'click', deleteTemplate);
+        bindEvent('#create-template-btn', 'click', openCreateTemplate);
 
         // Thread modal
         $('#thread-edit-form').addEventListener('submit', saveThread);
