@@ -52,6 +52,11 @@
         return document.querySelectorAll(selector);
     }
 
+    function bindEvent(selector, event, handler) {
+        var el = document.querySelector(selector);
+        if (el) el.addEventListener(event, handler);
+    }
+
     function formatUptime(seconds) {
         const d = Math.floor(seconds / 86400);
         const h = Math.floor((seconds % 86400) / 3600);
@@ -201,6 +206,7 @@
             case 'settings': loadSettings(); break;
             case 'channels': loadChannels(); break;
             case 'threads': loadThreads(); break;
+            case 'personas': loadPersonas(); break;
             case 'image-gen': loadImageSettings(); break;
             case 'messages': loadMessageSources(); break;
             case 'diagnostics': break;
@@ -779,6 +785,410 @@
 
     function statusDot(type) {
         return '<span class="dot ' + type + '"></span>';
+    }
+
+    // ── Personas ─────────────────────────────────────────────
+
+    var personaTemplatesData = [];
+    var channelPersonasData = [];
+
+    async function loadPersonas() {
+        await Promise.all([loadPersonaTemplates(), loadChannelPersonas()]);
+    }
+
+    async function loadPersonaTemplates() {
+        var container = $('#persona-templates-grid');
+        try {
+            personaTemplatesData = await api('GET', '/api/personas/templates');
+            renderPersonaTemplates();
+        } catch (e) {
+            container.innerHTML = '<div class="empty-state">Error loading templates: ' + escapeHtml(e.message) + '</div>';
+        }
+    }
+
+    function renderPersonaTemplates() {
+        var container = $('#persona-templates-grid');
+        if (personaTemplatesData.length === 0) {
+            container.innerHTML = '<div class="empty-state">No persona templates found.</div>';
+            return;
+        }
+
+        var html = '';
+        personaTemplatesData.forEach(function(t) {
+            var builtinBadge = t.is_builtin ? '<span class="badge badge-info">Built-in</span>' : '';
+            var avatarHtml = t.avatar_url
+                ? '<img src="' + escapeHtml(t.avatar_url) + '" class="persona-template-avatar" alt="avatar">'
+                : '<div class="persona-template-avatar persona-avatar-placeholder">' + escapeHtml(t.display_name.charAt(0).toUpperCase()) + '</div>';
+
+            html += '<div class="persona-template-card">';
+            html += '<div class="persona-template-card-header">';
+            html += avatarHtml;
+            html += '<div>';
+            html += '<strong>' + escapeHtml(t.name) + '</strong> ' + builtinBadge;
+            html += '<div class="text-muted">' + escapeHtml(t.display_name) + '</div>';
+            html += '</div>';
+            html += '</div>';
+            if (t.description) {
+                html += '<p class="persona-template-desc">' + escapeHtml(t.description) + '</p>';
+            }
+            html += '<div class="persona-template-actions">';
+            html += '<button class="btn btn-small btn-secondary" onclick="window._editTemplate(\'' + escapeHtml(t.template_id) + '\')">Edit</button>';
+            html += '<button class="btn btn-small btn-primary" onclick="window._applyTemplatePrompt(\'' + escapeHtml(t.template_id) + '\')">Apply to Channel</button>';
+            html += '</div>';
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
+
+        // Populate template selector in persona modal
+        var sel = document.getElementById('persona-edit-template');
+        if (sel) {
+            sel.innerHTML = '<option value="">Custom (no template)</option>';
+            personaTemplatesData.forEach(function(t) {
+                sel.innerHTML += '<option value="' + escapeHtml(t.template_id) + '">' + escapeHtml(t.name) + ' (' + escapeHtml(t.display_name) + ')</option>';
+            });
+        }
+    }
+
+    async function loadChannelPersonas() {
+        var container = $('#channel-personas-list');
+        try {
+            channelPersonasData = await api('GET', '/api/personas/channels');
+            renderChannelPersonas();
+        } catch (e) {
+            container.innerHTML = '<div class="empty-state">Error loading personas: ' + escapeHtml(e.message) + '</div>';
+        }
+    }
+
+    function renderChannelPersonas() {
+        var container = $('#channel-personas-list');
+        if (channelPersonasData.length === 0) {
+            container.innerHTML = '<div class="empty-state">No channel personas configured. Use the templates above or click Edit on a channel.</div>';
+            return;
+        }
+
+        var html = '<table class="data-table"><thead><tr>' +
+            '<th>Channel</th><th>Persona</th><th>Template</th><th>Status</th><th>Actions</th>' +
+            '</tr></thead><tbody>';
+
+        channelPersonasData.forEach(function(p) {
+            var channelName = p.channel_name ? '#' + p.channel_name : 'ID:' + p.channel_id;
+            var statusClass = p.is_active ? 'badge-accent' : 'badge-default';
+            var statusLabel = p.is_active ? 'Active' : 'Inactive';
+            var templateName = p.template_name || '<span class="text-muted">Custom</span>';
+
+            html += '<tr>';
+            html += '<td>' + escapeHtml(channelName) + '</td>';
+            html += '<td><strong>' + escapeHtml(p.display_name) + '</strong></td>';
+            html += '<td>' + templateName + '</td>';
+            html += '<td><span class="badge ' + statusClass + '">' + statusLabel + '</span></td>';
+            html += '<td>';
+            html += '<button class="btn btn-small btn-secondary" onclick="window._editPersona(\'' + escapeHtml(p.channel_id) + '\')">Edit</button> ';
+            html += '<button class="btn btn-small btn-' + (p.is_active ? 'warning' : 'primary') + '" onclick="window._togglePersona(\'' + escapeHtml(p.channel_id) + '\')">' + (p.is_active ? 'Disable' : 'Enable') + '</button>';
+            html += '</td>';
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    // -- Persona Modal --
+
+    async function editPersona(channelId) {
+        try {
+            var data = await api('GET', '/api/personas/channels/' + channelId);
+            $('#persona-edit-channel-id').value = channelId;
+            $('#persona-modal-title').textContent = 'Edit Persona: ' + (data.channel_name ? '#' + data.channel_name : channelId);
+            $('#persona-edit-display-name').value = data.display_name || '';
+            $('#persona-edit-avatar-url').value = data.avatar_url || '';
+            $('#persona-edit-system-prompt').value = data.system_prompt || '';
+            $('#persona-edit-model').value = data.model || '';
+            $('#persona-edit-provider').value = data.provider || '';
+            $('#persona-edit-template').value = data.template_id || '';
+            $('#persona-remove-btn').style.display = '';
+
+            // Avatar preview
+            updatePersonaAvatarPreview();
+
+            $('#persona-modal').style.display = 'flex';
+        } catch (e) {
+            // If no persona exists, open blank
+            $('#persona-edit-channel-id').value = channelId;
+            $('#persona-modal-title').textContent = 'Set Persona for Channel ' + channelId;
+            $('#persona-edit-display-name').value = '';
+            $('#persona-edit-avatar-url').value = '';
+            $('#persona-edit-system-prompt').value = '';
+            $('#persona-edit-model').value = '';
+            $('#persona-edit-provider').value = '';
+            $('#persona-edit-template').value = '';
+            $('#persona-remove-btn').style.display = 'none';
+            $('#persona-modal').style.display = 'flex';
+        }
+    }
+    window._editPersona = editPersona;
+
+    function sanitizeHttpUrl(url) {
+        if (!url || typeof url !== 'string') return null;
+        try {
+            var parsed = new URL(url);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                return parsed.href;
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function updatePersonaAvatarPreview() {
+        var url = $('#persona-edit-avatar-url').value;
+        var preview = $('#persona-avatar-preview');
+        var safeUrl = sanitizeHttpUrl(url);
+        if (safeUrl) {
+            preview.src = safeUrl;
+            preview.style.display = 'block';
+            preview.onerror = function() { preview.style.display = 'none'; };
+        } else {
+            preview.style.display = 'none';
+        }
+    }
+
+    async function savePersona(e) {
+        e.preventDefault();
+        var channelId = $('#persona-edit-channel-id').value;
+        var displayName = $('#persona-edit-display-name').value.trim();
+        if (!displayName) { alert('Display name is required.'); return; }
+
+        try {
+            await api('PUT', '/api/personas/channels/' + channelId, {
+                display_name: displayName,
+                avatar_url: $('#persona-edit-avatar-url').value || null,
+                system_prompt: $('#persona-edit-system-prompt').value || null,
+                model: $('#persona-edit-model').value || null,
+                provider: $('#persona-edit-provider').value || null,
+                template_id: $('#persona-edit-template').value || null,
+            });
+            $('#persona-modal').style.display = 'none';
+            loadPersonas();
+        } catch (e) {
+            alert('Error saving persona: ' + e.message);
+        }
+    }
+
+    async function removePersona() {
+        var channelId = $('#persona-edit-channel-id').value;
+        if (!confirm('Remove persona from this channel?')) return;
+        try {
+            await api('DELETE', '/api/personas/channels/' + channelId);
+            $('#persona-modal').style.display = 'none';
+            loadPersonas();
+        } catch (e) {
+            alert('Error removing persona: ' + e.message);
+        }
+    }
+
+    async function togglePersona(channelId) {
+        try {
+            await api('POST', '/api/personas/channels/' + channelId + '/toggle');
+            loadChannelPersonas();
+        } catch (e) {
+            alert('Error toggling persona: ' + e.message);
+        }
+    }
+    window._togglePersona = togglePersona;
+
+    // -- Template Modal --
+
+    function openCreateTemplate() {
+        $('#template-edit-id').value = '';
+        $('#template-modal-title').textContent = 'Create Template';
+        $('#template-edit-name').value = '';
+        $('#template-edit-display-name').value = '';
+        $('#template-edit-avatar-url').value = '';
+        $('#template-edit-description').value = '';
+        $('#template-edit-system-prompt').value = '';
+        $('#template-edit-model').value = '';
+        $('#template-edit-provider').value = '';
+        $('#template-delete-btn').style.display = 'none';
+        $('#template-modal').style.display = 'flex';
+    }
+
+    async function editTemplate(templateId) {
+        var t = personaTemplatesData.find(function(x) { return x.template_id === templateId; });
+        if (!t) { alert('Template not found.'); return; }
+
+        $('#template-edit-id').value = t.template_id;
+        $('#template-modal-title').textContent = 'Edit Template: ' + t.name;
+        $('#template-edit-name').value = t.name || '';
+        $('#template-edit-display-name').value = t.display_name || '';
+        $('#template-edit-avatar-url').value = t.avatar_url || '';
+        $('#template-edit-description').value = t.description || '';
+        $('#template-edit-system-prompt').value = t.system_prompt || '';
+        $('#template-edit-model').value = t.model || '';
+        $('#template-edit-provider').value = t.provider || '';
+        // Only show Delete for non-builtin templates
+        $('#template-delete-btn').style.display = t.is_builtin ? 'none' : '';
+        $('#template-modal').style.display = 'flex';
+    }
+    window._editTemplate = editTemplate;
+
+    async function saveTemplate(e) {
+        e.preventDefault();
+        var templateId = $('#template-edit-id').value;
+        var name = $('#template-edit-name').value.trim();
+        var displayName = $('#template-edit-display-name').value.trim();
+        if (!name || !displayName) { alert('Name and display name are required.'); return; }
+
+        var payload = {
+            name: name,
+            display_name: displayName,
+            avatar_url: $('#template-edit-avatar-url').value || null,
+            description: $('#template-edit-description').value || null,
+            system_prompt: $('#template-edit-system-prompt').value || null,
+            model: $('#template-edit-model').value || null,
+            provider: $('#template-edit-provider').value || null,
+        };
+
+        try {
+            if (templateId) {
+                await api('PUT', '/api/personas/templates/' + templateId, payload);
+            } else {
+                // Generate slug-style ID
+                payload.template_id = 'custom-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+                await api('POST', '/api/personas/templates', payload);
+            }
+            $('#template-modal').style.display = 'none';
+            loadPersonaTemplates();
+        } catch (e) {
+            alert('Error saving template: ' + e.message);
+        }
+    }
+
+    async function deleteTemplate() {
+        var templateId = $('#template-edit-id').value;
+        if (!templateId) return;
+        if (!confirm('Delete this template?')) return;
+        try {
+            await api('DELETE', '/api/personas/templates/' + templateId);
+            $('#template-modal').style.display = 'none';
+            loadPersonaTemplates();
+        } catch (e) {
+            alert('Error deleting template: ' + e.message);
+        }
+    }
+
+    // -- Apply Template to Channel (via picker) --
+
+    var pendingTemplateId = null;
+
+    async function applyTemplatePrompt(templateId) {
+        pendingTemplateId = templateId;
+        var t = personaTemplatesData.find(function(x) { return x.template_id === templateId; });
+        var label = t ? t.name : templateId;
+        $('#channel-picker-title').textContent = 'Apply "' + label + '" to Channel';
+        $('#channel-picker-search').value = '';
+        await loadChannelPickerList();
+        $('#channel-picker-modal').style.display = 'flex';
+        $('#channel-picker-search').focus();
+    }
+    window._applyTemplatePrompt = applyTemplatePrompt;
+
+    async function loadChannelPickerList() {
+        var container = $('#channel-picker-list');
+        // Use cached channels if available, else fetch
+        if (!allChannelsData || allChannelsData.length === 0) {
+            container.innerHTML = '<p class="loading-text">Loading channels...</p>';
+            try {
+                allChannelsData = await api('GET', '/api/channels/all');
+            } catch (e) {
+                container.innerHTML = '<div class="empty-state">Error loading channels: ' + escapeHtml(e.message) + '</div>';
+                return;
+            }
+        }
+        renderChannelPickerList('');
+    }
+
+    function renderChannelPickerList(filter) {
+        var container = $('#channel-picker-list');
+        var channels = allChannelsData;
+        var filterLower = (filter || '').toLowerCase();
+
+        // Filter
+        var filtered = channels.filter(function(ch) {
+            if (!filterLower) return true;
+            var searchable = (ch.channel_name || '').toLowerCase() + ' ' +
+                (ch.guild_name || '').toLowerCase() + ' ' +
+                (ch.category || '').toLowerCase() + ' ' +
+                (ch.channel_id || '');
+            return searchable.indexOf(filterLower) !== -1;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="empty-state">No channels match your search.</div>';
+            return;
+        }
+
+        // Group by guild
+        var guilds = {};
+        filtered.forEach(function(ch) {
+            var guildKey = ch.guild_name || 'Unknown Server';
+            if (!guilds[guildKey]) guilds[guildKey] = [];
+            guilds[guildKey].push(ch);
+        });
+
+        var html = '';
+        Object.keys(guilds).sort().forEach(function(guildName) {
+            html += '<div class="channel-picker-group-header">' + escapeHtml(guildName) + '</div>';
+            guilds[guildName].forEach(function(ch) {
+                var name = ch.channel_name || ch.channel_id;
+                var category = ch.category || '';
+                html += '<div class="channel-picker-item" data-channel-id="' + escapeHtml(ch.channel_id) + '">';
+                html += '<span class="channel-picker-name">#' + escapeHtml(name) + '</span>';
+                if (category) {
+                    html += '<span class="channel-picker-category">' + escapeHtml(category) + '</span>';
+                }
+                html += '</div>';
+            });
+        });
+
+        container.innerHTML = html;
+
+        // Attach click handlers
+        container.querySelectorAll('.channel-picker-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+                var channelId = this.getAttribute('data-channel-id');
+                applyTemplateToChannel(channelId);
+            });
+        });
+    }
+
+    async function applyTemplateToChannel(channelId) {
+        if (!pendingTemplateId) return;
+        try {
+            await api('POST', '/api/personas/channels/' + channelId + '/apply-template', {
+                template_id: pendingTemplateId
+            });
+            $('#channel-picker-modal').style.display = 'none';
+            pendingTemplateId = null;
+            loadChannelPersonas();
+        } catch (e) {
+            alert('Error applying template: ' + e.message);
+        }
+    }
+
+    // -- Template auto-fill in persona editor --
+    function onTemplateSelect() {
+        var templateId = $('#persona-edit-template').value;
+        if (!templateId) return;
+        var t = personaTemplatesData.find(function(x) { return x.template_id === templateId; });
+        if (!t) return;
+        $('#persona-edit-display-name').value = t.display_name || '';
+        $('#persona-edit-avatar-url').value = t.avatar_url || '';
+        $('#persona-edit-system-prompt').value = t.system_prompt || '';
+        $('#persona-edit-model').value = t.model || '';
+        $('#persona-edit-provider').value = t.provider || '';
+        updatePersonaAvatarPreview();
     }
 
     // ── Image Generation ─────────────────────────────────────
@@ -1500,6 +1910,32 @@
             $('#channel-modal').style.display = 'none';
         });
         $('#channel-reset-btn').addEventListener('click', resetChannel);
+
+        // Persona modals
+        bindEvent('#persona-edit-form', 'submit', savePersona);
+        bindEvent('#persona-modal-close', 'click', function () {
+            $('#persona-modal').style.display = 'none';
+        });
+        bindEvent('#persona-remove-btn', 'click', removePersona);
+        bindEvent('#persona-edit-avatar-url', 'input', updatePersonaAvatarPreview);
+        bindEvent('#persona-edit-template', 'change', onTemplateSelect);
+
+        // Template modal
+        bindEvent('#template-edit-form', 'submit', saveTemplate);
+        bindEvent('#template-modal-close', 'click', function () {
+            $('#template-modal').style.display = 'none';
+        });
+        bindEvent('#template-delete-btn', 'click', deleteTemplate);
+        bindEvent('#create-template-btn', 'click', openCreateTemplate);
+
+        // Channel picker modal
+        bindEvent('#channel-picker-close', 'click', function () {
+            $('#channel-picker-modal').style.display = 'none';
+            pendingTemplateId = null;
+        });
+        bindEvent('#channel-picker-search', 'input', function () {
+            renderChannelPickerList(this.value);
+        });
 
         // Thread modal
         $('#thread-edit-form').addEventListener('submit', saveThread);

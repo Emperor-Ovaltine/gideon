@@ -14,6 +14,7 @@ from .user_manager import UserManager
 from .reminder_manager import ReminderManager
 from .trivia_manager import TriviaManager
 from .api_key_manager import APIKeyManager
+from .persona_manager import PersonaManager
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ class DatabaseManager:
             self._reminders = ReminderManager(self._conn)
             self._trivia = TriviaManager(self._conn)
             self._api_keys = APIKeyManager(self._conn)
+            self._personas = PersonaManager(self._conn)
 
         except sqlite3.Error as e:
             logger.error(f"Database connection error to {self.db_path}: {e}", exc_info=True)
@@ -370,3 +372,58 @@ class DatabaseManager:
     def prune_old_api_key_audit_entries(self, cutoff_timestamp: datetime) -> int:
         """Deletes old API key audit entries."""
         return self._api_keys.prune_old_audit_entries(cutoff_timestamp)
+
+    # --- Persona Template Methods (delegate to PersonaManager) ---
+
+    def add_persona_template(self, template_id: str, name: str, display_name: str, **kwargs) -> bool:
+        """Adds or replaces a persona template."""
+        return self._personas.add_persona_template(template_id, name, display_name, **kwargs)
+
+    def get_persona_template(self, template_id: str) -> Optional[Dict[str, Any]]:
+        """Gets a persona template by ID."""
+        return self._personas.get_persona_template(template_id)
+
+    def get_all_persona_templates(self) -> List[Dict[str, Any]]:
+        """Gets all persona templates."""
+        return self._personas.get_all_persona_templates()
+
+    def update_persona_template(self, template_id: str, **fields) -> bool:
+        """Updates specific fields of a persona template."""
+        return self._personas.update_persona_template(template_id, **fields)
+
+    def delete_persona_template(self, template_id: str) -> bool:
+        """Deletes a persona template (rejects built-ins)."""
+        return self._personas.delete_persona_template(template_id)
+
+    def seed_builtin_persona_templates(self, templates: List[Dict[str, Any]]) -> int:
+        """Seeds built-in persona templates (idempotent)."""
+        return self._personas.seed_builtin_templates(templates)
+
+    # --- Channel Persona Methods (delegate to PersonaManager) ---
+
+    def set_channel_persona(self, channel_id: str, display_name: str, **kwargs) -> bool:
+        """Sets or replaces the persona for a channel."""
+        self._ensure_channel_exists(channel_id)
+        return self._personas.set_channel_persona(channel_id, display_name, **kwargs)
+
+    def get_channel_persona(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Gets the persona configuration for a channel."""
+        return self._personas.get_channel_persona(channel_id)
+
+    def get_all_channel_personas(self) -> List[Dict[str, Any]]:
+        """Gets all channel persona configurations."""
+        return self._personas.get_all_channel_personas()
+
+    def update_channel_persona_webhook(self, channel_id: str,
+                                       webhook_id: Optional[str],
+                                       webhook_token: Optional[str]) -> bool:
+        """Updates the webhook credentials for a channel persona."""
+        return self._personas.update_channel_persona_webhook(channel_id, webhook_id, webhook_token)
+
+    def toggle_channel_persona(self, channel_id: str) -> Optional[bool]:
+        """Toggles the is_active flag for a channel persona."""
+        return self._personas.toggle_channel_persona(channel_id)
+
+    def remove_channel_persona(self, channel_id: str) -> bool:
+        """Removes the persona for a channel."""
+        return self._personas.remove_channel_persona(channel_id)

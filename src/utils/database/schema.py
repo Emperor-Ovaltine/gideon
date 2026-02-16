@@ -138,6 +138,41 @@ class SchemaManager:
             details TEXT,
             FOREIGN KEY (key_id) REFERENCES API_KEYS(key_id) ON DELETE CASCADE
         );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS PERSONA_TEMPLATES (
+            template_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            avatar_url TEXT,
+            system_prompt TEXT,
+            model TEXT,
+            provider TEXT,
+            response_style TEXT,
+            description TEXT,
+            is_builtin BOOLEAN NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS CHANNEL_PERSONAS (
+            channel_id TEXT PRIMARY KEY,
+            template_id TEXT,
+            display_name TEXT NOT NULL,
+            avatar_url TEXT,
+            system_prompt TEXT,
+            model TEXT,
+            provider TEXT,
+            response_style TEXT,
+            webhook_id TEXT,
+            webhook_token TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME,
+            FOREIGN KEY (channel_id) REFERENCES CHANNELS(channel_id) ON DELETE CASCADE,
+            FOREIGN KEY (template_id) REFERENCES PERSONA_TEMPLATES(template_id) ON DELETE SET NULL
+        );
         """
     ]
 
@@ -156,7 +191,10 @@ class SchemaManager:
         """CREATE INDEX IF NOT EXISTS idx_api_keys_provider ON API_KEYS (provider);""",
         """CREATE INDEX IF NOT EXISTS idx_api_keys_active ON API_KEYS (is_active);""",
         """CREATE INDEX IF NOT EXISTS idx_api_key_audit_key_id ON API_KEY_AUDIT (key_id);""",
-        """CREATE INDEX IF NOT EXISTS idx_api_key_audit_timestamp ON API_KEY_AUDIT (timestamp);"""
+        """CREATE INDEX IF NOT EXISTS idx_api_key_audit_timestamp ON API_KEY_AUDIT (timestamp);""",
+        """CREATE INDEX IF NOT EXISTS idx_channel_personas_template ON CHANNEL_PERSONAS (template_id);""",
+        """CREATE INDEX IF NOT EXISTS idx_channel_personas_active ON CHANNEL_PERSONAS (is_active);""",
+        """CREATE INDEX IF NOT EXISTS idx_persona_templates_builtin ON PERSONA_TEMPLATES (is_builtin);"""
     ]
 
     @staticmethod

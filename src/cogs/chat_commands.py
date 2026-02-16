@@ -259,8 +259,8 @@ class ChatCommands(commands.Cog):
                     image_embed.description = f"⚠️ Provider '{provider}' model '{model_name}' doesn't support image analysis."
                 # If client_to_use is None, the error will be handled later
 
-        # Get channel-specific system prompt if it exists
-        channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+        # Get effective system prompt (persona > channel config > global)
+        channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
 
         try:
             # Get recent channel context from state manager
@@ -326,32 +326,45 @@ class ChatCommands(commands.Cog):
                 has_citation_format = bool(re.search(r'\[\d+\]', response))
                 logger.debug(f"Model: {model_id_full}, Is citation model: {is_citation_model}, Has citation format: {has_citation_format}")
 
+                # Check if a persona is active for webhook-based sending
+                persona_active = (hasattr(self.bot, 'webhook_sender')
+                                  and self.bot.state_manager.get_effective_persona(channel_id))
+
                 # Format responses from models that use citations as paginated embeds
                 if self.should_format_citations(model_id_full, response):
                     logger.info(f"Formatting response from {model_id_full} with citations")
                     embeds = self.format_perplexity_response(response)
 
-                    # Send the first embed by editing the processing message
                     if embeds:
-                        await processing_msg.edit(content=None, embed=embeds[0])
-
-                        # Send additional embeds if there are more than one
-                        for embed in embeds[1:]:
-                            await ctx.channel.send(embed=embed)
+                        if persona_active:
+                            # Delete processing message, send all embeds via webhook
+                            await processing_msg.delete()
+                            for embed in embeds:
+                                await self.bot.webhook_sender.send_response(
+                                    ctx.channel, "", channel_id, embeds=[embed]
+                                )
+                        else:
+                            await processing_msg.edit(content=None, embed=embeds[0])
+                            for embed in embeds[1:]:
+                                await ctx.channel.send(embed=embed)
                 else:
                     logger.info(f"Using standard formatting for model {model_id_full}")
-                    # For non-citation models, use the original text response approach
-                    # Split response into chunks of 2000 characters or fewer
                     max_length = 2000
                     chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
 
-                    # Send each chunk as a separate message
-                    for i, chunk in enumerate(chunks):
-                        if i == 0:
-                            # Always edit the processing message with first chunk
-                            await processing_msg.edit(content=chunk)
-                        else:
-                            await ctx.channel.send(chunk)
+                    if persona_active:
+                        # Delete processing message, send all chunks via webhook
+                        await processing_msg.delete()
+                        for chunk in chunks:
+                            await self.bot.webhook_sender.send_response(
+                                ctx.channel, chunk, channel_id
+                            )
+                    else:
+                        for i, chunk in enumerate(chunks):
+                            if i == 0:
+                                await processing_msg.edit(content=chunk)
+                            else:
+                                await ctx.channel.send(chunk)
         # Correctly indented except block for the try starting at line 269
         except Exception as e:
             logger.exception(f"Error during chat processing for channel {channel_id}: {e}")
@@ -467,8 +480,8 @@ class ChatCommands(commands.Cog):
                 "content": query
             }
 
-            # Get channel-specific system prompt if it exists
-            channel_system_prompt = self.state.get_channel_system_prompt(channel_id)
+            # Get effective system prompt (persona > channel config > global)
+            channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
 
             # Add a search-focused wrapper to the system prompt
             search_system_prompt = channel_system_prompt
@@ -491,6 +504,10 @@ class ChatCommands(commands.Cog):
                 await processing_msg.edit(content=response)
             else:
                 # Format responses from models that use citations as paginated embeds
+                # Check if a persona is active for webhook-based sending
+                search_persona_active = (hasattr(self.bot, 'webhook_sender')
+                                         and self.bot.state_manager.get_effective_persona(channel_id))
+
                 if self.should_format_citations(model_id_full, response): # Use full ID for citation check
                     logger.info(f"Formatting search response from {model_id_full} with citations")
                     embeds = self.format_perplexity_response(response)
@@ -499,14 +516,19 @@ class ChatCommands(commands.Cog):
                     if embeds:
                         embeds[0].title = f"🔍 Search Results: {query}"
                         embeds[0].set_footer(text=f"Using {model_id_full} • Web search enabled") # Show full ID
-
-                        # Send the first embed by editing the processing message
-                        await processing_msg.edit(content=None, embed=embeds[0])
-
-                        # Send additional embeds if there are more than one
                         for embed in embeds[1:]:
                             embed.set_footer(text=f"Using {model_id_full} • Web search enabled") # Show full ID
-                            await ctx.channel.send(embed=embed)
+
+                        if search_persona_active:
+                            await processing_msg.delete()
+                            for embed in embeds:
+                                await self.bot.webhook_sender.send_response(
+                                    ctx.channel, "", channel_id, embeds=[embed]
+                                )
+                        else:
+                            await processing_msg.edit(content=None, embed=embeds[0])
+                            for embed in embeds[1:]:
+                                await ctx.channel.send(embed=embed)
                 else:
                     # For non-citation models, use a single embed
                     embed = discord.Embed(
@@ -515,7 +537,13 @@ class ChatCommands(commands.Cog):
                         color=discord.Color.blue()
                     )
                     embed.set_footer(text=f"Using {model_id_full} • Web search enabled") # Show full ID
-                    await processing_msg.edit(content=None, embed=embed)
+                    if search_persona_active:
+                        await processing_msg.delete()
+                        await self.bot.webhook_sender.send_response(
+                            ctx.channel, "", channel_id, embeds=[embed]
+                        )
+                    else:
+                        await processing_msg.edit(content=None, embed=embed)
 
         except Exception as e:
             logger.error(f"Error in search command for provider '{provider}', model '{model_name}': {str(e)}", exc_info=True)
