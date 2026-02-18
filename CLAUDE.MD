@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Gideon is a sophisticated Discord bot that serves as an AI-powered assistant, providing intelligent conversations, image generation, trivia games, reminders, and more. The bot integrates with multiple AI providers (OpenRouter, OpenAI, Anthropic Claude, Google Gemini) and image generation services (AI Horde, Cloudflare Workers, DALL-E, ComfyUI, OpenRouter).
+Gideon is a sophisticated Discord bot that serves as an AI-powered assistant, providing intelligent conversations, image generation, trivia games, reminders, per-channel personas, and more. The bot integrates with multiple AI providers (OpenRouter, OpenAI, Anthropic Claude, Google Gemini) and image generation services (AI Horde, Cloudflare Workers, DALL-E, ComfyUI, OpenRouter).
 
 **Tech Stack:**
 - Python 3.8+
@@ -30,6 +30,8 @@ graph TD
     B --> L(Configuration<br/>.env, DB Config);
     L --> F;
     L --> H;
+    E --> M(WebhookSender);
+    M --> N(Discord Webhooks<br/>Persona delivery);
 ```
 
 ### Core Components
@@ -39,6 +41,8 @@ graph TD
 - Sets up multiple AI provider clients (OpenRouter, OpenAI, AI Horde)
 - Creates `ProviderManager` to handle switching between providers
 - Initializes `BotStateManager` for centralized state/config management
+- Initializes `WebhookSender` for persona delivery
+- Seeds built-in persona templates on startup
 - Loads cogs (command modules) dynamically
 - Manages graceful shutdown with signal handlers
 
@@ -56,7 +60,7 @@ Environment-based configuration loading:
 - `INTENT_DISCOVERY` - Enable/disable AI intent detection for @mentions
 - `INTENT_DETECTION_MODEL` - Model for intent classification
 - `INTENT_CONFIDENCE_THRESHOLD` - Confidence threshold (0.0-1.0)
-- `ENCRYPTION_MASTER_KEY` - Master key for Fernet encryption of API keys stored in DB (enables dashboard key management)
+- `ENCRYPTION_MASTER_KEY` - Master key for Fernet encryption of API keys stored in DB
 - `DASHBOARD_ENABLED` - Enable/disable web admin dashboard
 - `DASHBOARD_PORT` - Dashboard server port (default: 8080)
 - `DASHBOARD_SECRET` - Authentication secret for dashboard access
@@ -66,6 +70,7 @@ Environment-based configuration loading:
 - Global configuration (model, provider, system prompt, memory limits)
 - Channel-specific overrides (per-channel models/prompts)
 - Thread-specific settings
+- Persona lookups (`get_effective_persona()`)
 - Database connection management
 - Active conversation state tracking
 - Model provider management
@@ -75,6 +80,9 @@ Environment-based configuration loading:
 - `get_channel_config()`, `set_channel_config()`
 - `get_thread_config()`, `set_thread_config()`
 - `get_active_provider()` - Returns current AI provider client
+- `get_effective_persona(channel_id)` - Returns active persona for a channel or None
+- `get_effective_model(channel_id)` - Returns model, respecting persona model overrides
+- `reinitialize_state()` - Reloads all config from database (called after backup restore)
 
 #### 4. Provider Management (`src/utils/model_manager.py`)
 `ProviderManager` handles multiple AI providers:
@@ -100,10 +108,12 @@ Core tables:
 - `TRIVIA_LEADERBOARD` - Per-server user statistics (total games, points, streaks)
 - `TRIVIA_ACHIEVEMENTS` - Unlockable badges (JSON metadata)
 - `API_KEYS` - Encrypted API key storage (provider, encrypted_key, alias, validation_status, timestamps)
-- `API_KEY_AUDIT` - Audit log for all key operations (created, updated, deleted, validated)
+- `API_KEY_AUDIT` - Audit log for all key operations
+- `PERSONA_TEMPLATES` - Built-in and custom persona templates (name, display_name, avatar_url, system_prompt, model, is_builtin)
+- `CHANNEL_PERSONAS` - Per-channel persona configuration (display_name, avatar_url, system_prompt, model_override, webhook_id, webhook_token, is_active)
 
 #### Database Managers
-- `core.py` - `DatabaseManager` base class, connection pooling
+- `core.py` - `DatabaseManager` orchestrator; delegates to all sub-managers
 - `config_manager.py` - Global config CRUD
 - `channel_manager.py` - Channel config CRUD
 - `thread_manager.py` - Thread config CRUD
@@ -112,23 +122,19 @@ Core tables:
 - `reminder_manager.py` - Reminder scheduling and retrieval
 - `trivia_manager.py` - Trivia game state persistence
 - `api_key_manager.py` - Encrypted API key CRUD and audit logging
+- `persona_manager.py` - Persona template and channel persona CRUD
+- `backup_manager.py` - Config JSON export/import/validation and SQLite backup/restore
 
 ### Command Modules (`src/cogs/`)
 
 Each cog is a self-contained feature module loaded dynamically at startup:
 
 1. **`admin_commands.py`** - Admin/owner-only tools
-   - `/admin sync` - Sync slash commands
-   - `/admin debug` - Show debug info
-   - `/admin state` - Database state inspection
-   - `/admin diagnostic` - System diagnostics
-   - `/admin vision_models` - List vision-capable models
+   - `/admin sync`, `/admin debug`, `/admin state`, `/admin diagnostic`, `/admin vision_models`
 
 2. **`chat_commands.py`** - Core AI conversation features
-   - `/chat` - Send message to AI (supports image uploads for vision models)
-   - `/reset` - Clear channel conversation history
-   - `/summarize` - Summarize current conversation
-   - `/memory` - Show message count and history window
+   - `/chat`, `/reset`, `/summarize`, `/memory`
+   - Checks for active persona per channel and routes responses through `WebhookSender`
 
 3. **`mention_commands.py`** - Handles @mentions of the bot
    - Detects user intent (conversation, reminder, image gen, search)
@@ -137,186 +143,202 @@ Each cog is a self-contained feature module loaded dynamically at startup:
    - Supports image analysis via attachments
 
 4. **`settings_commands.py`** - Global bot configuration (Admin)
-   - `/settings show` - View all global settings
-   - `/settings model` - Set global AI model
-   - `/settings system` - Set global system prompt
-   - `/settings provider` - Set global provider
-   - `/settings memory` - Set message history limit
-   - `/settings window` - Set time window for history (hours)
-   - `/settings restore` - Reset to defaults
+   - `/settings show`, `/settings model`, `/settings system`, `/settings provider`
+   - `/settings memory`, `/settings window`, `/settings restore`
+   - Hidden from Discord when dashboard is enabled
 
 5. **`channel_commands.py`** - Channel-specific overrides (Admin)
-   - `/channel show`, `/channel model`, `/channel system`, `/channel provider`
-   - `/channel reset` - Clear channel overrides
-   - `/channel list` - List all channels with custom configs
+   - `/channel show`, `/channel model`, `/channel system`, `/channel provider`, `/channel reset`, `/channel list`
+   - Hidden from Discord when dashboard is enabled
 
 6. **`thread_commands.py`** - AI conversation threads
-   - `/thread new` - Create dedicated AI thread (uses Discord native threads)
-   - `/thread message` - Send message to specific thread
-   - `/thread list`, `/thread show`, `/thread model`, `/thread system`
-   - `/thread rename`, `/thread delete`
+   - `/thread new`, `/thread message`, `/thread list`, `/thread show`
+   - `/thread model`, `/thread system`, `/thread rename`, `/thread delete`
    - Auto-responds to all messages in AI threads
+   - Routes responses through `WebhookSender` if channel has active persona
 
 7. **`trivia_commands.py`** - AI-powered trivia game system
-   - `/trivia start` - Solo or competitive mode, custom categories
-   - `/trivia stop`, `/trivia stats`, `/trivia leaderboard`, `/trivia achievements`
-   - Uses `src/utils/trivia_ai.py` for AI question generation
-   - `src/utils/game_session.py` for in-memory game state
-   - `src/utils/trivia_config.py` for scoring/achievements config
+   - `/trivia start`, `/trivia stop`, `/trivia stats`, `/trivia leaderboard`, `/trivia achievements`
 
-8. **`unified_image_commands.py`** - Unified image generation system
+8. **`unified_image_commands.py`** - Unified image generation
    - `/dream` - Generate images (routes to active provider)
-   - `/dream_manage set_provider` - Switch image provider
-   - `/dream_manage view_config` - Show active provider settings
-   - `/dream_manage configure` - Provider-specific settings
-   - `/dream_manage comfyui_*` - ComfyUI-specific admin commands
+   - `/dream_manage set_provider`, `/dream_manage view_config`, `/dream_manage configure`, `/dream_manage comfyui_*`
 
 9. **`reminder_commands.py`** - Scheduled notifications
-   - `/remind` - Create reminder with natural language parsing
-   - `/reminders` - List active reminders
-   - `/reminder_cancel` - Cancel reminder by ID
+   - `/remind`, `/reminders`, `/reminder_cancel`
    - Background task checks for due reminders every 60s
 
-10. **`url_commands.py`** - URL content extraction
-    - `/summarizeurl` - Fetch and summarize webpage content
-    - Auto-summarizes URLs posted in channels (if enabled)
+10. **`dashboard_commands.py`** - Web admin dashboard management
+    - `/dashboard status`, `/dashboard restart`
 
-11. **`help_commands.py`** - Interactive help system
-    - `/help` - Browse commands by category with buttons
-    - Auto-hides admin commands from non-admin users
+11. **`persona_commands.py`** - Per-channel persona management (Admin)
+    - `/persona set` - Set custom persona (display_name, avatar_url, system_prompt, model_override)
+    - `/persona template` - Apply a built-in or custom template to this channel
+    - `/persona view` - View current channel persona
+    - `/persona list` - List all channels with configured personas
+    - `/persona templates` - Browse all available templates
+    - `/persona toggle` - Enable or disable persona without removing it
+    - `/persona remove` - Remove persona from channel
+    - `/persona preview` - Send a test webhook message with current persona
 
-12. **`dashboard_commands.py`** - Web admin dashboard
-    - `/dashboard status` - Check dashboard server status
-    - `/dashboard restart` - Restart dashboard server (owner only)
-    - Starts aiohttp web server alongside the Discord bot
-    - Broadcasts bot events to WebSocket clients for real-time monitoring
+12. **`url_commands.py`** - URL summarization (`/summarizeurl`)
 
-### Admin Dashboard (`src/utils/dashboard/`, `src/dashboard/`)
+13. **`help_commands.py`** - Interactive `/help` command with category navigation
 
-The admin dashboard is an optional web-based interface for managing all bot settings, channels, threads, and diagnostics. It serves as a full alternative to the Discord slash command interface.
+### Persona System
 
-#### Architecture
-- **Backend**: aiohttp web server running in the same event loop as the Discord bot
-- **Frontend**: Vanilla HTML/CSS/JS single-page application (no framework dependencies)
-- **Auth**: Token-based session authentication via `DASHBOARD_SECRET`
-- **Real-time**: WebSocket connection for live event streaming
+#### WebhookSender (`src/utils/webhook_sender.py`)
+Manages the full webhook lifecycle for persona delivery:
+- **Three-tier webhook lookup**: memory cache → DB credentials → Discord API scan → create new
+- **Async locking**: prevents race conditions when multiple messages target the same channel
+- **Thread support**: uses parent channel for threads, passing the thread as the `thread` param to Discord's webhook API
+- **Fallback**: if webhook creation fails (missing `Manage Webhooks` permission), silently falls back to bot account
+- **Cache invalidation**: `invalidate_cache(channel_id)` clears a channel's cached webhook (called after persona toggle/remove)
 
-#### Backend Components (`src/utils/dashboard/`)
-- **`server.py`** - `DashboardServer` class
-  - REST API endpoints for all CRUD operations (settings, channels, threads, diagnostics, API keys)
-  - WebSocket handler for real-time event broadcasting
-  - Serves static frontend files from `src/dashboard/`
-  - API routes: `/api/overview`, `/api/settings`, `/api/channels`, `/api/threads`, `/api/messages`, `/api/models`, `/api/providers`, `/api/diagnostics`, `/api/keys`, `/api/keys/audit`, `/api/keys/import-env`
-- **`auth.py`** - Authentication middleware
-  - Session token generation and validation
-  - Constant-time secret comparison
-  - Cookie and Bearer token support
+**Webhook Resolution Flow:**
+1. Check `self._webhook_cache[channel_id]`
+2. If miss, check DB for stored `webhook_id` / `webhook_token`
+3. If no DB credentials, scan channel's existing webhooks for one created by the bot
+4. If none found, create a new webhook and persist credentials to DB
+5. Return `None` on `discord.Forbidden` → triggers fallback to bot account
+
+#### Persona Templates (`src/utils/persona_templates.py`)
+Defines built-in templates seeded on startup:
+- `helpful-assistant` — Helpful Assistant
+- `tech-guru` — Tech Guru
+- `creative-writer` — Creative Writer
+
+Built-in templates cannot be deleted. Custom templates can be freely created and removed.
+
+#### Chat Integration
+Both `chat_commands.py` and `thread_commands.py` check for active personas before sending responses:
+```python
+persona = self.bot.state_manager.get_effective_persona(channel_id)
+if persona:
+    await self.bot.webhook_sender.send_response(channel, content, channel_id)
+else:
+    await ctx.respond(content)
+```
+
+### Backup & Restore System
+
+#### BackupManager (`src/utils/database/backup_manager.py`)
+Handles all backup and restore operations:
+
+**Config Export (JSON)**
+- Exports tables: `GLOBAL_CONFIG`, `CHANNELS`, `CHANNEL_CONFIG`, `PERSONA_TEMPLATES`, `CHANNEL_PERSONAS`, `USERS`
+- Excludes: `API_KEYS`, `MESSAGES`, webhook credentials from `CHANNEL_PERSONAS`
+- Includes schema version for compatibility validation on import
+
+**Config Import (JSON)**
+- Validates export type, version, and schema compatibility before applying
+- Uses upsert patterns; preserves existing `webhook_id`/`webhook_token` on channel persona rows
+- Wrapped in a database transaction — atomically succeeds or rolls back entirely
+- Calls `state_manager.reinitialize_state()` after successful import
+
+**SQLite Backup**
+- Uses SQLite's online backup API (`sqlite3.Connection.backup()`) for a consistent snapshot
+- Written to system temp directory, served as a file download, then cleaned up
+
+**SQLite Restore**
+- Validates magic bytes, expected tables, and row counts before applying
+- Replaces current database file, then calls `state_manager.reinitialize_state()`
+
+**File Size Limits** — 10 MB for JSON configs, 100 MB for SQLite backups
+
+### Dashboard (`src/dashboard/`, `src/utils/dashboard/`)
+
+#### Backend (`src/utils/dashboard/server.py`)
+aiohttp web server running in the same event loop as the bot:
+- Token-based authentication via `src/utils/dashboard/auth.py`
+- WebSocket endpoint for real-time activity broadcasts
+- REST API endpoints for all management operations
+
+**Backup & Restore API Endpoints:**
+- `GET /api/backup/config` — Export config as JSON
+- `GET /api/backup/database` — Export full database backup
+- `POST /api/backup/config/validate` — Validate JSON config before import
+- `POST /api/backup/config/import` — Apply JSON config
+- `POST /api/backup/database/validate` — Validate SQLite backup file
+- `POST /api/backup/database/restore` — Restore from SQLite backup
+
+**Persona API Endpoints:**
+- `GET /api/personas/templates` — List all templates
+- `POST /api/personas/templates` — Create custom template
+- `PUT /api/personas/templates/{id}` — Update template
+- `DELETE /api/personas/templates/{id}` — Delete template (rejects built-ins)
+- `GET /api/personas/channels` — List all channel personas
+- `POST /api/personas/channels/{channel_id}` — Set channel persona
+- `POST /api/personas/channels/{channel_id}/apply-template` — Apply template to channel
+- `PATCH /api/personas/channels/{channel_id}/toggle` — Toggle active state
+- `DELETE /api/personas/channels/{channel_id}` — Remove channel persona
 
 #### Frontend (`src/dashboard/`)
-- **`index.html`** - Single-page dashboard with tab-based navigation
-- **`css/dashboard.css`** - Dark theme responsive styles
-- **`js/dashboard.js`** - Application logic (API calls, WebSocket, tab management)
+Single-page application with tab-based navigation:
+- **Personas tab** — Template card grid, channel personas table, modal editor for create/edit
+- **Backup & Restore tab** — Drag-and-drop upload zones, validation preview cards, confirmation modal for database restore
 
-#### Dashboard Tabs
-1. **Overview** - Bot status, guild count, message/thread stats, uptime, latency, provider usage links, quick actions
-2. **API Keys** - Encrypted API key management (add/edit/delete/validate keys, import from .env, audit log)
-3. **Settings** - Global model, provider, system prompt, memory, intent detection
-4. **Channels** - Channel-specific configuration overrides (edit/reset)
-5. **Threads** - Thread management (rename, configure model/prompt, delete)
-6. **Image Gen** - Image generation provider configuration
-7. **Messages** - Browse stored conversation history (filter by channel/thread/role, paginated)
-8. **Diagnostics** - Provider health checks, DB stats, manual prune trigger
-9. **Live Activity** - Real-time WebSocket feed of bot events
+WebSocket events trigger real-time tab refreshes for `template_updated`, `persona_updated`, etc.
 
-### AI Provider Clients (`src/utils/`)
+## Configuration System
 
-#### `openrouter_client.py` - OpenRouterClient
-- Primary AI provider (supports 100+ models)
-- Handles conversation context, system prompts
-- Supports vision models (image analysis)
-- Web search capability (via OpenRouter's search API)
-- Model listing and availability checking
-
-#### `openai_client.py` - OpenAIClient
-- Direct OpenAI API integration
-- Supports GPT-4, GPT-4o, DALL-E
-- Conversation management
-- Image generation (DALL-E 2/3)
-
-#### `ai_horde_client.py` - AIHordeClient
-- Distributed image generation (Stable Diffusion models)
-- Kudos-based system (free tier available)
-- Model listing and status checking
-
-#### `cloudflare_client.py` - CloudflareClient
-- Custom Cloudflare Worker integration for image gen
-- User-provided worker URL (self-hosted)
-- Optional API key authentication
-
-#### `comfyui_client.py` - ComfyUIClient (if present)
-- Local/remote ComfyUI server integration
-- Custom workflow JSON support
-- Advanced control over image generation pipelines
-
-### Utilities
-
-- **`encryption.py`** - `EncryptionManager` for Fernet encrypt/decrypt of API keys, with key masking for display
-- **`api_key_service.py`** - `APIKeyService` orchestrates encryption, DB storage, validation, env fallback, and .env import. Used by `bot.py` (hot-swap at startup) and `server.py` (dashboard API endpoints)
-- **`permissions.py`** - Role-based permission checks (is_admin, is_owner)
-- **`trivia_ai.py`** - AI-powered question generation and answer validation
-- **`trivia_config.py`** - Scoring formulas, achievement definitions
-- **`game_session.py`** - In-memory trivia game state (not persisted to DB)
-- **`intent_handlers/`** - Specialized handlers (dice, calculation, poll, translation, timezone, unit conversion, definition)
-
-## Development Patterns
-
-### Configuration Hierarchy
-
-Three types of configuration:
-- **Static** (env vars via `.env` / `config.py`): Loaded once at startup. Used for tokens, `DATA_DIRECTORY`, `ENCRYPTION_MASTER_KEY`, and initial defaults
-- **Dynamic** (`GLOBAL_CONFIG` table): Modifiable at runtime via `/settings` commands, persisted in the database across restarts
+Three-tier configuration system:
+- **Static** (`.env`): Used for tokens, `DATA_DIRECTORY`, `ENCRYPTION_MASTER_KEY`, and initial defaults
+- **Dynamic** (`GLOBAL_CONFIG` table): Modifiable at runtime via `/settings` commands; persisted in the database across restarts
 - **API Keys** (`API_KEYS` table): Fernet-encrypted in the database, managed via the dashboard. DB keys take priority over `.env` values; `.env` is used as fallback
 
 Runtime resolution order (most specific wins):
-1. **Thread Settings** (via `/thread`) - Thread-specific configs
-2. **Channel Overrides** (via `/channel`) - Per-channel customization
-3. **Global Settings** (via `/settings`) - Default for all channels
+1. **Persona model override** — If channel has active persona with `model_override`
+2. **Thread Settings** (via `/thread`) — Thread-specific configs
+3. **Channel Overrides** (via `/channel`) — Per-channel customization
+4. **Global Settings** (via `/settings`) — Default for all channels
 
-### Conversation Context Management
-- Messages are stored in `MESSAGES` table with timestamps
-- History retrieval filters by:
-  - Channel or thread ID
-  - Time window (configurable via `/settings window`)
-  - Message count limit (configurable via `/settings memory`)
-- Context is built as `[{"role": "user|assistant|system", "content": "..."}]`
+## Common Workflows
 
-### Image Generation Flow
-1. User runs `/dream prompt:"sunset over mountains"`
-2. Command routes to `unified_image_commands.py`
-3. Retrieves active provider from config DB
-4. Calls provider-specific client (AI Horde, Cloudflare, OpenAI, ComfyUI, OpenRouter)
-5. Provider generates/queues image
-6. Bot posts result with embed (includes prompt, model, settings)
+### Adding a New Command
+1. Create or edit cog file in `src/cogs/`
+2. Define command with `@discord.slash_command()` decorator
+3. Access state via `ctx.bot.state_manager`
+4. Access AI provider via `ctx.bot.model_manager.get_active_provider()`
+5. For persona-aware responses, call `ctx.bot.webhook_sender.send_response()` if persona is active
+6. Handle errors gracefully (respond with user-friendly messages)
+7. Restart bot or use `/admin sync` to register new command
 
-### Intent Detection (@mentions)
-When `INTENT_DISCOVERY=TRUE`:
-1. User @mentions bot: "@Gideon remind me in 2 hours to check logs"
-2. `mention_commands.py` sends message to `INTENT_DETECTION_MODEL`
-3. AI classifies intent: `reminder`, `image_generation`, `search`, or `conversation`
-4. If confidence >= `INTENT_CONFIDENCE_THRESHOLD`, routes to handler
-5. Otherwise, falls back to normal conversation
+### Adding a New AI Provider
+1. Create client class in `src/utils/` (e.g., `new_provider_client.py`)
+2. Implement standard methods: `chat()`, `list_models()`, etc.
+3. Add initialization in `src/bot.py`
+4. Register with `ProviderManager` in `src/utils/model_manager.py`
+5. Update config commands to support new provider
+6. Update documentation
 
-### Trivia Game Flow
-1. `/trivia start category:"Science" difficulty:medium mode:competitive`
-2. Creates game session in DB (`TRIVIA_GAME_SESSIONS`)
-3. Spawns Discord thread for the game
-4. `trivia_ai.py` generates questions via AI (formatted as multiple choice)
-5. Posts question, starts timer
-6. Listens for user answers in thread (simple text parsing: "A", "B", "C", "D")
-7. Calculates score (base points × difficulty multiplier × speed bonus × streak multiplier)
-8. Updates `TRIVIA_LEADERBOARD` stats
-9. Checks for achievements (e.g., "Perfect Game", "Speed Demon")
-10. Posts final results, closes game session
+### Database Migration
+1. Update `src/utils/database/schema.py` with new table/column
+2. Add migration logic in `SchemaManager.initialize()` or a separate migration method
+3. Create a corresponding manager class if needed
+4. Delegate new methods from `core.py` `DatabaseManager`
+5. Update `BotStateManager` to expose new data if needed
+6. Test migration on clean DB and existing DB
+
+### Adding a Persona Template
+Built-in templates are defined in `src/utils/persona_templates.py` and seeded on startup via `db_manager.seed_builtin_persona_templates()`. To add a new built-in:
+1. Add entry to the templates list in `persona_templates.py`
+2. Restart the bot — seeding is idempotent (uses INSERT OR IGNORE)
+
+## Key Design Decisions
+
+1. **SQLite for Persistence** - Simple, file-based, no external DB server needed
+2. **Modular Database Managers** - Each domain has a dedicated manager; `core.py` delegates
+3. **Provider Abstraction** - `ProviderManager` allows seamless switching between AI providers
+4. **Webhook-First Personas** - Persona delivery via webhooks gives channels a distinct identity; bot account fallback ensures reliability without permissions
+5. **Singleton Pattern** - `BotStateManager` and `WebhookSender` are singletons accessed via `bot.state_manager` and `bot.webhook_sender`
+6. **Discord Native Threads** - Leverage Discord's built-in threading for organization; personas inherit from parent channels
+7. **Environment-Based Config** - `.env` file for secrets and deployment-specific settings
+8. **Graceful Degradation** - Missing API keys or permissions disable features but don't crash the bot
+9. **Docker-First Deployment** - Dockerfile + docker-compose.yml for easy deployment
+10. **Dashboard Opt-In** - Web dashboard disabled by default, runs in same event loop when enabled; hides redundant slash commands when active
+11. **Transaction Safety** - Config imports use database transactions to ensure atomicity; partial imports never happen
+12. **Backup Security** - API keys and raw webhook tokens are excluded from config exports; webhook credentials are re-applied from DB during import to avoid loss
 
 ## Error Handling and Logging
 
@@ -333,123 +355,89 @@ Logging uses Python's standard `logging` module:
 
 ## Security
 
-- **API Keys**: Can be stored in `.env` (loaded via `config.py`) or encrypted in the database via the dashboard. Database keys use Fernet symmetric encryption (`src/utils/encryption.py`) with a master key from `ENCRYPTION_MASTER_KEY` env var. Keys are decrypted only at runtime when needed. The dashboard API never exposes raw or encrypted keys — only masked values (e.g., `sk-...xyz123`)
-- **Key Resolution Priority**: Database keys (encrypted) take precedence over `.env` values. If no DB key exists, `.env` is used as fallback. This ensures backward compatibility
-- **Audit Logging**: All API key operations (create, update, delete, validate) are logged in the `API_KEY_AUDIT` table
+- **API Keys**: Can be stored in `.env` or encrypted in the database via the dashboard. Database keys use Fernet symmetric encryption (`src/utils/encryption.py`) with a master key from `ENCRYPTION_MASTER_KEY`. Keys are decrypted only at runtime when needed. The dashboard API never exposes raw or encrypted keys — only masked values (e.g., `sk-...xyz123`)
+- **Key Resolution Priority**: Database keys (encrypted) take precedence over `.env` values
+- **Audit Logging**: All API key operations (create, update, delete, validate) are logged in `API_KEY_AUDIT`
+- **Webhook Credentials**: `webhook_id` and `webhook_token` are stored in the database but excluded from config JSON exports. They are re-applied automatically during config import to prevent loss of Discord integrations
+- **Backup Security**: Config exports exclude API keys entirely. Full database backups include all data but should be treated as sensitive
 - **Permission Controls**: Enforced via Py-Cord decorators (`@commands.is_owner()`, `@commands.has_permissions(administrator=True)`)
 - **Input Validation**: Command inputs and external API responses are validated to prevent injection or malformed data issues
-- **Data Protection**: SQLite database stores conversation history; recommend filesystem-level encryption on the host. Automatic pruning (configurable via `time_window_hours` and `max_channel_history`) limits stored data volume
 
-## Common Workflows
+## Flows Reference
 
-### Adding a New Command
-1. Create or edit cog file in `src/cogs/`
-2. Define command with `@discord.slash_command()` decorator
-3. Access state via `ctx.bot.state_manager`
-4. Access AI provider via `ctx.bot.model_manager.get_active_provider()`
-5. Handle errors gracefully (respond with user-friendly messages)
-6. Restart bot or use `/admin sync` to register new command
+### Persona Response Flow
+1. User sends message in a channel or AI thread
+2. `chat_commands.py` / `thread_commands.py` checks `state_manager.get_effective_persona(channel_id)`
+3. If persona is active, routes to `bot.webhook_sender.send_response(channel, content, channel_id)`
+4. `WebhookSender` resolves or creates a webhook for the channel (three-tier lookup)
+5. Response is sent via webhook with persona's `display_name` and `avatar_url`
+6. If webhook fails, `WebhookSender` falls back to bot account standard send
 
-### Adding a New AI Provider
-1. Create client class in `src/utils/` (e.g., `new_provider_client.py`)
-2. Implement standard methods: `chat()`, `list_models()`, etc.
-3. Add initialization in `src/bot.py`
-4. Register with `ProviderManager` in `src/utils/model_manager.py`
-5. Update config commands to support new provider
-6. Update documentation
+### Backup Export Flow
+1. Admin clicks "Export Config" or "Export Database" in dashboard Backup tab
+2. Request hits `GET /api/backup/config` or `GET /api/backup/database`
+3. `BackupManager.export_config_json()` or `create_sqlite_backup()` is called
+4. File is streamed to client with appropriate `Content-Disposition` header
+5. Temp files (for SQLite) are cleaned up after response
 
-### Database Migration
-1. Update `src/utils/database/schema.py` with new table/column
-2. Add migration logic in `SchemaManager.initialize()` or separate migration method
-3. Create corresponding manager class if needed
-4. Update `BotStateManager` to expose new data if needed
-5. Test migration on clean DB and existing DB
+### Config Import Flow
+1. Admin uploads JSON file to dashboard
+2. `POST /api/backup/config/validate` — `BackupManager.validate_config_json()` returns preview
+3. Dashboard shows validation preview; admin confirms
+4. `POST /api/backup/config/import` — `BackupManager.import_config_json()` runs in a transaction
+5. `state_manager.reinitialize_state()` reloads config from DB
+6. WebSocket broadcasts `config_imported` event; dashboard refreshes
 
-## Key Design Decisions
+### Intent Detection (@mentions)
+When `INTENT_DISCOVERY=TRUE`:
+1. User @mentions bot: "@Gideon remind me in 2 hours to check logs"
+2. `mention_commands.py` sends message to `INTENT_DETECTION_MODEL`
+3. AI classifies intent: `reminder`, `image_generation`, `search`, or `conversation`
+4. If confidence >= `INTENT_CONFIDENCE_THRESHOLD`, routes to handler
+5. Otherwise, falls back to normal conversation
 
-1. **SQLite for Persistence** - Simple, file-based, no external DB server needed
-2. **Modular Database Managers** - Each domain (messages, reminders, trivia) has dedicated manager
-3. **Provider Abstraction** - `ProviderManager` allows seamless switching between AI providers
-4. **Discord Native Threads** - Leverage Discord's built-in threading for organization
-5. **Environment-Based Config** - `.env` file for secrets and deployment-specific settings
-6. **Graceful Degradation** - Missing API keys disable features but don't crash bot
-7. **Docker-First Deployment** - Dockerfile + docker-compose.yml for easy deployment
-8. **Intent Detection Opt-In** - Performance/cost optimization (disabled by default)
-9. **Dashboard Opt-In** - Web dashboard disabled by default, runs in same event loop when enabled
-10. **No Frontend Framework** - Dashboard uses vanilla JS to avoid build dependencies
+### Image Generation Flow
+1. User runs `/dream prompt:"sunset over mountains"`
+2. Command routes to `unified_image_commands.py`
+3. Retrieves active provider from config DB
+4. Calls provider-specific client (AI Horde, Cloudflare, OpenAI, ComfyUI, OpenRouter)
+5. Bot posts result with embed (includes prompt, model, settings)
 
-## Important Files Reference
+## Troubleshooting
 
-- **Entry Point**: `src/__main__.py`
-- **Bot Core**: `src/bot.py`
-- **Config**: `src/config.py`
-- **State Management**: `src/utils/state_manager.py`
-- **Database Schema**: `src/utils/database/schema.py`
-- **AI Providers**: `src/utils/openrouter_client.py`, `src/utils/openai_client.py`
-- **API Key Management**: `src/utils/encryption.py`, `src/utils/api_key_service.py`, `src/utils/database/api_key_manager.py`
-- **Image Gen**: `src/cogs/unified_image_commands.py`
-- **Trivia Logic**: `src/utils/trivia_ai.py`, `src/cogs/trivia_commands.py`
-- **Dashboard Server**: `src/utils/dashboard/server.py`
-- **Dashboard Frontend**: `src/dashboard/index.html`, `src/dashboard/js/dashboard.js`
-- **Dashboard Cog**: `src/cogs/dashboard_commands.py`
-- **Environment**: `.env` (create from `.env.example`)
-
-## Testing & Debugging
-
-- **Console Logs**: Bot outputs startup info, errors to stdout/stderr
-- **Docker Logs**: `docker-compose logs -f` to tail container logs
-- **Debug Commands**: `/admin debug`, `/admin state`, `/admin diagnostic`
-- **Dashboard**: Enable `DASHBOARD_ENABLED=TRUE` and access `http://localhost:8080` for web-based management
-- **Database Inspection**: Use SQLite browser on `{DATA_DIRECTORY}/gideon.db`
-- **Intent Testing**: Enable `INTENT_DISCOVERY` and check logs for classification results
-
-## Common Issues
-
-1. **Commands Not Appearing** - Run `/admin sync` (owner only) to force command registration
-2. **"Provider Not Available"** - Check API keys in `.env`, restart bot
-3. **Image Gen Fails** - Verify provider-specific API key, check provider status page
-4. **Reminders Not Firing** - Check background task is running (logs show "Checking for due reminders...")
-5. **Database Locked** - Ensure only one bot instance is running, check file permissions on `DATA_DIRECTORY`
+- **Bot Offline** - Check process/container is running, verify `DISCORD_TOKEN`, check console logs
+- **Personas Not Showing** - Ensure bot has `Manage Webhooks` permission in the channel; check logs for webhook creation errors; verify persona is active with `/persona view`
+- **Webhook Fallback Happening** - Check `discord.Forbidden` errors in logs; grant `Manage Webhooks` permission
+- **Restore Not Taking Effect** - Confirm `reinitialize_state()` completed without error; restart bot if state appears stale
+- **Database Locked** - Ensure only one bot instance is running; check file permissions on `DATA_DIRECTORY`
+- **Dashboard Not Accessible** - Verify `DASHBOARD_ENABLED=TRUE` and correct port; check no firewall blocking
 
 ## Development Environment Setup
 
 ```bash
-# Clone repo
 git clone https://github.com/eoko-dev/gideon
 cd gideon
 
-# Create virtual environment
 python3 -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
 cp .env.example .env
 # Edit .env with your tokens/keys
 
-# Run bot
 python3 -m src
 ```
 
 ## Docker Deployment
 
 ```bash
-# Build image
 docker build -t gideon-bot:latest .
 
-# Configure environment
 cp .env.example .env
 # Edit .env (set DATA_DIRECTORY=/app/data for Docker)
 
-# Start with docker-compose
 docker-compose up -d
-
-# View logs
 docker-compose logs -f
-
-# Stop bot
 docker-compose down
 ```
 
@@ -460,6 +448,7 @@ docker-compose down
 - Update this CLAUDE.MD when adding new features or changing architecture
 - Test locally before committing
 - Ensure backward compatibility with existing database schema (add migrations if needed)
+- New database tables should have a corresponding manager class; delegate methods from `core.py`
 
 ## Future Considerations
 
@@ -467,12 +456,16 @@ docker-compose down
 - Multi-server support (currently single-server focused)
 - More intent handlers (code execution, math solver, etc.)
 - Voice integration (TTS/STT)
-- ~~Web dashboard for config management~~ (Implemented)
+- ~~Web dashboard for config management~~ (Implemented in v1.1)
+- ~~Per-channel personas with webhooks~~ (Implemented in v1.2)
+- ~~Backup & restore~~ (Implemented in v1.2)
 - Rate limiting per user/channel
 - Advanced permission system beyond admin/non-admin
+- Server templates/presets
+- Streaming responses
 
 ---
 
-**Last Updated**: 2026-02-11
-**Version**: Based on current main branch
+**Last Updated**: 2026-02-18
+**Version**: v1.2
 **Maintainer**: eoko-dev
