@@ -26,47 +26,75 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 ## ✨ Features
 
 ### 🧠 Intelligence
-- **Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more through OpenRouter
-- **Conversation Memory** - Natural conversations with context across messages
 
-- **Natural Language Intent Detection** - Simply @mention Gideon with natural language to automatically execute commands without needing to remember slash command syntax. The AI understands your intent and routes to the appropriate feature:
-  - **Reminders**: "@Gideon remind me to check the server logs tomorrow at 3pm"
-  - **Image Generation**: "@Gideon draw a sunset over mountains with vibrant colors"
-  - **Web Search**: "@Gideon what are the current best games on Xbox Game Pass"
-  - **Conversation**: Any other @mention automatically engages in natural conversation
+* **Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more through OpenRouter
+* **Conversation Memory** - Natural conversations with context across messages
+* **Natural Language Intent Detection** - Simply @mention Gideon with natural language to automatically execute commands without needing to remember slash command syntax. The AI understands your intent and routes to the appropriate feature:
+  + **Reminders**: "@Gideon remind me to check the server logs tomorrow at 3pm"
+  + **Image Generation**: "@Gideon draw a sunset over mountains with vibrant colors"
+  + **Web Search**: "@Gideon what are the current best games on Xbox Game Pass"
+  + **Conversation**: Any other @mention automatically engages in natural conversation
+* **Web Search** - Search the web for current information through conversational AI responses or natural language (@mention)
+* **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions. Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E, ComfyUI, OpenRouter). Admins can configure the active provider and its default settings.
 
-- **Web Search** - Search the web for current information through conversational AI responses or natural language (@mention)
-- **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions (e.g., "@Gideon draw a futuristic cityscape"). Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E, ComfyUI, OpenRouter). Admins can configure the active provider and its default settings.
+### 🎭 Per-Channel Personas
+
+Give Gideon a unique identity in every channel using Discord webhooks. Each persona can have its own display name, avatar, and system prompt — letting you tailor the bot's personality to different communities, topics, or server roles.
+
+* **Custom Personas** — Set a unique name, avatar URL, and system prompt per channel
+* **Built-in Templates** — Get started quickly with seeded templates: *Helpful Assistant*, *Tech Guru*, and *Creative Writer*
+* **Template Inheritance** — Channel personas can reference templates without being locked to them; template updates don't overwrite existing configurations
+* **Webhook-Powered** — Responses route through Discord webhooks so the persona appears as its own identity, not the bot account
+* **Automatic Fallback** — If webhook creation fails (e.g., missing permissions), Gideon falls back to the bot account gracefully
+* **Thread Support** — Personas inherit from parent channels in threads
+
+**Commands**: `/persona set`, `/persona template`, `/persona view`, `/persona list`, `/persona toggle`, `/persona remove`, `/persona preview`, `/persona templates`
 
 ### 🎮 Entertainment
-- **AI-Powered Trivia** - Play interactive trivia games with questions generated dynamically by AI
-  - **Solo Mode**: Test your knowledge in a personal trivia session
-  - **Competitive Mode**: Race against other players for the highest score
-  - **Dynamic Categories**: Ask questions about ANY topic - the AI generates questions on-demand
-  - **Smart Scoring**: Earn points based on difficulty, speed, and answer streaks
-  - **Achievements**: Unlock badges for milestones like perfect games, speed records, and win streaks
-  - **Leaderboards**: Compete on daily, weekly, monthly, and all-time rankings
-  - **Natural Gameplay**: Just type your answer directly in the thread - no complex commands needed!
+
+* **AI-Powered Trivia** - Play interactive trivia games with questions generated dynamically by AI
+  + **Solo Mode**: Test your knowledge in a personal trivia session
+  + **Competitive Mode**: Race against other players for the highest score
+  + **Dynamic Categories**: Ask questions about ANY topic - the AI generates questions on-demand
+  + **Smart Scoring**: Earn points based on difficulty, speed, and answer streaks
+  + **Achievements**: Unlock badges for milestones like perfect games, speed records, and win streaks
+  + **Leaderboards**: Compete on daily, weekly, monthly, and all-time rankings
+  + **Natural Gameplay**: Just type your answer directly in the thread - no complex commands needed!
 
 ### 🧵 Organization
-- **Conversation Threads** - Create dedicated topics with independent histories using Discord's native threads
-- **Auto-Responses** - Bot automatically responds to all messages in AI threads
-- **Dynamic URL Summarization** - Instantly extracts and distills key information from any shared webpage, providing concise, up-to-date summaries directly in your chat.
+
+* **Conversation Threads** - Create dedicated topics with independent histories using Discord's native threads
+* **Auto-Responses** - Bot automatically responds to all messages in AI threads
+* **Dynamic URL Summarization** - Instantly extracts and distills key information from any shared webpage
 
 ### 🖥️ Admin Dashboard
-- **Web-Based Management** - Full browser-based admin dashboard as an alternative to Discord slash commands
-- **Real-Time Monitoring** - Live activity feed with WebSocket-powered updates
-- **API Key Management** - Add, edit, validate, and delete API keys for all providers via the dashboard, with Fernet-encrypted database storage and full audit logging
-- **Settings Management** - Edit global settings, channel overrides, and intent detection from the browser
-- **Thread & Channel Management** - View, edit, and delete threads and channel configurations
-- **System Diagnostics** - Run diagnostics, check provider status, and trigger data pruning
-- **Secure Authentication** - Token-based authentication with configurable secret key
-- **Theme Support** - Dark and light mode toggle with persistent preference
+
+* **Web-Based Management** - Full browser-based admin dashboard as an alternative to Discord slash commands
+* **Real-Time Monitoring** - Live activity feed with WebSocket-powered updates
+* **API Key Management** - Add, edit, validate, and delete API keys for all providers via the dashboard, with Fernet-encrypted database storage and full audit logging
+* **Personas Tab** - Browse, create, edit, and apply channel personas and templates from the browser
+* **Backup & Restore** - Export and import your configuration (JSON) or full database (SQLite) directly from the dashboard
+* **Settings Management** - Edit global settings, channel overrides, and intent detection from the browser
+* **Thread & Channel Management** - View, edit, and delete threads and channel configurations
+* **System Diagnostics** - Run diagnostics, check provider status, and trigger data pruning
+* **Secure Authentication** - Token-based authentication with configurable secret key
+* **Theme Support** - Dark and light mode toggle with persistent preference
+
+### 💾 Backup & Restore
+
+Protect your bot's configuration and data with a full backup and restore system, all accessible from the web dashboard.
+
+* **Configuration Backups (JSON)** — Export all configuration tables; API keys and webhook credentials are excluded from exports for security, but webhook credentials are re-applied automatically on import
+* **Full Database Backups (SQLite)** — Complete database snapshot using SQLite's online backup API
+* **Pre-import Validation** — Multi-level validation (structure, required fields, schema version) before any data is applied
+* **Transaction Safety** — Config imports are wrapped in database transactions to ensure atomicity
+* **File Limits** — 10 MB for JSON config exports, 100 MB for full database backups
 
 ### 🛠️ Customization
-- **Model Switching** - Change AI models on-the-fly with simple commands
-- **Channel Personalities** - Set different system prompts per channel
-- **Admin Controls** - Comprehensive configuration options for server admins
+
+* **Model Switching** - Change AI models on-the-fly with simple commands
+* **Channel Personalities** - Set different system prompts per channel, or go further with full per-channel personas
+* **Admin Controls** - Comprehensive configuration options for server admins
 
 ## 🚀 Installation
 
@@ -75,67 +103,71 @@ There are two ways to install and run Gideon: using Docker (recommended for ease
 ### Prerequisites
 
 **For both methods:**
-- Git installed
-- Discord bot token with Message Content Intent enabled ([Discord Developer Portal](https://discord.com/developers/applications))
-- OpenRouter API key ([OpenRouter.ai](https://openrouter.ai/))
-- AI Horde API key (optional, for `/imagine` command - [AI Horde](https://aihorde.net/register))
-- Cloudflare Worker URL & API Key (optional, for `/dream` command and Adventure scene visualization - requires self-setup, see [Cloudflare Worker Configuration](#cloudflare-worker-configuration-optional))
+
+* Git installed
+* Discord bot token with Message Content Intent enabled ([Discord Developer Portal](https://discord.com/developers/applications))
+* OpenRouter API key ([OpenRouter.ai](https://openrouter.ai/))
+* AI Horde API key (optional, for `/dream` command - [AI Horde](https://aihorde.net/register))
+* Cloudflare Worker URL & API Key (optional, requires self-setup — see [Cloudflare Worker Configuration](#cloudflare-worker-configuration-optional))
 
 **For Docker Installation:**
-- Docker installed
-- Docker Compose installed (usually included with Docker Desktop)
+
+* Docker installed
+* Docker Compose installed (usually included with Docker Desktop)
 
 **For Python Installation:**
-- Python 3.8+
+
+* Python 3.8+
 
 ### Docker Installation (Recommended)
 
-1.  **Clone the Repository:**
-    ```bash
-    git clone https://github.com/eoko-dev/gideon
-    cd gideon
-    ```
+1. **Clone the Repository:**
 
-2.  **Configure Environment:**
-    *   Copy the example environment file:
-        ```bash
-        cp .env.example .env
-        ```
-    *   **Edit the `.env` file** with your actual API keys and tokens (`DISCORD_TOKEN`, `OPENROUTER_API_KEY`, etc.). Leave `DATA_DIRECTORY` blank or commented out when using Docker Compose with the provided configuration, as the volume mount handles data persistence.
+   ```bash
+   git clone https://github.com/eoko-dev/gideon
+   cd gideon
+   ```
 
-3.  **Build the Docker Image:**
-    *   Build the image using the included Dockerfile. This command builds the image and tags it as `gideon-bot:latest`.
-        ```bash
-        docker build -t gideon-bot:latest .
-        ```
-    *   *(Optional)* If you plan to distribute the image or use a registry like Docker Hub or GHCR, you would tag and push the image here.
+2. **Configure Environment:**
 
-4.  **Configure Docker Compose:**
-    *   Open the `docker-compose.yml` file.
-    *   **Verify the `volumes` section.** The default `docker-compose.yml` is set up to use a bind mount. It maps a directory from your host machine to the `/app/data` directory inside the container.
-        ```yaml
-        # Example docker-compose.yml volume section:
-        volumes:
-          # This maps a host directory to the container's data directory
-          - ./gideon_data:/app/data # Example: Creates 'gideon_data' in the current directory
-        ```
-    *   **Important:** Ensure the host path part (`./gideon_data` in the example) points to a location where Docker has permission to create/write files. Using a relative path like `./gideon_data` will create the directory within your `gideon` project folder.
-    *   *(Optional)* If you pushed your image to a registry in step 3, update the `image:` line to point to your registry image (e.g., `image: your-dockerhub-username/gideon:latest` or `image: ghcr.io/your-github-username/gideon:latest`). Otherwise, leave it as `image: gideon-bot:latest` to use the locally built image.
+   ```bash
+   cp .env.example .env
+   # Edit .env with your API keys and tokens
+   ```
 
-5.  **Run the Container:**
-    *   Start the bot using Docker Compose in detached mode (runs in the background):
-        ```bash
-        docker-compose up -d
-        ```
-    *   To view logs: `docker-compose logs -f`
-    *   To stop the bot: `docker-compose down`
+   Leave `DATA_DIRECTORY` blank or commented out when using Docker Compose — the volume mount handles data persistence.
+
+3. **Build the Docker Image:**
+
+   ```bash
+   docker build -t gideon-bot:latest .
+   ```
+
+4. **Configure Docker Compose:**
+
+   Open `docker-compose.yml` and verify the `volumes` section:
+
+   ```yaml
+   volumes:
+     - ./gideon_data:/app/data
+   ```
+
+   Ensure the host path is writable by Docker.
+
+5. **Run the Container:**
+
+   ```bash
+   docker-compose up -d
+   docker-compose logs -f   # View logs
+   docker-compose down      # Stop bot
+   ```
 
 ### Python Installation
 
 ```bash
-# Clone and enter repository (if not already done)
-# git clone https://github.com/eoko-dev/gideon
-# cd gideon
+# Clone and enter repository
+git clone https://github.com/eoko-dev/gideon
+cd gideon
 
 # Set up environment and dependencies
 python3 -m venv venv
@@ -144,11 +176,9 @@ pip install -r requirements.txt
 
 # Configure bot
 cp .env.example .env
-# Edit .env with your Discord token, OpenRouter API key, AI Horde API key,
-# AND set the DATA_DIRECTORY to an absolute path where the bot can write data.
+# Edit .env with your Discord token, API keys,
+# and set DATA_DIRECTORY to an absolute path where the bot can write data.
 # Example: DATA_DIRECTORY=/home/user/gideon_data
-# If DATA_DIRECTORY is not set, data (including the SQLite database file, typically 'gideon.db')
-# will be stored in a 'data' subdirectory within the project.
 
 # Launch
 python3 -m src
@@ -158,166 +188,160 @@ python3 -m src
 
 1. Create an application at [Discord Developer Portal](https://discord.com/developers/applications)
 2. Under "Bot" tab:
-   - Enable "Message Content Intent"
-   - Copy your bot token for the `.env` file
+   * Enable "Message Content Intent"
+   * Copy your bot token for the `.env` file
 3. Generate invite URL in "OAuth2 > URL Generator":
-   - Scopes: `bot`, `applications.commands`
-   - Permissions: Send Messages, Read Message History, Embed Links, Use Slash Commands, Manage Threads (for `/thread` commands)
+   * Scopes: `bot`, `applications.commands`
+   * Permissions: Send Messages, Read Message History, Embed Links, Use Slash Commands, Manage Threads, **Manage Webhooks** (required for persona feature)
 
 ### Intent Detection Configuration (Optional)
 
-Gideon's intent detection feature allows users to interact naturally with the bot through @mentions instead of slash commands. This feature is enabled by default.
+Gideon's intent detection feature allows users to interact naturally with the bot through @mentions instead of slash commands. Enabled by default.
 
-**Environment Variables (in `.env`):**
-- `INTENT_DISCOVERY=true` - Enable/disable intent detection (default: true)
-- `INTENT_DETECTION_MODEL=anthropic/claude-3.5-haiku` - Model used for intent classification (default: Claude 3.5 Haiku)
-- `INTENT_CONFIDENCE_THRESHOLD=0.7` - Minimum confidence score (0.0-1.0) to trigger intent routing (default: 0.7)
+**Environment Variables:**
+
+```env
+INTENT_DISCOVERY=true
+INTENT_DETECTION_MODEL=anthropic/claude-3.5-haiku
+INTENT_CONFIDENCE_THRESHOLD=0.7
+```
 
 **How It Works:**
-When you @mention Gideon, the bot uses AI to analyze your message and determine your intent:
-- **High confidence (≥0.7)**: Routes to the appropriate handler (reminder, image generation, or search)
-- **Low confidence (<0.7)**: Falls back to normal conversation
-- **Search intent**: Requires OpenRouter provider. If another provider is active, falls back to conversation with a notification
+When you @mention Gideon, the bot uses AI to analyze your message and classify intent:
 
-**Supported Intents:**
-1. **Reminder**: Schedule notifications for future events
-2. **Image Generation**: Create images from text descriptions
-3. **Search**: Fetch current information from the web (OpenRouter only)
-4. **Conversation**: General chat and questions
+* **High confidence (≥0.7)**: Routes to the appropriate handler (reminder, image generation, or search)
+* **Low confidence (<0.7)**: Falls back to normal conversation
+
+**Supported Intents:** Reminder, Image Generation, Search (OpenRouter only), Conversation
 
 ### Admin Dashboard Configuration (Optional)
 
-Gideon includes a web-based admin dashboard that provides a browser interface for managing all bot settings, channels, threads, and diagnostics. This serves as a full alternative to the Discord slash command interface.
+Gideon includes a web-based admin dashboard that provides a browser interface for managing all bot settings, personas, backup/restore, channels, threads, and diagnostics.
 
-**WARNING: This feature is experimental and should NOT be exposed to the public internet without addtional authentication measures in place.**
+**⚠️ WARNING: This feature is experimental and should NOT be exposed to the public internet without additional authentication measures in place.**
 
-**Environment Variables (in `.env`):**
-- `DASHBOARD_ENABLED=TRUE` - Enable/disable the dashboard (default: FALSE)
-- `DASHBOARD_PORT=8080` - Port for the web server (default: 8080)
-- `DASHBOARD_SECRET=your_secret_here` - Authentication secret (required when enabled)
+**Environment Variables:**
+
+```env
+DASHBOARD_ENABLED=TRUE
+DASHBOARD_PORT=8080
+DASHBOARD_SECRET=your_secret_here
+```
 
 **Quick Start:**
-1. Generate a secret: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
-2. Add to `.env`:
-   ```bash
-   DASHBOARD_ENABLED=TRUE
-   DASHBOARD_PORT=8080
-   DASHBOARD_SECRET=your_generated_secret
-   ```
-3. Restart the bot
-4. Open `http://localhost:8080` in your browser
-5. Log in with the dashboard secret
 
-**Docker:** The dashboard port is automatically exposed via docker-compose. Access it at `http://your-server:8080`.
+1. Generate a secret: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+2. Add to `.env` and restart the bot
+3. Open `http://localhost:8080` in your browser
+4. Log in with the dashboard secret
+
+**Docker:** The dashboard port is automatically exposed via docker-compose.
 
 **API Key Management (Optional):**
 
-The dashboard supports encrypted API key storage in the database, allowing you to manage all provider keys through the web UI instead of editing `.env` files.
+The dashboard supports encrypted API key storage in the database. To enable:
 
-1. Generate an encryption master key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
-2. Add to `.env`:
-   ```bash
-   ENCRYPTION_MASTER_KEY=your_generated_key
-   ```
-3. In the dashboard, go to the **API Keys** tab to add, validate, or import keys from `.env`
+1. Generate an encryption key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+2. Add to `.env`: `ENCRYPTION_MASTER_KEY=your_generated_key`
+3. In the dashboard, go to the **API Keys** tab to manage keys
 
-Keys stored in the database take priority over `.env` values. If no database key exists for a provider, the `.env` value is used as a fallback. This is fully backward compatible — the bot works identically without `ENCRYPTION_MASTER_KEY` set.
+Keys stored in the database take priority over `.env` values. This is fully backward compatible — the bot works without `ENCRYPTION_MASTER_KEY` set.
 
-**Dashboard Features:**
-- **Overview** - Bot status, server count, message stats, uptime, latency, and provider usage links
-- **API Keys** - Encrypted API key management with validation, import from `.env`, and audit logging
-- **Settings** - Edit global model, provider, system prompt, memory limits, and intent detection
-- **Channels** - View and edit channel-specific configuration overrides
-- **Threads** - Manage AI conversation threads (rename, configure, delete)
-- **Messages** - Browse stored conversation history with channel/thread/role filtering and pagination
-- **Diagnostics** - System health checks, provider status, manual data pruning
-- **Live Activity** - Real-time WebSocket feed of bot events and message activity
+**Dashboard Tabs:**
+
+| Tab | Description |
+| --- | --- |
+| Overview | Bot status, server count, message stats, uptime, latency, provider links |
+| API Keys | Encrypted API key management with validation, import from `.env`, and audit logging |
+| Settings | Edit global model, provider, system prompt, memory limits, and intent detection |
+| Channels | View and edit channel-specific configuration overrides |
+| Threads | Manage AI conversation threads (rename, configure, delete) |
+| Messages | Browse stored conversation history with filtering and pagination |
+| Personas | Browse templates, configure per-channel personas, create custom templates |
+| Backup & Restore | Export/import configuration JSON or full SQLite database backup |
+| Diagnostics | System health checks, provider status, manual data pruning |
+| Live Activity | Real-time WebSocket feed of bot events and message activity |
+
+### Persona Configuration (Optional)
+
+To use per-channel personas, the bot requires the **Manage Webhooks** permission in channels where personas are active. Without this permission, Gideon falls back to responding as the bot account.
+
+Configure personas via the dashboard **Personas** tab or via slash commands:
+
+```
+/persona set display_name:TechBot system_prompt:You are a helpful tech support assistant.
+/persona template helpful-assistant
+/persona toggle
+```
 
 ### Image Generation Provider Configuration (Optional)
 
-Gideon's unified `/dream` command supports multiple backend providers. To enable providers other than the default AI Horde, you need to configure their respective API keys or endpoints in your `.env` file.
+Gideon's unified `/dream` command supports multiple backend providers.
 
 **Cloudflare Worker (Optional)**
 
-**⚠️ IMPORTANT:** Setting up and deploying the Cloudflare Worker is the responsibility of the end user. Gideon does not provide support for configuring or troubleshooting Cloudflare Workers.
+⚠️ Setting up and deploying the Cloudflare Worker is the responsibility of the end user. Gideon does not provide support for configuring or troubleshooting Cloudflare Workers.
 
-If you want to use your own Cloudflare Worker as an image generation provider or enable Adventure scene visualization via a worker:
+```env
+CLOUDFLARE_WORKER_URL=https://your-worker.your-subdomain.workers.dev
+CLOUDFLARE_API_KEY=your_api_key  # optional, if your worker requires auth
+```
 
-1. Create and deploy your own Cloudflare Worker that can generate images (e.g., using Cloudflare's AI platform or another service).
-2. The worker should accept a JSON payload with at least a `prompt` field and return image data.
-3. Set the `CLOUDFLARE_WORKER_URL` in your `.env` file to your worker's URL.
-4. Optionally set `CLOUDFLARE_API_KEY` if your worker requires authentication (e.g., via a header like `Authorization: Bearer YOUR_KEY`).
+An example worker tested with Gideon: [flux1-cloudflare-worker](https://github.com/eoko-dev/flux1-cloudflare-worker)
 
-An example Cloudflare worker that has been tested with Gideon can be found here: [flux1-cloudflare-worker](https://github.com/eoko-dev/flux1-cloudflare-worker)
+**OpenAI DALL-E (Optional)**
 
-**OpenAI (Optional)**
-
-If you want to use OpenAI's DALL-E models for image generation:
-
-1. Obtain an OpenAI API key from the [OpenAI platform](https://platform.openai.com/).
-2. Set the `OPENAI_API_KEY` in your `.env` file to your OpenAI API key.
+```env
+OPENAI_API_KEY=your_openai_key
+```
 
 **ComfyUI (Optional)**
 
-For advanced users who want to self-host image generation with full control over models and workflows:
+```env
+COMFYUI_URL=http://127.0.0.1:8188
+```
 
-1. **Install ComfyUI**: Set up [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on your local machine or server
-2. **Start ComfyUI Server**: Run ComfyUI (typically accessible at `http://127.0.0.1:8188`)
-3. **Configure Gideon**: Set `COMFYUI_URL` in your `.env` file:
-   ```bash
-   COMFYUI_URL=http://127.0.0.1:8188  # For local instance
-   # or
-   COMFYUI_URL=http://your-server.com:8188  # For remote instance
-   ```
-4. **Test Connection**: Use `/dream_manage comfyui_test` to verify connectivity
-5. **Configure Settings**: Use `/dream_manage configure comfyui` to set default image size, steps, and model
-6. **Activate Provider**: Use `/dream_manage set_provider provider:ComfyUI` to switch to ComfyUI
-
-**Advanced ComfyUI Features:**
-- **Custom Workflows**: Load any ComfyUI workflow JSON via `/dream_manage comfyui_workflow`
-  - Supports FLUX, SDXL, SD3, Qwen-Image, and any ComfyUI-compatible workflow
-  - Parameters (prompt, negative_prompt, steps, seed) are automatically injected into compatible nodes. You can have an AI model adjust workflows from the UI version of ComfyUI to be quickly compatible with this method.
-- **Model Selection**: List available models with `/dream_manage comfyui_models`
-- **Flexible Configuration**: Works with checkpoints, LoRAs, ControlNet, and custom nodes
-
-**Default Workflow**: Gideon includes a built-in SD 1.5 txt2img workflow. To use advanced models like FLUX or Qwen-Image, load a custom workflow JSON using the admin command.
+Use `/dream_manage comfyui_test` to verify connectivity, `/dream_manage comfyui_workflow` to load a custom workflow JSON.
 
 **OpenRouter (Optional)**
 
-OpenRouter provides access to various image generation models through a unified API, including Google Gemini, FLUX, and other models with image output capabilities.
-
-1. Ensure your `OPENROUTER_API_KEY` is set in your `.env` file (same key used for chat).
-2. Use `/dream_manage set_provider provider:OpenRouter` to activate the provider.
-3. Configure the model and settings with `/dream_manage configure openrouter`.
-
-**OpenRouter-Specific Features (Gemini models):**
-- `aspect_ratio`: Control image aspect ratio (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`)
-- `image_size`: Control resolution (`1K`, `2K`, `4K`)
+Uses the same key as chat. Activate with `/dream_manage set_provider provider:OpenRouter`.
 
 ## 🤖 Commands
 
 > **Tip:** Use `/help` in Discord to browse all commands with an interactive menu. Admin commands are automatically hidden from regular users.
 
 ### General Commands
+
 | Command | Description |
-|:-------:|:------------|
+| --- | --- |
 | `/help` | View all commands with interactive category navigation |
 | `/chat` | Start a conversation with the AI (supports image uploads for vision models) |
 | `/search` | Search the web for current information using the AI |
 | `/reset` | Clear the conversation history for the current channel |
 | `/summarize` | Summarize the current conversation history |
 | `/memory` | Show conversation statistics (message count, history window) |
-
-### URL Commands
-| Command | Description |
-|:-------:|:------------|
 | `/summarizeurl` | Fetch and summarize the content of a given URL |
 
-### Settings Commands (Admin)
-Manage global bot configuration settings.
+### Persona Commands (Admin)
+
+Configure unique bot identities per channel using Discord webhooks.
 
 | Command | Description |
-|:-------:|:------------|
+| --- | --- |
+| `/persona set` | Set a custom persona for this channel (name, avatar, system prompt) |
+| `/persona template` | Apply a built-in or custom template to this channel |
+| `/persona view` | View the current persona configuration for this channel |
+| `/persona list` | List all channels with configured personas |
+| `/persona templates` | Browse all available persona templates |
+| `/persona toggle` | Enable or disable the persona without removing it |
+| `/persona remove` | Remove the persona from this channel |
+| `/persona preview` | Send a test message using the current channel persona |
+
+### Settings Commands (Admin)
+
+| Command | Description |
+| --- | --- |
 | `/settings show` | View all current global settings |
 | `/settings model` | Set global AI model (format: provider/model) |
 | `/settings system` | Set global system prompt |
@@ -327,10 +351,9 @@ Manage global bot configuration settings.
 | `/settings restore` | Reset all settings to defaults |
 
 ### Channel Commands (Admin)
-Configure channel-specific overrides for AI behavior.
 
 | Command | Description |
-|:-------:|:------------|
+| --- | --- |
 | `/channel show` | View current channel settings |
 | `/channel model` | Set AI model for this channel |
 | `/channel system` | Set system prompt for this channel |
@@ -339,10 +362,9 @@ Configure channel-specific overrides for AI behavior.
 | `/channel list` | List all channels with custom settings |
 
 ### Thread Commands
-Gideon leverages Discord's native thread system to organize conversations and create dedicated AI chat spaces.
 
 | Command | Description |
-|:-------:|:------------|
+| --- | --- |
 | `/thread new` | Create a new AI conversation thread |
 | `/thread message` | Send a message to a specific thread |
 | `/thread list` | View all active AI threads in the channel |
@@ -353,28 +375,19 @@ Gideon leverages Discord's native thread system to organize conversations and cr
 | `/thread delete` | Remove an AI thread and its history |
 
 ### Trivia Commands
-Play AI-generated trivia games with dynamic questions on any topic you choose.
 
 | Command | Description |
-|:-------:|:------------|
+| --- | --- |
 | `/trivia start` | Start a new trivia game (solo or competitive mode) |
 | `/trivia stop` | End the current trivia game |
 | `/trivia stats [user]` | View your trivia statistics or another player's stats |
 | `/trivia leaderboard [timeframe]` | View server rankings (daily/weekly/monthly/all-time) |
 | `/trivia achievements` | Display your earned achievement badges |
 
-**How to Play:**
-1. Use `/trivia start` and choose your mode (solo/competitive), category, and difficulty
-2. The bot creates a dedicated thread and posts questions
-3. Simply type your answer in the thread (A, B, C, D, or the full answer text)
-4. Earn points based on speed and accuracy - build streaks for bonus multipliers!
-5. Complete all questions to see final results and unlock achievements
-
 ### Admin Commands
-Administrative tools and diagnostics (Admin/Owner only).
 
 | Command | Description |
-|:-------:|:------------|
+| --- | --- |
 | `/admin sync` | Sync slash commands with Discord (Owner only) |
 | `/admin debug` | Show debug information |
 | `/admin state` | Display database state information |
@@ -382,135 +395,139 @@ Administrative tools and diagnostics (Admin/Owner only).
 | `/admin vision_models` | List all vision-capable AI models |
 
 ### Dashboard Commands (Admin)
-Manage the web-based admin dashboard.
 
 | Command | Description |
-|:-------:|:------------|
+| --- | --- |
 | `/dashboard status` | Check dashboard server status |
 | `/dashboard restart` | Restart the dashboard server (Owner only) |
 
 ### Image Commands
-Gideon uses a unified command for image generation with support for multiple backend providers (AI Horde, Cloudflare, OpenAI, ComfyUI, OpenRouter).
 
 | Command | Description | Permissions |
-|:-------:|:------------|:------------|
-| `/dream prompt:... [negative_prompt:...]` | Generate an image using the currently configured AI backend. | All Users |
-| `/dream_manage set_provider` | Set the active image generation provider. | Admin |
-| `/dream_manage view_config` | View the current active provider and configuration. | Admin |
-| `/dream_manage configure ai_horde` | Configure AI Horde defaults (model, size, steps). | Admin |
-| `/dream_manage configure cloudflare` | Configure Cloudflare defaults (size, steps, seed). | Admin |
-| `/dream_manage configure openai` | Configure OpenAI/DALL-E defaults (model, quality, style). | Admin |
-| `/dream_manage configure comfyui` | Configure ComfyUI defaults (model, size, steps). | Admin |
-| `/dream_manage configure openrouter` | Configure OpenRouter defaults (model, aspect ratio, image size). | Admin |
-| `/dream_manage comfyui_models` | List available ComfyUI checkpoint models. | Admin |
-| `/dream_manage comfyui_test` | Test ComfyUI server connection. | Admin |
-| `/dream_manage comfyui_workflow` | Set a custom ComfyUI workflow (JSON). | Admin |
+| --- | --- | --- |
+| `/dream prompt:...` | Generate an image using the active provider | All Users |
+| `/dream_manage set_provider` | Set the active image generation provider | Admin |
+| `/dream_manage view_config` | View the current active provider and configuration | Admin |
+| `/dream_manage configure ai_horde` | Configure AI Horde defaults | Admin |
+| `/dream_manage configure cloudflare` | Configure Cloudflare defaults | Admin |
+| `/dream_manage configure openai` | Configure OpenAI/DALL-E defaults | Admin |
+| `/dream_manage configure comfyui` | Configure ComfyUI defaults | Admin |
+| `/dream_manage configure openrouter` | Configure OpenRouter defaults | Admin |
+| `/dream_manage comfyui_models` | List available ComfyUI checkpoint models | Admin |
+| `/dream_manage comfyui_test` | Test ComfyUI server connection | Admin |
+| `/dream_manage comfyui_workflow` | Set a custom ComfyUI workflow (JSON) | Admin |
 
 ## 📚 Supported Models
 
 ### Text Models (via OpenRouter)
-- **OpenAI**: GPT-4o, GPT-4o-mini, GPT-4 Turbo, etc.
-- **Anthropic**: Claude 3.7 Sonnet, Claude 3 Opus, Claude 3 Haiku, etc.
-- **Google**: Gemini 2.0 Flash, Gemini Pro 1.5, etc.
-- **Meta**: Llama 3 70B, 8B, etc.
-- **Mistral**: Mistral Large, Mixtral 8x22B, etc.
-- **Perplexity**: Sonar Large, Sonar Small
-- **And many more!** Check [OpenRouter.ai](https://openrouter.ai/models) for the full list.
+
+* **OpenAI**: GPT-4o, GPT-4o-mini, GPT-4 Turbo, etc.
+* **Anthropic**: Claude 3.7 Sonnet, Claude 3 Opus, Claude 3 Haiku, etc.
+* **Google**: Gemini 2.0 Flash, Gemini Pro 1.5, etc.
+* **Meta**: Llama 3 70B, 8B, etc.
+* **Mistral**: Mistral Large, Mixtral 8x22B, etc.
+* **Perplexity**: Sonar Large, Sonar Small
+* **And many more!** Check [OpenRouter.ai](https://openrouter.ai/models) for the full list.
 
 ### Image Models
-#### Via AI Horde
-- **Stable Diffusion**: SD 2.1, SDXL, and various fine-tuned community models.
-- Check `/hordemodels` for currently available options.
 
-#### Via Cloudflare Worker (requires self-setup)
-- **Custom model implementation** - Your Cloudflare Worker can integrate any image generation model you choose (e.g., Stable Diffusion via Cloudflare's platform).
+**Via AI Horde** — Stable Diffusion SD 2.1, SDXL, and fine-tuned community models
 
-#### Via OpenRouter
-- **Google Gemini**: Gemini 2.5 Flash Image, Gemini 3 Pro Image Preview
-- **FLUX**: FLUX.2 Pro, FLUX.2 Max, FLUX.2 Flex
-- **OpenAI**: GPT-5 Image, GPT-5 Image Mini
-- **ByteDance**: Seedream 4.5
-- **Sourceful**: Riverflow V2 variants
+**Via Cloudflare Worker** — Custom model implementation (your worker, your models)
+
+**Via OpenRouter** — Google Gemini image models, FLUX variants, OpenAI GPT image models, ByteDance Seedream, and more
+
+**Via OpenAI** — DALL-E 2 and DALL-E 3
+
+**Via ComfyUI** — Any model supported by your local ComfyUI instance (FLUX, SDXL, SD3, etc.)
 
 ## 📁 Project Structure
 
 ```
 gideon/
-├── src/                    # Source code
-│   ├── bot.py              # Bot initialization & core logic
-│   ├── config.py           # Configuration loading (.env)
-│   ├── __main__.py         # Entry point for running the bot
-│   ├── cogs/               # Command modules (features)
-│   │   ├── admin_commands.py        # Admin tools (/admin group)
-│   │   ├── channel_commands.py      # Channel settings (/channel group)
-│   │   ├── chat_commands.py         # AI chat commands (/chat, /reset, etc.)
-│   │   ├── config_commands.py       # Legacy commands (deprecated)
-│   │   ├── diagnostic_commands.py   # Diagnostic utilities
-│   │   ├── mention_commands.py      # Bot mention handling
-│   │   ├── reminder_commands.py     # Reminder management
-│   │   ├── settings_commands.py     # Global settings (/settings group)
-│   │   ├── thread_commands.py       # Thread management (/thread group)
-│   │   ├── trivia_commands.py       # Trivia game system (/trivia group)
-│   │   ├── dashboard_commands.py     # Web admin dashboard (/dashboard)
+├── src/
+│   ├── bot.py                      # Bot initialization & core logic
+│   ├── config.py                   # Configuration loading (.env)
+│   ├── __main__.py                 # Entry point
+│   ├── cogs/                       # Command modules (features)
+│   │   ├── admin_commands.py       # Admin tools (/admin group)
+│   │   ├── channel_commands.py     # Channel settings (/channel group)
+│   │   ├── chat_commands.py        # AI chat (/chat, /reset, etc.)
+│   │   ├── dashboard_commands.py   # Web admin dashboard (/dashboard)
+│   │   ├── mention_commands.py     # Bot @mention handling
+│   │   ├── persona_commands.py     # Per-channel personas (/persona group)
+│   │   ├── reminder_commands.py    # Reminder management
+│   │   ├── settings_commands.py    # Global settings (/settings group)
+│   │   ├── thread_commands.py      # Thread management (/thread group)
+│   │   ├── trivia_commands.py      # Trivia game system (/trivia group)
 │   │   ├── unified_image_commands.py # Image generation (/dream)
-│   │   └── url_commands.py          # URL summarization
-│   ├── dashboard/             # Dashboard frontend assets
-│   │   ├── index.html         # Main dashboard page
-│   │   ├── css/dashboard.css  # Dashboard styles
-│   │   └── js/dashboard.js   # Dashboard application logic
-│   └── utils/              # Utility classes and functions
-│       ├── ai_horde_client.py    # API client for AI Horde
-│       ├── api_key_service.py    # Encrypted API key management service
-│       ├── cloudflare_client.py  # API client for Cloudflare Worker
-│       ├── encryption.py         # Fernet encryption/decryption utility
-│       ├── game_session.py       # In-memory trivia game state
-│       ├── model_manager.py      # AI model management
-│       ├── openai_client.py      # API client for OpenAI
-│       ├── openrouter_client.py  # API client for OpenRouter
-│       ├── permissions.py        # Permission checks
-│       ├── state_manager.py      # Centralized state management
-│       ├── trivia_ai.py          # AI question generation & validation
-│       ├── trivia_config.py      # Trivia scoring & achievements
-│       ├── dashboard/            # Dashboard server modules
-│       │   ├── server.py         # aiohttp web server & API routes
-│       │   └── auth.py           # Authentication middleware
-│       ├── database/             # Modular database managers
-│       │   ├── core.py           # Database manager initialization
-│       │   ├── schema.py         # Table definitions
-│       │   ├── api_key_manager.py # API key encrypted storage
-│       │   ├── trivia_manager.py # Trivia data persistence
-│       │   └── ...
-│       └── ...
-├── .env.example            # Environment variables template
-├── Dockerfile              # For building the Docker image
-├── docker-compose.yml      # For running with Docker Compose
-├── requirements.txt        # Python dependencies
-├── README.md               # This file
-├── CLAUDE.MD               # Developer guide & architecture reference
-└── index.md                # GitHub Pages landing page
+│   │   └── url_commands.py         # URL summarization
+│   ├── dashboard/                  # Dashboard frontend assets
+│   │   ├── index.html              # Main dashboard page
+│   │   ├── css/dashboard.css       # Dashboard styles
+│   │   └── js/dashboard.js         # Dashboard application logic
+│   └── utils/
+│       ├── ai_horde_client.py
+│       ├── api_key_service.py      # Encrypted API key management
+│       ├── cloudflare_client.py
+│       ├── encryption.py           # Fernet encryption utility
+│       ├── game_session.py         # In-memory trivia game state
+│       ├── model_manager.py
+│       ├── openai_client.py
+│       ├── openrouter_client.py
+│       ├── permissions.py
+│       ├── persona_templates.py    # Built-in persona template definitions
+│       ├── state_manager.py        # Centralized state management
+│       ├── trivia_ai.py
+│       ├── trivia_config.py
+│       ├── webhook_sender.py       # Webhook lifecycle management for personas
+│       ├── dashboard/
+│       │   ├── server.py           # aiohttp web server & API routes
+│       │   └── auth.py             # Authentication middleware
+│       └── database/
+│           ├── core.py             # DatabaseManager (delegates to sub-managers)
+│           ├── schema.py           # Table definitions
+│           ├── api_key_manager.py
+│           ├── backup_manager.py   # Config/database backup & restore
+│           ├── persona_manager.py  # Persona template & channel persona CRUD
+│           ├── trivia_manager.py
+│           └── ...
+├── .env.example
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── README.md
+├── CLAUDE.MD                       # Developer guide & architecture reference
+└── index.md                        # GitHub Pages landing page
 ```
 
 ## ❓ Troubleshooting
 
-*   **Bot Offline/Unresponsive:**
-    *   **Python:** Check if the `python src/__main__.py` process is running. Check console logs for startup errors.
-    *   **Docker:** Check container status (`docker ps`). Check container logs (`docker-compose logs -f` or `docker logs <container_id>`).
-    *   Verify `DISCORD_TOKEN` in `.env` is correct.
-    *   Ensure the bot has necessary permissions (`Send Messages`, `Read History`, `Use Slash Commands`, etc.) in the server. Discord might take time to register commands after startup.
-*   **Commands Not Working:**
-    *   **Permissions:** Ensure you have the required permissions (e.g., Admin for config commands).
-    *   **API Keys:** Verify API keys (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `AI_HORDE_API_KEY`, `CLOUDFLARE_API_KEY`) in `.env` are correct for the features you're using. Check `/model` for the active chat provider. Check `/dream manage view_config` for the active image provider.
-    *   **Provider Issues:** Check the status of external services (OpenRouter, OpenAI, AI Horde). Check your account balance/credits if applicable.
-    *   **Logs:** Check the bot's console/container logs for specific error messages from the API or internal processes.
-*   **Image Generation (`/dream`) Failures:**
-    *   Verify provider configuration (`/dream manage view_config`) and API keys/URLs in `.env`.
-    *   Ensure the bot has `Attach Files` and `Embed Links` permissions.
-    *   Try simpler prompts, different models, or smaller dimensions/fewer steps via `/dream configure`.
-    *   Check AI Horde status/kudos if using that provider.
-    *   If using Cloudflare, ensure your worker is deployed and running correctly.
-*   **Database/State Issues:**
-    *   Ensure the `DATA_DIRECTORY` path (Python) or Docker volume mount (`./gideon_data:/app/data` in `docker-compose.yml`) is correct and writable by the bot process.
-    *   Check logs for SQLite errors (e.g., "database is locked", "unable to open database file").
+* **Bot Offline/Unresponsive:**
+  * **Python:** Check if the `python3 -m src` process is running. Check console logs for startup errors.
+  * **Docker:** Check container status (`docker ps`). View logs with `docker-compose logs -f`.
+  * Verify `DISCORD_TOKEN` in `.env` is correct.
+  * Ensure the bot has `Send Messages`, `Read History`, `Use Slash Commands`, and `Manage Threads` permissions.
+
+* **Commands Not Working:**
+  * Verify you have the required permissions (Admin for config/persona commands).
+  * Check API keys in `.env` are correct for the features being used.
+  * Check the bot's logs for specific error messages.
+
+* **Personas Not Showing:**
+  * Ensure the bot has **Manage Webhooks** permission in the channel.
+  * Verify the persona is active via `/persona view` or the dashboard Personas tab.
+  * Check logs for webhook creation errors.
+
+* **Image Generation (`/dream`) Failures:**
+  * Verify provider configuration (`/dream_manage view_config`) and API keys.
+  * Ensure the bot has `Attach Files` and `Embed Links` permissions.
+  * Check AI Horde status/kudos if using that provider.
+
+* **Database/State Issues:**
+  * Ensure `DATA_DIRECTORY` (Python) or the Docker volume mount is correct and writable.
+  * Check logs for SQLite errors (`database is locked`, `unable to open database file`).
+  * Use the dashboard **Backup & Restore** tab to export a backup before troubleshooting.
 
 ## 📖 Documentation
 
