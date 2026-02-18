@@ -1782,3 +1782,108 @@ select {
     color: var(--text-muted);
     margin-left: auto;
 }
+
+/* ── Backup & Restore ──────────────────────────────────── */
+
+.backup-section {
+    margin-bottom: var(--space-6);
+}
+
+.backup-section .section-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: var(--space-4);
+    color: var(--text-primary);
+    letter-spacing: -0.2px;
+}
+
+.backup-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+}
+
+@media (max-width: 768px) {
+    .backup-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.backup-warning {
+    background: var(--danger-subtle);
+    border: 1px solid rgba(248, 113, 113, 0.25);
+    border-radius: var(--radius);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.backup-warning strong {
+    color: var(--danger);
+}
+
+.backup-actions {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+}
+
+.file-upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: var(--space-5);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color var(--duration) var(--ease),
+                background var(--duration) var(--ease);
+    margin-bottom: var(--space-3);
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.file-upload-zone:hover,
+.file-upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.04);
+}
+
+.file-upload-zone a {
+    color: var(--accent);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.import-preview {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+    font-size: 13px;
+}
+
+.import-preview h4 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: var(--space-2);
+    color: var(--text-primary);
+}
+
+.import-preview ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.import-preview li {
+    padding: 2px 0;
+    color: var(--text-secondary);
+}
+
+.import-preview li::before {
+    content: "\2022";
+    color: var(--accent);
+    margin-right: var(--space-2);
+}
