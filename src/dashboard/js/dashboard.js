@@ -210,6 +210,7 @@
             case 'image-gen': loadImageSettings(); break;
             case 'messages': loadMessageSources(); break;
             case 'diagnostics': break;
+            case 'backup': break;
             case 'activity': break;
         }
     }
@@ -1861,6 +1862,279 @@
         }
     }
 
+    // ── Backup & Restore ────────────────────────────────────
+
+    // File references for upload
+    var pendingConfigFile = null;
+    var pendingDbFile = null;
+
+    async function exportConfig() {
+        try {
+            showSaveStatus('export-config-status', 'Preparing export...', false);
+            var response = await fetch('/api/backup/config', {
+                headers: { 'Authorization': 'Bearer ' + authToken }
+            });
+            if (!response.ok) throw new Error('Export failed');
+
+            var blob = await response.blob();
+            var disposition = response.headers.get('Content-Disposition');
+            var filename = 'gideon_config.json';
+            if (disposition) {
+                var match = disposition.match(/filename="?([^"]+)"?/);
+                if (match) filename = match[1];
+            }
+
+            triggerDownload(blob, filename);
+            showSaveStatus('export-config-status', 'Config exported successfully', false);
+        } catch (e) {
+            showSaveStatus('export-config-status', 'Export failed: ' + e.message, true);
+        }
+    }
+
+    async function exportDatabase() {
+        try {
+            showSaveStatus('export-db-status', 'Creating backup...', false);
+            var response = await fetch('/api/backup/database', {
+                headers: { 'Authorization': 'Bearer ' + authToken }
+            });
+            if (!response.ok) throw new Error('Export failed');
+
+            var blob = await response.blob();
+            var disposition = response.headers.get('Content-Disposition');
+            var filename = 'gideon_backup.db';
+            if (disposition) {
+                var match = disposition.match(/filename="?([^"]+)"?/);
+                if (match) filename = match[1];
+            }
+
+            triggerDownload(blob, filename);
+            showSaveStatus('export-db-status', 'Database exported successfully', false);
+        } catch (e) {
+            showSaveStatus('export-db-status', 'Export failed: ' + e.message, true);
+        }
+    }
+
+    function triggerDownload(blob, filename) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function handleConfigFileSelect(file) {
+        if (!file || !file.name.match(/\.json$/i)) {
+            showSaveStatus('import-config-status', 'Please select a .json file', true);
+            return;
+        }
+        pendingConfigFile = file;
+        $('#config-file-name').textContent = file.name + ' (' + formatBytes(file.size) + ')';
+        $('#validate-config-btn').disabled = false;
+        $('#import-config-btn').disabled = true;
+        var preview = $('#config-import-preview');
+        if (preview) preview.style.display = 'none';
+    }
+
+    async function validateConfigImport() {
+        if (!pendingConfigFile) return;
+
+        var formData = new FormData();
+        formData.append('file', pendingConfigFile);
+
+        try {
+            showSaveStatus('import-config-status', 'Validating...', false);
+            var response = await fetch('/api/backup/config/validate', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + authToken },
+                body: formData
+            });
+            var result = await response.json();
+
+            if (result.valid) {
+                var preview = $('#config-import-preview');
+                var html = '<h4>Import Preview</h4><ul>';
+                var p = result.preview;
+                if (p.GLOBAL_CONFIG) html += '<li>' + p.GLOBAL_CONFIG + ' global settings</li>';
+                if (p.CHANNELS) html += '<li>' + p.CHANNELS + ' channels</li>';
+                if (p.CHANNEL_CONFIG) html += '<li>' + p.CHANNEL_CONFIG + ' channel configs</li>';
+                if (p.PERSONA_TEMPLATES) html += '<li>' + p.PERSONA_TEMPLATES + ' persona templates</li>';
+                if (p.CHANNEL_PERSONAS) html += '<li>' + p.CHANNEL_PERSONAS + ' channel personas</li>';
+                if (p.USERS) html += '<li>' + p.USERS + ' user preferences</li>';
+                html += '</ul>';
+                preview.innerHTML = html;
+                preview.style.display = 'block';
+
+                $('#import-config-btn').disabled = false;
+                showSaveStatus('import-config-status', 'Validation passed', false);
+            } else {
+                showSaveStatus('import-config-status',
+                    'Validation failed: ' + (result.errors || []).join(', '), true);
+                $('#import-config-btn').disabled = true;
+            }
+        } catch (e) {
+            showSaveStatus('import-config-status', 'Validation error: ' + e.message, true);
+        }
+    }
+
+    async function importConfig() {
+        if (!confirm('This will overwrite existing settings with the imported configuration. Continue?')) {
+            return;
+        }
+        if (!pendingConfigFile) return;
+
+        var formData = new FormData();
+        formData.append('file', pendingConfigFile);
+
+        try {
+            showSaveStatus('import-config-status', 'Importing...', false);
+            var response = await fetch('/api/backup/config/import', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + authToken },
+                body: formData
+            });
+            var result = await response.json();
+
+            if (response.ok) {
+                var applied = result.result && result.result.applied ? result.result.applied : {};
+                var summary = Object.keys(applied).map(function(t) { return t + ': ' + applied[t]; }).join(', ');
+                showSaveStatus('import-config-status', 'Imported: ' + summary, false);
+                // Reset file input state
+                pendingConfigFile = null;
+                $('#config-file-input').value = '';
+                $('#config-file-name').textContent = '';
+                $('#validate-config-btn').disabled = true;
+                $('#import-config-btn').disabled = true;
+                $('#config-import-preview').style.display = 'none';
+            } else {
+                showSaveStatus('import-config-status',
+                    'Import failed: ' + (result.error || 'Unknown error'), true);
+            }
+        } catch (e) {
+            showSaveStatus('import-config-status', 'Import error: ' + e.message, true);
+        }
+    }
+
+    function handleDbFileSelect(file) {
+        if (!file || !file.name.match(/\.(db|sqlite|sqlite3)$/i)) {
+            showSaveStatus('restore-db-status', 'Please select a .db, .sqlite, or .sqlite3 file', true);
+            return;
+        }
+        pendingDbFile = file;
+        $('#db-file-name').textContent = file.name + ' (' + formatBytes(file.size) + ')';
+        $('#validate-db-btn').disabled = false;
+        $('#restore-db-btn').disabled = true;
+        var preview = $('#db-restore-preview');
+        if (preview) preview.style.display = 'none';
+    }
+
+    async function validateDbRestore() {
+        if (!pendingDbFile) return;
+
+        var formData = new FormData();
+        formData.append('file', pendingDbFile);
+
+        try {
+            showSaveStatus('restore-db-status', 'Validating...', false);
+            var response = await fetch('/api/backup/database/validate', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + authToken },
+                body: formData
+            });
+            var result = await response.json();
+
+            if (result.valid) {
+                var preview = $('#db-restore-preview');
+                var info = result.info || {};
+                var html = '<h4>Backup Info</h4>';
+                html += '<p>File size: ' + formatBytes(info.size_bytes || 0) + '</p>';
+                if (info.table_counts) {
+                    html += '<ul>';
+                    var counts = info.table_counts;
+                    for (var table in counts) {
+                        html += '<li>' + table + ': ' + counts[table] + ' rows</li>';
+                    }
+                    html += '</ul>';
+                }
+                preview.innerHTML = html;
+                preview.style.display = 'block';
+
+                $('#restore-db-btn').disabled = false;
+                showSaveStatus('restore-db-status', 'Validation passed', false);
+            } else {
+                showSaveStatus('restore-db-status',
+                    'Validation failed: ' + (result.errors || []).join(', '), true);
+                $('#restore-db-btn').disabled = true;
+            }
+        } catch (e) {
+            showSaveStatus('restore-db-status', 'Validation error: ' + e.message, true);
+        }
+    }
+
+    function showRestoreConfirmModal() {
+        $('#restore-confirm-input').value = '';
+        $('#restore-confirm-btn').disabled = true;
+        $('#restore-confirm-modal').style.display = 'flex';
+    }
+
+    async function executeDbRestore() {
+        $('#restore-confirm-modal').style.display = 'none';
+
+        if (!pendingDbFile) return;
+
+        var formData = new FormData();
+        formData.append('file', pendingDbFile);
+
+        try {
+            showSaveStatus('restore-db-status', 'Restoring database...', false);
+            var response = await fetch('/api/backup/database/restore', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + authToken },
+                body: formData
+            });
+            var result = await response.json();
+
+            if (response.ok) {
+                showSaveStatus('restore-db-status', 'Database restored successfully!', false);
+                // Reset file input state
+                pendingDbFile = null;
+                $('#db-file-input').value = '';
+                $('#db-file-name').textContent = '';
+                $('#validate-db-btn').disabled = true;
+                $('#restore-db-btn').disabled = true;
+                $('#db-restore-preview').style.display = 'none';
+            } else {
+                showSaveStatus('restore-db-status',
+                    'Restore failed: ' + (result.error || 'Unknown error'), true);
+            }
+        } catch (e) {
+            showSaveStatus('restore-db-status', 'Restore error: ' + e.message, true);
+        }
+    }
+
+    function setupDragDrop(zoneId, inputId, handler) {
+        var zone = document.getElementById(zoneId);
+        var input = document.getElementById(inputId);
+        if (!zone || !input) return;
+
+        zone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            zone.classList.add('drag-over');
+        });
+        zone.addEventListener('dragleave', function() {
+            zone.classList.remove('drag-over');
+        });
+        zone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            zone.classList.remove('drag-over');
+            if (e.dataTransfer.files.length > 0) {
+                handler(e.dataTransfer.files[0]);
+            }
+        });
+    }
+
     function init() {
         // Login form
         $('#login-form').addEventListener('submit', async function (e) {
@@ -1987,6 +2261,41 @@
         // Diagnostics
         $('#run-diagnostics-btn').addEventListener('click', runDiagnostics);
         $('#run-prune-btn').addEventListener('click', runPrune);
+
+        // Backup & Restore
+        bindEvent('#export-config-btn', 'click', exportConfig);
+        bindEvent('#export-db-btn', 'click', exportDatabase);
+        bindEvent('#config-file-browse', 'click', function(e) {
+            e.preventDefault();
+            $('#config-file-input').click();
+        });
+        bindEvent('#config-file-input', 'change', function() {
+            if (this.files[0]) handleConfigFileSelect(this.files[0]);
+        });
+        bindEvent('#validate-config-btn', 'click', validateConfigImport);
+        bindEvent('#import-config-btn', 'click', importConfig);
+        bindEvent('#db-file-browse', 'click', function(e) {
+            e.preventDefault();
+            $('#db-file-input').click();
+        });
+        bindEvent('#db-file-input', 'change', function() {
+            if (this.files[0]) handleDbFileSelect(this.files[0]);
+        });
+        bindEvent('#validate-db-btn', 'click', validateDbRestore);
+        bindEvent('#restore-db-btn', 'click', showRestoreConfirmModal);
+        bindEvent('#restore-confirm-input', 'input', function() {
+            var btn = $('#restore-confirm-btn');
+            if (btn) btn.disabled = this.value !== 'RESTORE';
+        });
+        bindEvent('#restore-confirm-btn', 'click', executeDbRestore);
+        bindEvent('#restore-cancel-btn', 'click', function() {
+            $('#restore-confirm-modal').style.display = 'none';
+        });
+        bindEvent('#restore-modal-close', 'click', function() {
+            $('#restore-confirm-modal').style.display = 'none';
+        });
+        setupDragDrop('config-upload-zone', 'config-file-input', handleConfigFileSelect);
+        setupDragDrop('db-upload-zone', 'db-file-input', handleDbFileSelect);
 
         // Clear activity
         $('#clear-activity-btn').addEventListener('click', function () {

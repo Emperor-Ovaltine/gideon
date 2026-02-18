@@ -15,6 +15,7 @@ from .reminder_manager import ReminderManager
 from .trivia_manager import TriviaManager
 from .api_key_manager import APIKeyManager
 from .persona_manager import PersonaManager
+from .backup_manager import BackupManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class DatabaseManager:
             self._trivia = TriviaManager(self._conn)
             self._api_keys = APIKeyManager(self._conn)
             self._personas = PersonaManager(self._conn)
+            self._backup = BackupManager(self._conn, self.db_path)
 
         except sqlite3.Error as e:
             logger.error(f"Database connection error to {self.db_path}: {e}", exc_info=True)
@@ -427,3 +429,29 @@ class DatabaseManager:
     def remove_channel_persona(self, channel_id: str) -> bool:
         """Removes the persona for a channel."""
         return self._personas.remove_channel_persona(channel_id)
+
+    # --- Backup & Restore Methods (delegate to BackupManager) ---
+
+    def export_config_json(self) -> Dict[str, Any]:
+        """Exports all configuration tables as a JSON-serializable dict."""
+        return self._backup.export_config_json()
+
+    def validate_config_json(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validates imported JSON config structure."""
+        return self._backup.validate_config_json(data)
+
+    def import_config_json(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Applies imported JSON config to the database."""
+        return self._backup.import_config_json(data)
+
+    def create_sqlite_backup(self, backup_path: str) -> str:
+        """Creates a consistent SQLite backup using the online backup API."""
+        return self._backup.create_sqlite_backup(backup_path)
+
+    def validate_sqlite_backup(self, backup_path: str) -> Dict[str, Any]:
+        """Validates an uploaded SQLite backup file."""
+        return self._backup.validate_sqlite_backup(backup_path)
+
+    def restore_sqlite_backup(self, backup_path: str) -> Dict[str, Any]:
+        """Restores the database from a SQLite backup file."""
+        return self._backup.restore_sqlite_backup(backup_path)

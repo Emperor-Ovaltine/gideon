@@ -66,6 +66,9 @@
                 <li class="nav-item" data-tab="diagnostics">
                     <span class="nav-icon">&#9889;</span> <span class="nav-label">Diagnostics</span>
                 </li>
+                <li class="nav-item" data-tab="backup">
+                    <span class="nav-icon">&#128190;</span> <span class="nav-label">Backup & Restore</span>
+                </li>
                 <li class="nav-item" data-tab="activity">
                     <span class="nav-icon pulse-dot">&#9679;</span> <span class="nav-label">Live Activity</span>
                 </li>
@@ -890,6 +893,108 @@
                 </div>
                 <div id="diagnostics-results" class="diagnostics-panel">
                     <p class="loading-text">Click "Run Diagnostics" to check system health.</p>
+                </div>
+            </section>
+
+            <!-- Backup & Restore Tab -->
+            <section id="tab-backup" class="tab-content">
+                <div class="tab-header">
+                    <h2>Backup & Restore</h2>
+                    <p class="tab-description">Export configurations and database backups, or restore from previous backups.</p>
+                </div>
+
+                <!-- Export Section -->
+                <div class="backup-section">
+                    <h3 class="section-title">Export</h3>
+                    <div class="backup-grid">
+                        <div class="card">
+                            <div class="card-header"><h3>Configuration (JSON)</h3></div>
+                            <div class="card-body">
+                                <p>Export all global settings, channel configs, persona templates, and user preferences as a human-readable JSON file.</p>
+                                <p class="text-muted">Excludes: messages, threads, API keys, trivia data, reminders.</p>
+                                <button id="export-config-btn" class="btn btn-primary">Download Config JSON</button>
+                                <span id="export-config-status" class="save-status"></span>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header"><h3>Full Database (SQLite)</h3></div>
+                            <div class="card-body">
+                                <p>Download a complete copy of the database, including all messages, trivia stats, and encrypted API keys.</p>
+                                <p class="text-muted">Note: Encrypted API keys require the same ENCRYPTION_MASTER_KEY to decrypt.</p>
+                                <button id="export-db-btn" class="btn btn-primary">Download Database Backup</button>
+                                <span id="export-db-status" class="save-status"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Import Section -->
+                <div class="backup-section">
+                    <h3 class="section-title">Import / Restore</h3>
+                    <div class="backup-grid">
+                        <div class="card">
+                            <div class="card-header"><h3>Import Configuration</h3></div>
+                            <div class="card-body">
+                                <p>Upload a previously exported JSON configuration file to apply settings.</p>
+                                <div class="file-upload-zone" id="config-upload-zone">
+                                    <input type="file" id="config-file-input" accept=".json" style="display:none">
+                                    <p>Drag &amp; drop JSON file here or <a href="#" id="config-file-browse">browse</a></p>
+                                    <p class="text-muted" id="config-file-name"></p>
+                                </div>
+                                <div id="config-import-preview" class="import-preview" style="display:none;"></div>
+                                <div class="backup-actions">
+                                    <button id="validate-config-btn" class="btn btn-secondary" disabled>Validate</button>
+                                    <button id="import-config-btn" class="btn btn-primary" disabled>Import Configuration</button>
+                                </div>
+                                <span id="import-config-status" class="save-status"></span>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header"><h3>Restore Database</h3></div>
+                            <div class="card-body">
+                                <p>Upload a previously exported SQLite database file to fully restore the bot's state.</p>
+                                <div class="backup-warning">
+                                    <strong>Warning:</strong> This will REPLACE your entire database. All current data will be lost. A backup of the current database is saved automatically before restore.
+                                </div>
+                                <div class="file-upload-zone" id="db-upload-zone">
+                                    <input type="file" id="db-file-input" accept=".db,.sqlite,.sqlite3" style="display:none">
+                                    <p>Drag &amp; drop SQLite file here or <a href="#" id="db-file-browse">browse</a></p>
+                                    <p class="text-muted" id="db-file-name"></p>
+                                </div>
+                                <div id="db-restore-preview" class="import-preview" style="display:none;"></div>
+                                <div class="backup-actions">
+                                    <button id="validate-db-btn" class="btn btn-secondary" disabled>Validate</button>
+                                    <button id="restore-db-btn" class="btn btn-danger" disabled>Restore Database</button>
+                                </div>
+                                <span id="restore-db-status" class="save-status"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Restore Confirmation Modal -->
+                <div id="restore-confirm-modal" class="modal" style="display:none;">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>Confirm Database Restore</h3>
+                            <button class="modal-close" id="restore-modal-close">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="backup-warning">
+                                <p><strong>This action cannot be undone.</strong></p>
+                                <p>Your entire database will be replaced with the uploaded backup. All current messages, trivia stats, reminders, and other data will be lost.</p>
+                                <p>A backup of the current database will be saved automatically before restore.</p>
+                            </div>
+                            <div class="form-group">
+                                <label for="restore-confirm-input">Type <strong>RESTORE</strong> to confirm:</label>
+                                <input type="text" id="restore-confirm-input" placeholder="Type RESTORE" autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="modal-actions">
+                            <button id="restore-cancel-btn" class="btn btn-secondary">Cancel</button>
+                            <button id="restore-confirm-btn" class="btn btn-danger" disabled>Confirm Restore</button>
+                        </div>
+                    </div>
                 </div>
             </section>
 

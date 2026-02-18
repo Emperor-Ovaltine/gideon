@@ -122,6 +122,14 @@ class DashboardServer:
         router.add_get('/api/diagnostics', self._handle_diagnostics)
         router.add_post('/api/diagnostics/prune', self._handle_prune)
 
+        # Backup & Restore API
+        router.add_get('/api/backup/config', self._handle_export_config)
+        router.add_get('/api/backup/database', self._handle_export_database)
+        router.add_post('/api/backup/config/validate', self._handle_validate_config_import)
+        router.add_post('/api/backup/config/import', self._handle_import_config)
+        router.add_post('/api/backup/database/validate', self._handle_validate_db_restore)
+        router.add_post('/api/backup/database/restore', self._handle_restore_database)
+
         # API Key Management
         router.add_get('/api/keys', self._handle_get_keys)
         router.add_post('/api/keys', self._handle_add_key)
@@ -1334,6 +1342,212 @@ class DashboardServer:
 
         await self._broadcast_ws({'type': 'persona_template_applied', 'channel_id': channel_id, 'template_id': template_id})
         return web.json_response({'status': 'ok'})
+
+    # ── Backup & Restore Handlers ─────────────────────────────────
+
+    async def _handle_export_config(self, request):
+        """Export bot configuration as downloadable JSON."""
+        try:
+            state = self.bot.state_manager
+            config_data = state.db_manager.export_config_json()
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'gideon_config_{timestamp}.json'
+
+            return web.json_response(
+                config_data,
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"'
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error exporting config: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_export_database(self, request):
+        """Export full SQLite database as downloadable file."""
+        import tempfile
+        try:
+            state = self.bot.state_manager
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_filename = f'gideon_backup_{timestamp}.db'
+            backup_path = os.path.join(tempfile.gettempdir(), backup_filename)
+
+            state.db_manager.create_sqlite_backup(backup_path)
+
+            return web.FileResponse(
+                backup_path,
+                headers={
+                    'Content-Disposition': f'attachment; filename="{backup_filename}"',
+                    'Content-Type': 'application/x-sqlite3',
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error exporting database: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_validate_config_import(self, request):
+        """Validate an uploaded JSON config file before importing."""
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+
+            if not field or field.name != 'file':
+                return web.json_response({'error': 'No file uploaded'}, status=400)
+
+            content = await field.read(decode=False)
+            if len(content) > 10 * 1024 * 1024:
+                return web.json_response({'error': 'File too large (max 10 MB)'}, status=400)
+
+            try:
+                data = json.loads(content.decode('utf-8'))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return web.json_response({'error': 'Invalid JSON file'}, status=400)
+
+            state = self.bot.state_manager
+            validation = state.db_manager.validate_config_json(data)
+
+            return web.json_response(validation)
+        except Exception as e:
+            logger.error(f"Error validating config import: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_import_config(self, request):
+        """Import configuration from uploaded JSON file."""
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+
+            if not field or field.name != 'file':
+                return web.json_response({'error': 'No file uploaded'}, status=400)
+
+            content = await field.read(decode=False)
+            if len(content) > 10 * 1024 * 1024:
+                return web.json_response({'error': 'File too large (max 10 MB)'}, status=400)
+
+            try:
+                data = json.loads(content.decode('utf-8'))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return web.json_response({'error': 'Invalid JSON file'}, status=400)
+
+            state = self.bot.state_manager
+
+            # Validate first
+            validation = state.db_manager.validate_config_json(data)
+            if not validation.get('valid'):
+                return web.json_response(
+                    {'error': 'Validation failed', 'details': validation.get('errors', [])},
+                    status=400
+                )
+
+            # Apply import
+            result = state.db_manager.import_config_json(data)
+
+            # Reload in-memory state from DB
+            await state.reinitialize_state()
+
+            await self._broadcast_ws({'type': 'config_imported', 'result': result})
+            logger.info(f"Config imported successfully: {result.get('applied', {})}")
+            return web.json_response({'status': 'ok', 'result': result})
+        except Exception as e:
+            logger.error(f"Error importing config: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_validate_db_restore(self, request):
+        """Validate an uploaded SQLite database file before restoring."""
+        import tempfile
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+
+            if not field or field.name != 'file':
+                return web.json_response({'error': 'No file uploaded'}, status=400)
+
+            content = await field.read(decode=False)
+            if len(content) > 100 * 1024 * 1024:
+                return web.json_response({'error': 'File too large (max 100 MB)'}, status=400)
+
+            # Save to temp file for validation
+            temp_path = os.path.join(tempfile.gettempdir(), 'gideon_validate_temp.db')
+            with open(temp_path, 'wb') as f:
+                f.write(content)
+
+            state = self.bot.state_manager
+            validation = state.db_manager.validate_sqlite_backup(temp_path)
+
+            # Clean up temp file
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+            return web.json_response(validation)
+        except Exception as e:
+            logger.error(f"Error validating database restore: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_restore_database(self, request):
+        """Restore database from uploaded SQLite backup file."""
+        import tempfile
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+
+            if not field or field.name != 'file':
+                return web.json_response({'error': 'No file uploaded'}, status=400)
+
+            content = await field.read(decode=False)
+            if len(content) > 100 * 1024 * 1024:
+                return web.json_response({'error': 'File too large (max 100 MB)'}, status=400)
+
+            # Save to temp file
+            temp_path = os.path.join(tempfile.gettempdir(), 'gideon_restore_temp.db')
+            with open(temp_path, 'wb') as f:
+                f.write(content)
+
+            state = self.bot.state_manager
+
+            # Validate first
+            validation = state.db_manager.validate_sqlite_backup(temp_path)
+            if not validation.get('valid'):
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                return web.json_response(
+                    {'error': 'Validation failed', 'details': validation.get('errors', [])},
+                    status=400
+                )
+
+            # Perform restore
+            result = state.db_manager.restore_sqlite_backup(temp_path)
+
+            # Clean up temp file
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+            if not result.get('success'):
+                return web.json_response(
+                    {'error': f"Restore failed: {result.get('error', 'Unknown error')}"},
+                    status=500
+                )
+
+            # Reinitialize state from the restored database
+            await state.reinitialize_state()
+
+            await self._broadcast_ws({'type': 'database_restored'})
+            logger.info(f"Database restored successfully. Pre-restore backup at: {result.get('bak_path')}")
+            return web.json_response({
+                'status': 'ok',
+                'bak_path': result.get('bak_path'),
+                'message': 'Database restored successfully. A backup of the previous database was saved.'
+            })
+        except Exception as e:
+            logger.error(f"Error restoring database: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
 
     async def _broadcast_ws(self, data: dict):
         """Broadcast a message to all connected WebSocket clients."""

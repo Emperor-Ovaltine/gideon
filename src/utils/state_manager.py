@@ -68,6 +68,16 @@ class BotStateManager:
         self._initialized = True
         logger.info("BotStateManager initialized successfully.")
 
+    async def reinitialize_state(self):
+        """Re-reads all configuration from the database into memory.
+
+        Called after config import or database restore to pick up new values
+        without requiring a bot restart.
+        """
+        logger.info("Reinitializing BotStateManager from database...")
+        self._initialized = False
+        await self.initialize_state()
+
     async def _load_or_set_config(self, key: str, default_value: Any, value_type: str) -> Any:
         """Loads config from DB or sets default if not found."""
         value = self.db_manager.get_global_config(key)
