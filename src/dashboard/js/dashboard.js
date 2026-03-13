@@ -1603,9 +1603,9 @@
                         '</div>' +
                     '</div>' +
                     '<div class="key-card-actions">' +
-                        '<button class="btn btn-small btn-secondary" onclick="window._validateKey(\'' + key.key_id + '\')">Test</button>' +
-                        '<button class="btn btn-small btn-secondary" onclick="window._editKey(\'' + key.key_id + '\', \'' + escapeHtml(key.provider) + '\', \'' + escapeHtml(key.key_alias || '') + '\', ' + (key.is_active ? 'true' : 'false') + ')">Edit</button>' +
-                        '<button class="btn btn-small btn-danger" onclick="window._deleteKey(\'' + key.key_id + '\', \'' + escapeHtml(key.provider) + '\')">Delete</button>' +
+                        '<button class="btn btn-small btn-secondary" onclick="window._validateKey(\'' + escapeHtml(key.key_id) + '\')">Test</button>' +
+                        '<button class="btn btn-small btn-secondary" onclick="window._editKey(\'' + escapeHtml(key.key_id) + '\', \'' + escapeHtml(key.provider) + '\', \'' + escapeHtml(key.key_alias || '') + '\', ' + (key.is_active ? 'true' : 'false') + ')">Edit</button>' +
+                        '<button class="btn btn-small btn-danger" onclick="window._deleteKey(\'' + escapeHtml(key.key_id) + '\', \'' + escapeHtml(key.provider) + '\')">Delete</button>' +
                     '</div>' +
                 '</div>';
             });
@@ -1957,12 +1957,12 @@
                 var preview = $('#config-import-preview');
                 var html = '<h4>Import Preview</h4><ul>';
                 var p = result.preview;
-                if (p.GLOBAL_CONFIG) html += '<li>' + p.GLOBAL_CONFIG + ' global settings</li>';
-                if (p.CHANNELS) html += '<li>' + p.CHANNELS + ' channels</li>';
-                if (p.CHANNEL_CONFIG) html += '<li>' + p.CHANNEL_CONFIG + ' channel configs</li>';
-                if (p.PERSONA_TEMPLATES) html += '<li>' + p.PERSONA_TEMPLATES + ' persona templates</li>';
-                if (p.CHANNEL_PERSONAS) html += '<li>' + p.CHANNEL_PERSONAS + ' channel personas</li>';
-                if (p.USERS) html += '<li>' + p.USERS + ' user preferences</li>';
+                if (p.GLOBAL_CONFIG) html += '<li>' + escapeHtml(String(p.GLOBAL_CONFIG)) + ' global settings</li>';
+                if (p.CHANNELS) html += '<li>' + escapeHtml(String(p.CHANNELS)) + ' channels</li>';
+                if (p.CHANNEL_CONFIG) html += '<li>' + escapeHtml(String(p.CHANNEL_CONFIG)) + ' channel configs</li>';
+                if (p.PERSONA_TEMPLATES) html += '<li>' + escapeHtml(String(p.PERSONA_TEMPLATES)) + ' persona templates</li>';
+                if (p.CHANNEL_PERSONAS) html += '<li>' + escapeHtml(String(p.CHANNEL_PERSONAS)) + ' channel personas</li>';
+                if (p.USERS) html += '<li>' + escapeHtml(String(p.USERS)) + ' user preferences</li>';
                 html += '</ul>';
                 preview.innerHTML = html;
                 preview.style.display = 'block';
