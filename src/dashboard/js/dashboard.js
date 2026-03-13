@@ -594,7 +594,7 @@
         }
 
         if (!html) {
-            html = '<option value="">No ' + type + 's with messages</option>';
+            html = '<option value="">No ' + escapeHtml(type) + 's with messages</option>';
         }
         sel.innerHTML = html;
     }
