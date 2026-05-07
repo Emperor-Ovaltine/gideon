@@ -490,7 +490,7 @@ docker-compose down
 - ~~Web dashboard for config management~~ (Implemented in v1.1)
 - ~~Per-channel personas with webhooks~~ (Implemented in v1.2)
 - ~~Backup & restore~~ (Implemented in v1.2)
-- ~~Video generation (OpenRouter `/api/v1/videos`)~~ (Implemented in v1.3)
+- ~~Video generation (OpenRouter `/api/v1/videos`)~~ (Implemented)
 - Rate limiting per user/channel
 - Advanced permission system beyond admin/non-admin
 - Server templates/presets
@@ -499,5 +499,5 @@ docker-compose down
 ---
 
 **Last Updated**: 2026-05-07
-**Version**: v1.3
+**Version**: v1.2
 **Maintainer**: eoko-dev
