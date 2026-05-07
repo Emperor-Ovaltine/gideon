@@ -208,6 +208,7 @@
             case 'threads': loadThreads(); break;
             case 'personas': loadPersonas(); break;
             case 'image-gen': loadImageSettings(); break;
+            case 'video-gen': loadVideoSettings(); break;
             case 'messages': loadMessageSources(); break;
             case 'diagnostics': break;
             case 'backup': break;
@@ -661,10 +662,25 @@
                     }
                 }
 
+                // Check for video markers: [video:url] or [video:attachment]
+                var videoHtml = '';
+                var videoMatch = content.match(/^\[video:(.*?)\]\s*/);
+                if (videoMatch) {
+                    var videoRef = videoMatch[1];
+                    content = content.substring(videoMatch[0].length);
+                    if (videoRef && videoRef !== 'attachment' && videoRef.startsWith('http')) {
+                        videoHtml = '<div class="msg-image"><video controls preload="metadata" style="max-width:100%;border-radius:8px;"><source src="' + escapeHtml(videoRef) + '" type="video/mp4"></video><div><a href="' + escapeHtml(videoRef) + '" target="_blank" rel="noopener">Open video in new tab</a></div></div>';
+                    } else {
+                        videoHtml = '<div class="msg-image-placeholder">Generated video (attachment - not available in dashboard)</div>';
+                    }
+                }
+
                 // Check for failed generation marker
-                var isFailedGen = content.startsWith('[image generation failed]');
-                if (isFailedGen) {
+                var isFailedGen = content.startsWith('[image generation failed]') || content.startsWith('[video generation failed]');
+                if (content.startsWith('[image generation failed]')) {
                     content = content.substring('[image generation failed] '.length);
+                } else if (content.startsWith('[video generation failed]')) {
+                    content = content.substring('[video generation failed] '.length);
                 }
 
                 // Truncate very long messages for display
@@ -692,6 +708,9 @@
                 html += '</div>';
                 if (imageHtml) {
                     html += imageHtml;
+                }
+                if (videoHtml) {
+                    html += videoHtml;
                 }
                 html += '</div>';
             });
@@ -1398,6 +1417,209 @@
         } catch (e) {
             showSaveStatus('config-save-' + provider, 'Error: ' + e.message, true);
         }
+    }
+
+    // ── Video Generation ─────────────────────────────────────
+
+    var videoModelsCache = null;
+    var videoActiveJob = null;
+    var videoPollTimer = null;
+
+    async function loadVideoSettings() {
+        try {
+            var data = await api('GET', '/api/video/settings');
+            var cfg = data.config || {};
+
+            $('#video-duration').value = cfg.duration != null ? String(cfg.duration) : '8';
+            $('#video-aspect').value = cfg.aspect_ratio || '16:9';
+            $('#video-resolution').value = cfg.resolution || '720p';
+            $('#video-audio').checked = cfg.audio !== false;
+
+            var badge = $('#video-availability');
+            if (badge) {
+                badge.innerHTML = data.available
+                    ? '<span class="provider-badge available">configured</span>'
+                    : '<span class="provider-badge unavailable">missing</span>';
+            }
+
+            await loadVideoModels(cfg.model);
+        } catch (e) {
+            console.error('Failed to load video settings:', e);
+        }
+    }
+
+    async function loadVideoModels(currentModel) {
+        var selectEl = $('#video-model');
+        if (!selectEl) return;
+
+        if (videoModelsCache) {
+            populateVideoModelSelect(selectEl, videoModelsCache, currentModel);
+            return;
+        }
+
+        selectEl.innerHTML = '<option value="">Loading video models...</option>';
+        try {
+            var resp = await api('GET', '/api/video/models');
+            videoModelsCache = resp.models || [];
+            populateVideoModelSelect(selectEl, videoModelsCache, currentModel);
+        } catch (e) {
+            selectEl.innerHTML = '<option value="">Failed to load models</option>';
+        }
+    }
+
+    function populateVideoModelSelect(selectEl, models, currentValue) {
+        var html = '';
+        models.forEach(function (m) {
+            var id = m.id || m;
+            var name = m.name || id;
+            var selected = (id === currentValue) ? ' selected' : '';
+            var label = (id === currentValue) ? '> ' + name + ' (current)' : name;
+            html += '<option value="' + escapeHtml(id) + '"' + selected + '>' + escapeHtml(label) + '</option>';
+        });
+        if (!html) {
+            html = '<option value="">No video models available</option>';
+        }
+        selectEl.innerHTML = html;
+        renderVideoModelInfo(currentValue);
+    }
+
+    function renderVideoModelInfo(modelId) {
+        var info = $('#video-model-info');
+        if (!info) return;
+        if (!modelId || !videoModelsCache) {
+            info.textContent = '';
+            return;
+        }
+        var m = videoModelsCache.find(function (x) { return (x.id || x) === modelId; });
+        if (!m) { info.textContent = ''; return; }
+        var parts = [];
+        if (m.supported_resolutions && m.supported_resolutions.length) {
+            parts.push('Resolutions: ' + m.supported_resolutions.join(', '));
+        }
+        if (m.supported_aspect_ratios && m.supported_aspect_ratios.length) {
+            parts.push('Aspect ratios: ' + m.supported_aspect_ratios.join(', '));
+        }
+        if (m.supported_durations && m.supported_durations.length) {
+            parts.push('Durations: ' + m.supported_durations.join(', ') + 's');
+        }
+        if (m.supports_audio) parts.push('audio supported');
+        if (m.supports_image_input) parts.push('image-to-video supported');
+        info.textContent = parts.join(' · ');
+    }
+
+    async function saveVideoConfig(e) {
+        e.preventDefault();
+        var modelEl = $('#video-model');
+        var model = modelEl ? modelEl.value : '';
+        if (!model) {
+            showSaveStatus('video-config-save-status', 'Please pick a model', true);
+            return;
+        }
+        var config = {
+            model: model,
+            duration: parseInt($('#video-duration').value, 10),
+            aspect_ratio: $('#video-aspect').value,
+            resolution: $('#video-resolution').value,
+            audio: $('#video-audio').checked,
+        };
+        try {
+            await api('PUT', '/api/video/settings', {
+                active_provider: 'openrouter',
+                config: config,
+            });
+            showSaveStatus('video-config-save-status', 'Config saved', false);
+            renderVideoModelInfo(model);
+        } catch (err) {
+            showSaveStatus('video-config-save-status', 'Error: ' + err.message, true);
+        }
+    }
+
+    function stopVideoPolling() {
+        if (videoPollTimer) {
+            clearTimeout(videoPollTimer);
+            videoPollTimer = null;
+        }
+        videoActiveJob = null;
+        var cancelBtn = $('#video-test-cancel');
+        if (cancelBtn) cancelBtn.style.display = 'none';
+    }
+
+    async function submitVideoTest(e) {
+        e.preventDefault();
+        var prompt = ($('#video-test-prompt').value || '').trim();
+        if (!prompt) {
+            showSaveStatus('video-test-status', 'Prompt is required', true);
+            return;
+        }
+
+        stopVideoPolling();
+        var resultBox = $('#video-test-result');
+        if (resultBox) resultBox.innerHTML = '';
+
+        showSaveStatus('video-test-status', 'Submitting…', false);
+        try {
+            var modelEl = $('#video-model');
+            var imgEl = $('#video-test-image');
+            var body = {
+                prompt: prompt,
+                model: modelEl ? modelEl.value : undefined,
+                duration: parseInt($('#video-duration').value, 10),
+                aspect_ratio: $('#video-aspect').value,
+                resolution: $('#video-resolution').value,
+                audio: $('#video-audio').checked,
+                image_url: imgEl && imgEl.value ? imgEl.value : undefined,
+            };
+            var resp = await api('POST', '/api/video/generate', body);
+            videoActiveJob = resp.job_id;
+            showSaveStatus('video-test-status', 'Job ' + resp.job_id + ' submitted (' + (resp.status || 'queued') + ')', false);
+            var cancelBtn = $('#video-test-cancel');
+            if (cancelBtn) cancelBtn.style.display = '';
+            pollVideoJob(resp.job_id);
+        } catch (err) {
+            showSaveStatus('video-test-status', 'Error: ' + err.message, true);
+        }
+    }
+
+    function pollVideoJob(jobId) {
+        if (videoActiveJob !== jobId) return;
+        videoPollTimer = setTimeout(async function () {
+            if (videoActiveJob !== jobId) return;
+            try {
+                var status = await api('GET', '/api/video/jobs/' + encodeURIComponent(jobId));
+                showSaveStatus('video-test-status', 'Job ' + jobId + ' — ' + (status.status || 'unknown'), false);
+                var terminal = ['completed', 'failed', 'canceled', 'cancelled', 'error'];
+                if (terminal.indexOf(status.status) !== -1) {
+                    renderVideoTestResult(jobId, status);
+                    stopVideoPolling();
+                } else {
+                    pollVideoJob(jobId);
+                }
+            } catch (err) {
+                showSaveStatus('video-test-status', 'Poll error: ' + err.message, true);
+                stopVideoPolling();
+            }
+        }, 5000);
+    }
+
+    function renderVideoTestResult(jobId, status) {
+        var resultBox = $('#video-test-result');
+        if (!resultBox) return;
+        if (status.status !== 'completed') {
+            resultBox.innerHTML = '<div class="empty-state">Job ' + escapeHtml(jobId) + ' ended with status: ' + escapeHtml(status.status) + '</div>';
+            return;
+        }
+        var urls = status.unsigned_urls || [];
+        if (!urls.length) {
+            resultBox.innerHTML = '<div class="empty-state">Completed but no download URLs returned.</div>';
+            return;
+        }
+        var url = urls[0];
+        var html = '';
+        html += '<video controls preload="metadata" style="max-width:100%;border-radius:8px;">';
+        html += '<source src="' + escapeHtml(url) + '" type="video/mp4">';
+        html += '</video>';
+        html += '<p style="margin-top:8px;"><a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">Open video in new tab</a></p>';
+        resultBox.innerHTML = html;
     }
 
     // ── WebSocket ────────────────────────────────────────────
@@ -2257,6 +2479,22 @@
                 });
             }
         });
+
+        // Video Generation
+        var videoConfigForm = document.getElementById('video-config-form');
+        if (videoConfigForm) videoConfigForm.addEventListener('submit', saveVideoConfig);
+        var videoTestForm = document.getElementById('video-test-form');
+        if (videoTestForm) videoTestForm.addEventListener('submit', submitVideoTest);
+        var videoCancelBtn = document.getElementById('video-test-cancel');
+        if (videoCancelBtn) videoCancelBtn.addEventListener('click', function () {
+            stopVideoPolling();
+            showSaveStatus('video-test-status', 'Polling stopped', false);
+        });
+        var videoModelEl = document.getElementById('video-model');
+        if (videoModelEl) videoModelEl.addEventListener('change', function () {
+            renderVideoModelInfo(this.value);
+        });
+        setupModelSearch('video-model-search', 'video-model');
 
         // Diagnostics
         $('#run-diagnostics-btn').addEventListener('click', runDiagnostics);

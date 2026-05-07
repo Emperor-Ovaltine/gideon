@@ -60,6 +60,9 @@
                 <li class="nav-item" data-tab="image-gen">
                     <span class="nav-icon">&#127912;</span> <span class="nav-label">Image Gen</span>
                 </li>
+                <li class="nav-item" data-tab="video-gen">
+                    <span class="nav-icon">&#127909;</span> <span class="nav-label">Video Gen</span>
+                </li>
                 <li class="nav-item" data-tab="messages">
                     <span class="nav-icon">&#9993;</span> <span class="nav-label">Messages</span>
                 </li>
@@ -833,6 +836,123 @@
                                 </div>
                             </form>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Video Generation Tab -->
+            <section id="tab-video-gen" class="tab-content">
+                <div class="tab-header">
+                    <h2>Video Generation</h2>
+                    <p class="tab-description">Configure the /video command and generate videos directly via OpenRouter's video generation API.</p>
+                </div>
+
+                <!-- Status -->
+                <div class="card">
+                    <div class="card-header"><h3>Backend Status</h3></div>
+                    <div class="card-body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Provider</label>
+                                <div><span class="provider-badge available">openrouter</span></div>
+                            </div>
+                            <div class="form-group">
+                                <label>API Key</label>
+                                <div id="video-availability" class="provider-badges"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Defaults -->
+                <div class="card">
+                    <div class="card-header"><h3>Default Configuration</h3></div>
+                    <div class="card-body">
+                        <p class="tab-description" style="margin-bottom:16px;">
+                            These defaults are used when /video is invoked without explicit options.
+                        </p>
+                        <form id="video-config-form">
+                            <div class="form-group">
+                                <label for="video-model">Model</label>
+                                <div class="model-select-wrapper">
+                                    <input type="text" id="video-model-search" class="model-search" placeholder="Type to filter video models..." autocomplete="off">
+                                    <select id="video-model" size="6" class="model-select">
+                                        <option value="">Loading models...</option>
+                                    </select>
+                                </div>
+                                <div id="video-model-info" class="tab-description" style="margin-top:8px;"></div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="video-duration">Duration (seconds)</label>
+                                    <select id="video-duration">
+                                        <option value="4">4</option>
+                                        <option value="5">5</option>
+                                        <option value="6">6</option>
+                                        <option value="8" selected>8</option>
+                                        <option value="10">10</option>
+                                        <option value="12">12</option>
+                                        <option value="15">15</option>
+                                        <option value="20">20</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="video-aspect">Aspect Ratio</label>
+                                    <select id="video-aspect">
+                                        <option value="16:9" selected>Landscape (16:9)</option>
+                                        <option value="9:16">Portrait (9:16)</option>
+                                        <option value="1:1">Square (1:1)</option>
+                                        <option value="4:3">Landscape (4:3)</option>
+                                        <option value="3:4">Portrait (3:4)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="video-resolution">Resolution</label>
+                                    <select id="video-resolution">
+                                        <option value="480p">480p</option>
+                                        <option value="720p" selected>720p (HD)</option>
+                                        <option value="1080p">1080p (Full HD)</option>
+                                        <option value="4K">4K</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="video-audio" checked>
+                                    <span>Generate audio (model-dependent)</span>
+                                </label>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Defaults</button>
+                                <span id="video-config-save-status" class="save-status"></span>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Test Generation -->
+                <div class="card">
+                    <div class="card-header"><h3>Test Generation</h3></div>
+                    <div class="card-body">
+                        <p class="tab-description" style="margin-bottom:16px;">
+                            Submit a test job using the saved defaults. Generation typically takes 30 seconds to several minutes.
+                        </p>
+                        <form id="video-test-form">
+                            <div class="form-group">
+                                <label for="video-test-prompt">Prompt</label>
+                                <textarea id="video-test-prompt" rows="3" placeholder="Describe the video..."></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="video-test-image">Reference Image URL (optional)</label>
+                                <input type="text" id="video-test-image" placeholder="https://... (image-to-video; model-dependent)">
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Generate Video</button>
+                                <button type="button" id="video-test-cancel" class="btn btn-secondary" style="display:none;">Stop Polling</button>
+                                <span id="video-test-status" class="save-status"></span>
+                            </div>
+                        </form>
+                        <div id="video-test-result" style="margin-top:16px;"></div>
                     </div>
                 </div>
             </section>

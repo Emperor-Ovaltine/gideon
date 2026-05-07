@@ -170,6 +170,7 @@ async def on_ready():
         "src.cogs.diagnostic_commands",
         "src.cogs.mention_commands",
         "src.cogs.unified_image_commands", # /dream (user) + /dream_manage (admin)
+        "src.cogs.video_commands",         # /video (user) + /video_manage (admin)
         "src.cogs.url_commands",
         "src.cogs.reminder_commands",
         "src.cogs.trivia_commands",
