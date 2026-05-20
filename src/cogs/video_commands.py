@@ -452,15 +452,17 @@ class VideoCommands(commands.Cog):
             filename = f"generated_video{ext}"
             disc_file = discord.File(io.BytesIO(video_data), filename=filename)
             try:
-                # Discord does not allow adding file attachments via message edit;
-                # delete the progress stub and post a fresh message with the file.
-                try:
-                    await progress.delete()
-                except discord.HTTPException:
-                    pass
+                # Discord doesn't support editing a message to add file attachments,
+                # so send the video as a new followup. Edit the progress stub to a
+                # minimal state afterwards — deleting it causes Discord to show the
+                # video message as quoting a deleted message.
                 await ctx.followup.send(embed=embed, file=disc_file)
                 attached = True
                 logger.info(f"Video job {job_id}: uploaded {len(video_data)/1024/1024:.1f} MB as {filename}")
+                try:
+                    await progress.edit(content="✅ Video generated.")
+                except discord.HTTPException:
+                    pass
             except discord.HTTPException as e:
                 logger.warning(f"Video job {job_id}: file send failed ({e}); falling back to URL embed")
 
