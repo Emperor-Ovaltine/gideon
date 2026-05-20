@@ -220,14 +220,28 @@ class OpenRouterVideoClient:
             "last": last,
         }
 
+    def _download_headers(self) -> Dict[str, str]:
+        """Minimal headers for downloading OpenRouter-hosted video files.
+
+        OpenRouter's unsigned_urls still pass through their auth layer, so the
+        API key must be present. Content-Type is intentionally omitted (not
+        appropriate for a GET download request).
+        """
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "HTTP-Referer": "https://github.com/eoko-dev/gideon",
+            "X-Title": "Gideon Discord Bot",
+        }
+
     async def download_video(self, url: str) -> Dict[str, Any]:
         """Download a generated video's bytes from a (signed or unsigned) URL."""
         if not url:
             return {"success": False, "error": "Empty URL"}
         try:
             timeout = aiohttp.ClientTimeout(total=300)
+            headers = self._download_headers() if self.is_configured else {}
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
+                async with session.get(url, headers=headers) as response:
                     if response.status != 200:
                         text = await response.text()
                         return {"success": False, "error": f"Download failed ({response.status}): {text[:200]}"}

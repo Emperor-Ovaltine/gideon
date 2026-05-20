@@ -333,28 +333,43 @@ class VideoCommands(commands.Cog):
             return
 
         job_id = submit_result["job_id"]
-        await progress.edit(
-            content=(
-                f"🎬 Job submitted (`{job_id}`). Waiting for video to render…\n{info}\n"
-                f"*This typically takes 30 seconds to several minutes.*"
-            )
-        )
 
-        last_status_holder: Dict[str, str] = {"status": ""}
+        # ── Animated progress bar ──────────────────────────────
+        # The bar fills over BAR_FULL_SECS seconds, capped at 95% until done.
+        BAR_LEN = 20
+        BAR_FULL_SECS = 240
+        SPINNER = ["◐", "◓", "◑", "◒"]
+        poll_start = asyncio.get_running_loop().time()
+        spinner_state = {"idx": 0, "status": "queued"}
+
+        def _render_progress_bar() -> str:
+            elapsed = asyncio.get_running_loop().time() - poll_start
+            pct = min(elapsed / BAR_FULL_SECS, 0.95)
+            filled = int(pct * BAR_LEN)
+            bar = "▓" * filled + "░" * (BAR_LEN - filled)
+            spin = SPINNER[spinner_state["idx"] % len(SPINNER)]
+            spinner_state["idx"] += 1
+            mins, secs = divmod(int(elapsed), 60)
+            elapsed_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+            status = spinner_state["status"]
+            return (
+                f"🎬 Generating your video…\n\n"
+                f"`[{bar}]` {spin}  **{int(pct * 100)}%** · {elapsed_str} elapsed\n"
+                f"Status: **{status}** · Job `{job_id}`\n"
+                f"{info}\n\n"
+                f"-# Polls every 15s — will post the video when ready"
+            )
+
+        await progress.edit(content=_render_progress_bar())
 
         async def on_status(poll_result: Dict[str, Any]):
             status = poll_result.get("status", "")
-            if status and status != last_status_holder["status"]:
-                last_status_holder["status"] = status
-                try:
-                    await progress.edit(
-                        content=(
-                            f"🎬 Job `{job_id}` — status: **{status}**\n{info}\n"
-                            f"*Polling every 15s; will post when ready.*"
-                        )
-                    )
-                except discord.HTTPException:
-                    pass
+            if status:
+                spinner_state["status"] = status
+            try:
+                await progress.edit(content=_render_progress_bar())
+            except discord.HTTPException:
+                pass
 
         final = await self.video_client.wait_for_completion(
             job_id=job_id,
