@@ -38,6 +38,24 @@ class OpenRouterVideoClient:
     def is_configured(self) -> bool:
         return bool(self.api_key)
 
+    @staticmethod
+    def _parse_error(status: int, text: str) -> Dict[str, Any]:
+        """Build a uniform error dict from an HTTP error response."""
+        msg = text or ""
+        try:
+            data = json.loads(text) if text else {}
+            if isinstance(data, dict):
+                err = data.get("error")
+                if isinstance(err, dict):
+                    msg = err.get("message") or err.get("code") or msg
+                elif isinstance(err, str):
+                    msg = err
+                else:
+                    msg = data.get("message") or msg
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return {"success": False, "error": f"OpenRouter API error ({status}): {str(msg)[:300]}"}
+
     def _headers(self) -> Dict[str, str]:
         return {
             "Authorization": f"Bearer {self.api_key}",
