@@ -79,6 +79,20 @@ COMMAND_CATEGORIES: Dict[str, Dict] = {
         ],
         "admin_only": False
     },
+    "videos": {
+        "emoji": "🎬",
+        "name": "Videos",
+        "description": "Generate AI videos via OpenRouter",
+        "commands": [
+            {"name": "/video", "description": "Generate a video from a text prompt (model, duration, aspect ratio, resolution, audio, seed, image_url)"},
+        ],
+        "admin_commands": [
+            {"name": "/video_manage view_config", "description": "View current video generation configuration"},
+            {"name": "/video_manage models", "description": "List available video generation models"},
+            {"name": "/video_manage configure", "description": "Set defaults for /video (model, duration, aspect ratio, resolution, audio)"},
+        ],
+        "admin_only": False
+    },
     "reminders": {
         "emoji": "⏰",
         "name": "Reminders",

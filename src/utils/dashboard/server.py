@@ -118,6 +118,13 @@ class DashboardServer:
         router.add_put('/api/image/settings', self._handle_update_image_settings)
         router.add_get('/api/image/models', self._handle_get_image_models)
 
+        # Video Generation API
+        router.add_get('/api/video/settings', self._handle_get_video_settings)
+        router.add_put('/api/video/settings', self._handle_update_video_settings)
+        router.add_get('/api/video/models', self._handle_get_video_models)
+        router.add_post('/api/video/generate', self._handle_video_generate)
+        router.add_get('/api/video/jobs/{job_id}', self._handle_video_job_status)
+
         # Diagnostics API
         router.add_get('/api/diagnostics', self._handle_diagnostics)
         router.add_post('/api/diagnostics/prune', self._handle_prune)
@@ -864,6 +871,163 @@ class DashboardServer:
             {"id": "google/gemini-2.5-flash-image-preview", "name": "Gemini 2.5 Flash Image Preview"},
         ]
         return web.json_response(models)
+
+    # ── Video Generation Handlers ─────────────────────────────────
+
+    async def _handle_get_video_settings(self, request):
+        """Get video generation settings."""
+        try:
+            from ...utils.database import DatabaseManager
+            from ...cogs.video_commands import (
+                DB_KEY_ACTIVE_PROVIDER as VIDEO_PROVIDER_KEY,
+                DB_KEY_CONFIG_PREFIX as VIDEO_CONFIG_PREFIX,
+                DEFAULT_OPENROUTER_CONFIG as VIDEO_DEFAULT_CONFIG,
+                DEFAULT_PROVIDER as VIDEO_DEFAULT_PROVIDER,
+            )
+            db = DatabaseManager()
+
+            active_provider = db.get_global_config(VIDEO_PROVIDER_KEY, VIDEO_DEFAULT_PROVIDER)
+            config_json = db.get_global_config(f'{VIDEO_CONFIG_PREFIX}{active_provider}')
+            if config_json:
+                try:
+                    stored = json.loads(config_json)
+                except json.JSONDecodeError:
+                    stored = {}
+            else:
+                stored = {}
+            config = {**VIDEO_DEFAULT_CONFIG, **stored}
+
+            video_cog = self.bot.get_cog("VideoCommands")
+            available = bool(video_cog and video_cog.video_client and video_cog.video_client.is_configured)
+
+            return web.json_response({
+                'active_provider': active_provider,
+                'config': config,
+                'available': available,
+                'available_providers': ['openrouter'] if available else [],
+            })
+        except Exception as e:
+            logger.error(f"Error fetching video settings: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_update_video_settings(self, request):
+        """Update video generation settings."""
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+        try:
+            from ...utils.database import DatabaseManager
+            from ...cogs.video_commands import (
+                DB_KEY_ACTIVE_PROVIDER as VIDEO_PROVIDER_KEY,
+                DB_KEY_CONFIG_PREFIX as VIDEO_CONFIG_PREFIX,
+            )
+            db = DatabaseManager()
+            updated = []
+
+            if 'active_provider' in data:
+                provider = data['active_provider']
+                if provider != 'openrouter':
+                    return web.json_response({'error': f'Unsupported video provider: {provider}'}, status=400)
+                db.set_global_config(VIDEO_PROVIDER_KEY, provider, 'string')
+                updated.append('active_provider')
+
+            if 'config' in data:
+                config = data['config'] or {}
+                if not isinstance(config, dict):
+                    return web.json_response({'error': 'config must be an object'}, status=400)
+                provider = data.get('provider') or db.get_global_config(VIDEO_PROVIDER_KEY, 'openrouter')
+                config_key = f'{VIDEO_CONFIG_PREFIX}{provider}'
+                existing_json = db.get_global_config(config_key)
+                if existing_json:
+                    try:
+                        existing = json.loads(existing_json)
+                    except json.JSONDecodeError:
+                        existing = {}
+                else:
+                    existing = {}
+                merged = {**existing, **config}
+                db.set_global_config(config_key, json.dumps(merged), 'json')
+                updated.append(f'config_{provider}')
+
+            await self._broadcast_ws({'type': 'video_settings_updated', 'fields': updated})
+            return web.json_response({'status': 'ok', 'updated': updated})
+        except Exception as e:
+            logger.error(f"Error updating video settings: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_get_video_models(self, request):
+        """Get available video generation models."""
+        try:
+            video_cog = self.bot.get_cog("VideoCommands")
+            if not video_cog or not video_cog.video_client:
+                from ...utils.openrouter_video_client import OpenRouterVideoClient
+                models = OpenRouterVideoClient._fallback_models()
+                return web.json_response({'models': models, 'source': 'fallback'})
+
+            result = await video_cog.video_client.list_video_models()
+            if not result.get('success'):
+                return web.json_response({'error': result.get('error', 'Failed to fetch models')}, status=500)
+            return web.json_response({
+                'models': result.get('models', []),
+                'source': result.get('source', 'unknown'),
+            })
+        except Exception as e:
+            logger.error(f"Error fetching video models: {e}", exc_info=True)
+            return web.json_response({'error': str(e)}, status=500)
+
+    async def _handle_video_generate(self, request):
+        """Submit a video generation job from the dashboard."""
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+        prompt = (data.get('prompt') or '').strip()
+        if not prompt:
+            return web.json_response({'error': 'prompt is required'}, status=400)
+
+        video_cog = self.bot.get_cog("VideoCommands")
+        if not video_cog or not video_cog.video_client or not video_cog.video_client.is_configured:
+            return web.json_response({'error': 'Video client is not configured'}, status=400)
+
+        cfg = video_cog._load_config()
+        result = await video_cog.video_client.submit_video(
+            prompt=prompt,
+            model=data.get('model') or cfg.get('model'),
+            aspect_ratio=data.get('aspect_ratio') or cfg.get('aspect_ratio'),
+            duration=data.get('duration') if data.get('duration') is not None else cfg.get('duration'),
+            resolution=data.get('resolution') or cfg.get('resolution'),
+            audio=data.get('audio') if data.get('audio') is not None else cfg.get('audio'),
+            seed=data.get('seed'),
+            image=data.get('image_url'),
+        )
+        if not result.get('success'):
+            return web.json_response({'error': result.get('error', 'Submission failed')}, status=502)
+        return web.json_response({
+            'job_id': result.get('job_id'),
+            'status': result.get('status'),
+            'polling_url': result.get('polling_url'),
+        })
+
+    async def _handle_video_job_status(self, request):
+        """Poll a video generation job's status."""
+        job_id = request.match_info.get('job_id')
+        if not job_id:
+            return web.json_response({'error': 'job_id required'}, status=400)
+
+        video_cog = self.bot.get_cog("VideoCommands")
+        if not video_cog or not video_cog.video_client:
+            return web.json_response({'error': 'Video client is not configured'}, status=400)
+
+        result = await video_cog.video_client.get_video_status(job_id)
+        if not result.get('success'):
+            return web.json_response({'error': result.get('error')}, status=502)
+        return web.json_response({
+            'status': result.get('status'),
+            'unsigned_urls': result.get('unsigned_urls', []),
+        })
 
     # ── Diagnostics Handlers ───────────────────────────────────────
 

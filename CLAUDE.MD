@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Gideon is a sophisticated Discord bot that serves as an AI-powered assistant, providing intelligent conversations, image generation, trivia games, reminders, per-channel personas, and more. The bot integrates with multiple AI providers (OpenRouter, OpenAI, Anthropic Claude, Google Gemini) and image generation services (AI Horde, Cloudflare Workers, DALL-E, ComfyUI, OpenRouter).
+Gideon is a sophisticated Discord bot that serves as an AI-powered assistant, providing intelligent conversations, image generation, video generation, trivia games, reminders, per-channel personas, and more. The bot integrates with multiple AI providers (OpenRouter, OpenAI, Anthropic Claude, Google Gemini), image generation services (AI Horde, Cloudflare Workers, DALL-E, ComfyUI, OpenRouter), and video generation via OpenRouter (Veo 3.1, Sora 2 Pro, Seedance, Wan, Kling, etc.).
 
 **Tech Stack:**
 - Python 3.8+
@@ -164,14 +164,20 @@ Each cog is a self-contained feature module loaded dynamically at startup:
    - `/dream` - Generate images (routes to active provider)
    - `/dream_manage set_provider`, `/dream_manage view_config`, `/dream_manage configure`, `/dream_manage comfyui_*`
 
-9. **`reminder_commands.py`** - Scheduled notifications
+9. **`video_commands.py`** - AI video generation via OpenRouter
+   - `/video` - Generate a video from a text prompt; per-invocation overrides for `model` (autocompleted), `duration`, `aspect_ratio`, `resolution`, `audio`, `seed`, and `image_url` (image-to-video)
+   - `/video_manage view_config`, `/video_manage models`, `/video_manage configure` (Admin; hidden when dashboard is enabled)
+   - Submits to OpenRouter's async `/api/v1/videos` API, polls every 15s with status updates, then attaches the result (≤25 MB) or links the unsigned URL
+   - Persists results as `[video:url]` markers in message history for dashboard playback
+
+10. **`reminder_commands.py`** - Scheduled notifications
    - `/remind`, `/reminders`, `/reminder_cancel`
    - Background task checks for due reminders every 60s
 
-10. **`dashboard_commands.py`** - Web admin dashboard management
+11. **`dashboard_commands.py`** - Web admin dashboard management
     - `/dashboard status`, `/dashboard restart`
 
-11. **`persona_commands.py`** - Per-channel persona management (Admin)
+12. **`persona_commands.py`** - Per-channel persona management (Admin)
     - `/persona set` - Set custom persona (display_name, avatar_url, system_prompt, model_override)
     - `/persona template` - Apply a built-in or custom template to this channel
     - `/persona view` - View current channel persona
@@ -181,9 +187,9 @@ Each cog is a self-contained feature module loaded dynamically at startup:
     - `/persona remove` - Remove persona from channel
     - `/persona preview` - Send a test webhook message with current persona
 
-12. **`url_commands.py`** - URL summarization (`/summarizeurl`)
+13. **`url_commands.py`** - URL summarization (`/summarizeurl`)
 
-13. **`help_commands.py`** - Interactive `/help` command with category navigation
+14. **`help_commands.py`** - Interactive `/help` command with category navigation
 
 ### Persona System
 
@@ -262,6 +268,13 @@ aiohttp web server running in the same event loop as the bot:
 - `POST /api/backup/database/validate` — Validate SQLite backup file
 - `POST /api/backup/database/restore` — Restore from SQLite backup
 
+**Video Generation API Endpoints:**
+- `GET /api/video/settings` — Active provider, default config (model, duration, aspect_ratio, resolution, audio), availability flag
+- `PUT /api/video/settings` — Update active provider and/or default config
+- `GET /api/video/models` — Live model list from OpenRouter (`/api/v1/videos/models`) with curated fallback if unreachable
+- `POST /api/video/generate` — Submit a video generation job (returns `job_id`, `status`, `polling_url`)
+- `GET /api/video/jobs/{job_id}` — Poll job status; returns `status` and `unsigned_urls`
+
 **Persona API Endpoints:**
 - `GET /api/personas/templates` — List all templates
 - `POST /api/personas/templates` — Create custom template
@@ -276,6 +289,7 @@ aiohttp web server running in the same event loop as the bot:
 #### Frontend (`src/dashboard/`)
 Single-page application with tab-based navigation:
 - **Personas tab** — Template card grid, channel personas table, modal editor for create/edit
+- **Video Gen tab** — Backend status, model picker with capability hints (resolutions, aspect ratios, durations, audio, image-to-video), defaults form, and a test-generation card that submits a job, polls every 5s, and embeds the resulting `<video>` inline
 - **Backup & Restore tab** — Drag-and-drop upload zones, validation preview cards, confirmation modal for database restore
 
 WebSocket events trigger real-time tab refreshes for `template_updated`, `persona_updated`, etc.
@@ -403,6 +417,21 @@ When `INTENT_DISCOVERY=TRUE`:
 4. Calls provider-specific client (AI Horde, Cloudflare, OpenAI, ComfyUI, OpenRouter)
 5. Bot posts result with embed (includes prompt, model, settings)
 
+### Video Generation Flow
+1. User runs `/video prompt:"a cat surfing a wave"` (with optional `model`, `duration`, `aspect_ratio`, `resolution`, `audio`, `seed`, `image_url` overrides)
+2. `video_commands.py` merges overrides over the saved defaults from `video_config_openrouter` in `GLOBAL_CONFIG`
+3. `OpenRouterVideoClient.submit_video()` POSTs to `/api/v1/videos` and returns a `job_id`
+4. The cog calls `wait_for_completion(job_id)` which polls `/api/v1/videos/{id}` every 15s, editing the original Discord message with each new status (uses an `on_status` callback to throttle edits)
+5. On terminal status `completed`, the bot downloads the first URL from `unsigned_urls` and either attaches the MP4 (≤25 MB) or posts the URL in an embed
+6. A `[video:url]` marker is persisted to `MESSAGES` for dashboard playback
+7. Dashboard test generation uses `POST /api/video/generate` followed by client-side polling of `GET /api/video/jobs/{id}` every 5s
+
+**Database Keys:**
+- `video_active_provider` (string) — `"openrouter"` (only provider currently)
+- `video_config_openrouter` (json) — `{model, duration, aspect_ratio, resolution, audio}` defaults
+
+**Model List Source:** `OpenRouterVideoClient.list_video_models()` calls `/api/v1/videos/models` at runtime; if unreachable, falls back to a curated list (Veo 3.1, Veo 3, Sora 2 Pro, Seedance 2.0/1.5, Wan 2.7/2.6, Kling Video O1).
+
 ## Troubleshooting
 
 - **Bot Offline** - Check process/container is running, verify `DISCORD_TOKEN`, check console logs
@@ -411,6 +440,8 @@ When `INTENT_DISCOVERY=TRUE`:
 - **Restore Not Taking Effect** - Confirm `reinitialize_state()` completed without error; restart bot if state appears stale
 - **Database Locked** - Ensure only one bot instance is running; check file permissions on `DATA_DIRECTORY`
 - **Dashboard Not Accessible** - Verify `DASHBOARD_ENABLED=TRUE` and correct port; check no firewall blocking
+- **Video Generation Times Out** - Polling caps at 15 minutes per job; for longer renders re-run with shorter duration / smaller resolution, or supply a `callback_url` upstream
+- **Video Job Fails** - Run `/video_manage models` to confirm the model still exists; verify the requested duration / aspect ratio / resolution combo is in the model's `supported_*` lists
 
 ## Development Environment Setup
 
@@ -459,6 +490,7 @@ docker-compose down
 - ~~Web dashboard for config management~~ (Implemented in v1.1)
 - ~~Per-channel personas with webhooks~~ (Implemented in v1.2)
 - ~~Backup & restore~~ (Implemented in v1.2)
+- ~~Video generation (OpenRouter `/api/v1/videos`)~~ (Implemented)
 - Rate limiting per user/channel
 - Advanced permission system beyond admin/non-admin
 - Server templates/presets
@@ -466,6 +498,6 @@ docker-compose down
 
 ---
 
-**Last Updated**: 2026-02-18
+**Last Updated**: 2026-05-07
 **Version**: v1.2
 **Maintainer**: eoko-dev

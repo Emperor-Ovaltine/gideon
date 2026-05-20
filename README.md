@@ -36,6 +36,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
   + **Conversation**: Any other @mention automatically engages in natural conversation
 * **Web Search** - Search the web for current information through conversational AI responses or natural language (@mention)
 * **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions. Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E, ComfyUI, OpenRouter). Admins can configure the active provider and its default settings.
+* **Video Generation** - Generate AI videos with the `/video` command or directly from the dashboard, powered by OpenRouter's asynchronous video API. Supports multiple models (Veo 3.1, Sora 2 Pro, Seedance 2.0/1.5, Wan 2.7/2.6, Kling O1, etc.) with configurable duration, aspect ratio, resolution, audio, seed, and optional reference image (image-to-video).
 
 ### 🎭 Per-Channel Personas
 
@@ -307,6 +308,14 @@ Use `/dream_manage comfyui_test` to verify connectivity, `/dream_manage comfyui_
 
 Uses the same key as chat. Activate with `/dream_manage set_provider provider:OpenRouter`.
 
+### Video Generation Configuration (Optional)
+
+Gideon's `/video` command uses OpenRouter's asynchronous video generation API. It reuses the existing `OPENROUTER_API_KEY` (or a key stored in the dashboard's encrypted key store) — no extra configuration is required.
+
+Available models include Veo 3.1, Veo 3, Sora 2 Pro, Seedance 2.0/1.5, Wan 2.7/2.6, and Kling Video O1. Configure defaults via the dashboard **Video Gen** tab or with `/video_manage configure`. Per-invocation overrides for `model`, `duration`, `aspect_ratio`, `resolution`, `audio`, `seed`, and `image_url` (image-to-video) are accepted directly on `/video`.
+
+Generation typically takes 30 seconds to several minutes; the bot polls until the job reaches a terminal state and posts the result inline (or links to the unsigned URL when the file exceeds Discord's 25 MB attachment limit).
+
 ## 🤖 Commands
 
 > **Tip:** Use `/help` in Discord to browse all commands with an interactive menu. Admin commands are automatically hidden from regular users.
@@ -417,6 +426,15 @@ Configure unique bot identities per channel using Discord webhooks.
 | `/dream_manage comfyui_test` | Test ComfyUI server connection | Admin |
 | `/dream_manage comfyui_workflow` | Set a custom ComfyUI workflow (JSON) | Admin |
 
+### Video Commands
+
+| Command | Description | Permissions |
+| --- | --- | --- |
+| `/video prompt:... [model] [duration] [aspect_ratio] [resolution] [audio] [seed] [image_url]` | Generate a video via OpenRouter; per-invocation options override saved defaults | All Users |
+| `/video_manage view_config` | View current video generation defaults | Admin |
+| `/video_manage models` | List available video generation models | Admin |
+| `/video_manage configure` | Set defaults (model, duration, aspect ratio, resolution, audio) | Admin |
+
 ## 📚 Supported Models
 
 ### Text Models (via OpenRouter)
@@ -441,6 +459,15 @@ Configure unique bot identities per channel using Discord webhooks.
 
 **Via ComfyUI** — Any model supported by your local ComfyUI instance (FLUX, SDXL, SD3, etc.)
 
+### Video Models (via OpenRouter)
+
+* **Google**: Veo 3.1, Veo 3
+* **OpenAI**: Sora 2 Pro
+* **ByteDance**: Seedance 2.0, Seedance 1.5
+* **Alibaba**: Wan 2.7, Wan 2.6
+* **Kuaishou**: Kling Video O1
+* **And more** as OpenRouter adds providers — the model picker queries `/api/v1/videos/models` at runtime.
+
 ## 📁 Project Structure
 
 ```
@@ -461,6 +488,7 @@ gideon/
 │   │   ├── thread_commands.py      # Thread management (/thread group)
 │   │   ├── trivia_commands.py      # Trivia game system (/trivia group)
 │   │   ├── unified_image_commands.py # Image generation (/dream)
+│   │   ├── video_commands.py       # Video generation (/video)
 │   │   └── url_commands.py         # URL summarization
 │   ├── dashboard/                  # Dashboard frontend assets
 │   │   ├── index.html              # Main dashboard page
@@ -475,6 +503,7 @@ gideon/
 │       ├── model_manager.py
 │       ├── openai_client.py
 │       ├── openrouter_client.py
+│       ├── openrouter_video_client.py # Async OpenRouter video generation client
 │       ├── permissions.py
 │       ├── persona_templates.py    # Built-in persona template definitions
 │       ├── state_manager.py        # Centralized state management
@@ -523,6 +552,12 @@ gideon/
   * Verify provider configuration (`/dream_manage view_config`) and API keys.
   * Ensure the bot has `Attach Files` and `Embed Links` permissions.
   * Check AI Horde status/kudos if using that provider.
+
+* **Video Generation (`/video`) Failures:**
+  * Confirm an OpenRouter API key is set (in `.env` or the dashboard's encrypted key store) and that the account has video generation credits.
+  * If the bot reports `Timed out…`, the model is taking longer than the 15-minute polling cap — re-run with a shorter duration or smaller resolution.
+  * If a job ends with status `failed`, run `/video_manage models` to verify the chosen model still exists, and check that the requested duration / aspect ratio / resolution combination is supported by that model.
+  * Files larger than 25 MB cannot be attached directly; the bot will post the unsigned URL instead.
 
 * **Database/State Issues:**
   * Ensure `DATA_DIRECTORY` (Python) or the Docker volume mount is correct and writable.
