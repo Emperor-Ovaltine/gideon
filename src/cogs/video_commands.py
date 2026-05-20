@@ -67,6 +67,21 @@ DURATION_CHOICES = [
 # We avoid uploading larger files to prevent guaranteed failure.
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
+_CONTENT_TYPE_EXT = {
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/ogg": ".ogv",
+    "video/quicktime": ".mov",
+    "video/x-msvideo": ".avi",
+    "video/mpeg": ".mpg",
+    "application/octet-stream": ".mp4",
+}
+
+
+def _ext_from_content_type(content_type: str) -> str:
+    ct = content_type.lower().split(";")[0].strip()
+    return _CONTENT_TYPE_EXT.get(ct, ".mp4")
+
 
 class VideoCommands(commands.Cog):
     """Video generation slash commands."""
@@ -387,9 +402,18 @@ class VideoCommands(commands.Cog):
 
         video_url = urls[0]
 
-        # Try to download and attach. Fall back to a link if the file is too
-        # large for Discord's upload limits.
+        await progress.edit(content=f"🎬 Job `{job_id}` completed! Downloading video file…")
+
+        # Attempt download with one retry before giving up.
         download = await self.video_client.download_video(video_url)
+        if not download.get("success"):
+            logger.warning(
+                f"Video download attempt 1 failed for job {job_id}: {download.get('error')}; retrying in 5s"
+            )
+            await asyncio.sleep(5)
+            download = await self.video_client.download_video(video_url)
+            if not download.get("success"):
+                logger.error(f"Video download failed after retry for job {job_id}: {download.get('error')}")
 
         embed = discord.Embed(
             title="Generated Video",
@@ -405,27 +429,48 @@ class VideoCommands(commands.Cog):
             footer_parts.append(chosen_resolution)
         embed.set_footer(text=" | ".join(footer_parts))
 
-        if download.get("success") and len(download.get("data", b"")) <= MAX_UPLOAD_BYTES:
-            file = discord.File(io.BytesIO(download["data"]), filename="generated_video.mp4")
+        video_data = download.get("data", b"") if download.get("success") else b""
+        attached = False
+
+        if download.get("success") and len(video_data) <= MAX_UPLOAD_BYTES:
+            ext = _ext_from_content_type(download.get("content_type", "video/mp4"))
+            filename = f"generated_video{ext}"
+            disc_file = discord.File(io.BytesIO(video_data), filename=filename)
             try:
-                await progress.edit(content=None, embed=embed, file=file)
+                # Discord does not allow adding file attachments via message edit;
+                # delete the progress stub and post a fresh message with the file.
+                try:
+                    await progress.delete()
+                except discord.HTTPException:
+                    pass
+                await ctx.followup.send(embed=embed, file=disc_file)
+                attached = True
+                logger.info(f"Video job {job_id}: uploaded {len(video_data)/1024/1024:.1f} MB as {filename}")
             except discord.HTTPException as e:
-                logger.warning(f"Attach failed ({e}); falling back to URL")
-                embed.add_field(name="Video URL", value=video_url, inline=False)
-                await progress.edit(content=None, embed=embed)
-        else:
-            embed.add_field(name="Video URL", value=video_url, inline=False)
-            if download.get("success"):
-                size_mb = len(download.get("data", b"")) / (1024 * 1024)
+                logger.warning(f"Video job {job_id}: file send failed ({e}); falling back to URL embed")
+
+        if not attached:
+            if not download.get("success"):
                 embed.add_field(
-                    name="Note",
+                    name="⚠️ Download failed",
                     value=(
-                        f"File is {size_mb:.1f} MB — too large to attach directly. "
-                        f"Use the URL above to view or download."
+                        f"Could not retrieve the video file: {download.get('error', 'Unknown error')}\n"
+                        f"[View/Download here]({video_url})"
                     ),
                     inline=False,
                 )
-            await progress.edit(content=None, embed=embed)
+            else:
+                size_mb = len(video_data) / (1024 * 1024)
+                embed.add_field(name="Video URL", value=video_url, inline=False)
+                embed.add_field(
+                    name="Note",
+                    value=f"File is {size_mb:.1f} MB — too large to attach directly to Discord.",
+                    inline=False,
+                )
+            try:
+                await progress.edit(content=None, embed=embed)
+            except discord.HTTPException:
+                await ctx.followup.send(embed=embed)
 
         self._store_video_messages(
             channel_id=str(ctx.channel_id),
