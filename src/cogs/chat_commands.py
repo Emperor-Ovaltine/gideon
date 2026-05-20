@@ -6,6 +6,7 @@ import re  # Add this import here
 import logging
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
+from ..utils.memory_service import check_and_rotate_session
 # Changed to absolute import: from ..utils.conversation import get_channel_context
 # Removed import for conversation, now handled by state_manager
 from ..utils.openrouter_client import OpenRouterClient
@@ -259,7 +260,10 @@ class ChatCommands(commands.Cog):
                     image_embed.description = f"⚠️ Provider '{provider}' model '{model_name}' doesn't support image analysis."
                 # If client_to_use is None, the error will be handled later
 
-        # Get effective system prompt (persona > channel config > global)
+        # Check for session expiry and rotate if needed (before fetching history)
+        await check_and_rotate_session(channel_id, self.state, client_to_use)
+
+        # Get effective system prompt (persona > channel config > global, with memory injected)
         channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
 
         try:
@@ -398,16 +402,37 @@ class ChatCommands(commands.Cog):
 
     @discord.slash_command(
         name="memory",
-        description="Show how many messages are stored for this channel"
+        description="Show conversation memory status for this channel"
     )
     async def channel_memory_slash(self, ctx):
         channel_id = str(ctx.channel.id)
         history = self.state.get_channel_history(channel_id)
+        memories = self.state.get_channel_memories(channel_id)
+        timeout = self.state.get_effective_session_timeout(channel_id)
+        summary_enabled = self.state.get_effective_memory_summary_enabled(channel_id)
+
+        lines = []
+
         if history:
-            history_length = len(history)
-            await ctx.respond(f"Currently storing {history_length} messages for this channel, spanning up to {self.state.time_window_hours} hours.")
+            lines.append(f"**Active session:** {len(history)} message(s) in current context window.")
+            from ..utils.memory_service import _parse_timestamp
+            last_ts = _parse_timestamp(history[-1].get("timestamp"))
+            if last_ts:
+                from datetime import datetime
+                age_hours = (datetime.now() - last_ts).total_seconds() / 3600
+                lines.append(f"**Last activity:** {age_hours:.1f}h ago (session resets after {timeout}h of silence).")
         else:
-            await ctx.respond("No conversation history found for this channel.")
+            lines.append("**Active session:** No messages in current context window.")
+            lines.append(f"Session resets after **{timeout}h** of silence.")
+
+        if memories:
+            lines.append(f"**Long-term memories:** {len(memories)} stored summary(ies) for this channel.")
+        else:
+            lines.append("**Long-term memories:** None stored yet.")
+
+        lines.append(f"**Auto-summarize on reset:** {'Enabled' if summary_enabled else 'Disabled'}")
+
+        await ctx.respond("\n".join(lines))
 
     @discord.slash_command(
         name="summarize",

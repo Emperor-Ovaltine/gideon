@@ -5,6 +5,7 @@ import logging # Added
 import io # Added for ComfyUI image data handling
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
+from ..utils.memory_service import check_and_rotate_session
 # Removed import for conversation, now handled by state_manager
 # Removed OpenRouterClient import as we use clients dict
 from ..config import SYSTEM_PROMPT, DEFAULT_MODEL
@@ -1111,6 +1112,19 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
             return
 
         channel_id = str(message.channel.id)
+
+        # Check for session expiry and rotate before recording the new message
+        if self.state and not message.content.startswith('/'):
+            try:
+                model_id = self.state.get_effective_model(channel_id)
+                try:
+                    ch_provider, _ = model_id.split('/', 1)
+                except ValueError:
+                    ch_provider = "openrouter"
+                ch_client = self.clients.get(ch_provider) or self.clients.get("openrouter")
+                await check_and_rotate_session(channel_id, self.state, ch_client)
+            except Exception as e:
+                logger.error(f"[Mention] Error during session rotation for channel {channel_id}: {e}", exc_info=True)
 
         # Add all regular user messages to history (if state manager is available)
         if self.state and not message.content.startswith('/'):  # Ignore slash commands

@@ -1887,3 +1887,31 @@ select {
     color: var(--accent);
     margin-right: var(--space-2);
 }
+
+/* ── Memory Tab ─────────────────────────────────────────── */
+
+.memory-entry {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+    background: var(--bg-secondary);
+}
+
+.memory-meta {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: var(--space-1);
+}
+
+.memory-summary {
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.form-hint {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}

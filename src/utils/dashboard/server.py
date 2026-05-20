@@ -147,6 +147,12 @@ class DashboardServer:
         router.add_get('/api/keys/audit', self._handle_get_audit_log)
         router.add_get('/api/keys/providers', self._handle_get_key_providers)
 
+        # Memory API
+        router.add_get('/api/memory', self._handle_get_memory_stats)
+        router.add_get('/api/memory/{channel_id}', self._handle_get_channel_memories)
+        router.add_delete('/api/memory/{channel_id}', self._handle_delete_channel_memories)
+        router.add_post('/api/memory/{channel_id}/summarize', self._handle_trigger_summarize)
+
         # Persona API
         router.add_get('/api/personas/templates', self._handle_get_persona_templates)
         router.add_post('/api/personas/templates', self._handle_create_persona_template)
@@ -262,6 +268,9 @@ class DashboardServer:
             'max_channel_history': state.get_max_channel_history(),
             'time_window_hours': state.get_time_window_hours(),
             'prune_frequency_hours': state.get_prune_frequency_hours(),
+            'session_timeout_hours': state.get_session_timeout_hours(),
+            'memory_summary_enabled': state.get_memory_summary_enabled(),
+            'max_memory_summaries': state.get_max_memory_summaries(),
         })
 
     async def _handle_update_settings(self, request):
@@ -305,6 +314,20 @@ class DashboardServer:
                 val = int(data['prune_frequency_hours'])
                 await state.set_prune_frequency_hours(val)
                 updated.append('prune_frequency_hours')
+
+            if 'session_timeout_hours' in data:
+                val = int(data['session_timeout_hours'])
+                await state.set_session_timeout_hours(val)
+                updated.append('session_timeout_hours')
+
+            if 'memory_summary_enabled' in data:
+                await state.set_memory_summary_enabled(bool(data['memory_summary_enabled']))
+                updated.append('memory_summary_enabled')
+
+            if 'max_memory_summaries' in data:
+                val = int(data['max_memory_summaries'])
+                await state.set_max_memory_summaries(val)
+                updated.append('max_memory_summaries')
 
         except ValueError as e:
             return web.json_response({'error': str(e)}, status=400)
@@ -445,6 +468,12 @@ class DashboardServer:
             'provider': provider,
             'system_prompt': system_prompt,
             'effective_model': effective_model,
+            'session_timeout_hours': state._get_channel_memory_config(channel_id, 'session_timeout_hours'),
+            'memory_summary_enabled': state._get_channel_memory_config(channel_id, 'memory_summary_enabled'),
+            'max_memory_summaries': state._get_channel_memory_config(channel_id, 'max_memory_summaries'),
+            'effective_session_timeout': state.get_effective_session_timeout(channel_id),
+            'effective_memory_summary_enabled': state.get_effective_memory_summary_enabled(channel_id),
+            'effective_max_memory_summaries': state.get_effective_max_memory_summaries(channel_id),
         })
 
     async def _handle_update_channel(self, request):
@@ -470,6 +499,22 @@ class DashboardServer:
             if 'system_prompt' in data:
                 state.set_channel_system_prompt(channel_id, data['system_prompt'] or None)
                 updated.append('system_prompt')
+
+            memory_kwargs = {}
+            if 'session_timeout_hours' in data:
+                v = data['session_timeout_hours']
+                memory_kwargs['session_timeout_hours'] = int(v) if v is not None else None
+                updated.append('session_timeout_hours')
+            if 'memory_summary_enabled' in data:
+                v = data['memory_summary_enabled']
+                memory_kwargs['memory_summary_enabled'] = bool(v) if v is not None else None
+                updated.append('memory_summary_enabled')
+            if 'max_memory_summaries' in data:
+                v = data['max_memory_summaries']
+                memory_kwargs['max_memory_summaries'] = int(v) if v is not None else None
+                updated.append('max_memory_summaries')
+            if memory_kwargs:
+                state.set_channel_memory_config(channel_id, **memory_kwargs)
 
         except ValueError as e:
             return web.json_response({'error': str(e)}, status=400)
@@ -1301,6 +1346,89 @@ class DashboardServer:
             logger.info(f"WebSocket client disconnected (total: {len(self._ws_clients)})")
 
         return ws
+
+    # ── Memory Handlers ──────────────────────────────────────────
+
+    async def _handle_get_memory_stats(self, request):
+        """Get per-channel memory summary statistics."""
+        state = self.bot.state_manager
+        stats = state.get_all_memory_stats()
+        # Enrich with channel names where available
+        for entry in stats:
+            try:
+                ch = self.bot.get_channel(int(entry['channel_id']))
+                entry['channel_name'] = ch.name if ch else None
+            except (ValueError, AttributeError):
+                entry['channel_name'] = None
+        return web.json_response(stats)
+
+    async def _handle_get_channel_memories(self, request):
+        """Get stored memory summaries for a channel."""
+        channel_id = request.match_info['channel_id']
+        state = self.bot.state_manager
+        limit = int(request.rel_url.query.get('limit', 20))
+        memories = state.get_channel_memories(channel_id, limit=limit)
+        channel_name = None
+        try:
+            ch = self.bot.get_channel(int(channel_id))
+            if ch:
+                channel_name = ch.name
+        except (ValueError, AttributeError):
+            pass
+        return web.json_response({
+            'channel_id': channel_id,
+            'channel_name': channel_name,
+            'memories': [
+                {**m, 'created_at': str(m['created_at'])} for m in memories
+            ],
+        })
+
+    async def _handle_delete_channel_memories(self, request):
+        """Delete all memory summaries for a channel."""
+        channel_id = request.match_info['channel_id']
+        state = self.bot.state_manager
+        deleted = state.delete_channel_memories(channel_id)
+        await self._broadcast_ws({'type': 'memory_cleared', 'channel_id': channel_id})
+        return web.json_response({'status': 'ok', 'deleted': deleted})
+
+    async def _handle_trigger_summarize(self, request):
+        """Manually summarize current channel history and rotate the session."""
+        channel_id = request.match_info['channel_id']
+        state = self.bot.state_manager
+
+        history = state.get_channel_history(channel_id)
+        if not history:
+            return web.json_response({'error': 'No conversation history to summarize.'}, status=400)
+
+        model_id = state.get_effective_model(channel_id)
+        try:
+            provider, _ = model_id.split('/', 1)
+        except ValueError:
+            provider = 'openrouter'
+
+        client = None
+        if hasattr(self.bot, 'openrouter_client'):
+            client_map = {
+                'openrouter': getattr(self.bot, 'openrouter_client', None),
+                'openai': getattr(self.bot, 'openai_client', None),
+            }
+            client = client_map.get(provider) or client_map.get('openrouter')
+
+        if not client:
+            return web.json_response({'error': 'No LLM client available for summarization.'}, status=500)
+
+        from ..memory_service import _summarize_history
+        summary = await _summarize_history(history, channel_id, state, client)
+        if not summary:
+            return web.json_response({'error': 'Summarization failed or returned empty result.'}, status=500)
+
+        state.add_channel_memory(channel_id, summary, len(history))
+        max_summaries = state.get_effective_max_memory_summaries(channel_id)
+        state.prune_channel_memories(channel_id, max_summaries)
+        state.clear_channel_history(channel_id)
+
+        await self._broadcast_ws({'type': 'memory_updated', 'channel_id': channel_id})
+        return web.json_response({'status': 'ok', 'summary': summary, 'messages_archived': len(history)})
 
     # ── Persona Handlers ─────────────────────────────────────────
 

@@ -27,6 +27,9 @@ CONFIG_KEY_PRUNE_FREQUENCY_HOURS = "prune_frequency_hours"
 CONFIG_KEY_INTENT_ENABLED = "intent_enabled"
 CONFIG_KEY_INTENT_MODEL = "intent_model"
 CONFIG_KEY_INTENT_THRESHOLD = "intent_threshold"
+CONFIG_KEY_SESSION_TIMEOUT = "session_timeout_hours"
+CONFIG_KEY_MEMORY_SUMMARY_ENABLED = "memory_summary_enabled"
+CONFIG_KEY_MAX_MEMORY_SUMMARIES = "max_memory_summaries"
 
 class BotStateManager:
     """Singleton class to manage shared state via DatabaseManager."""
@@ -64,6 +67,11 @@ class BotStateManager:
         self.intent_enabled = await self._load_or_set_config(CONFIG_KEY_INTENT_ENABLED, CONFIG_INTENT_DISCOVERY, 'bool')
         self.intent_model = await self._load_or_set_config(CONFIG_KEY_INTENT_MODEL, CONFIG_INTENT_MODEL, 'string')
         self.intent_threshold = await self._load_or_set_config(CONFIG_KEY_INTENT_THRESHOLD, CONFIG_INTENT_THRESHOLD, 'float')
+
+        # Memory system settings
+        self.session_timeout_hours = await self._load_or_set_config(CONFIG_KEY_SESSION_TIMEOUT, 24, 'int')
+        self.memory_summary_enabled = await self._load_or_set_config(CONFIG_KEY_MEMORY_SUMMARY_ENABLED, True, 'bool')
+        self.max_memory_summaries = await self._load_or_set_config(CONFIG_KEY_MAX_MEMORY_SUMMARIES, 10, 'int')
 
         self._initialized = True
         logger.info("BotStateManager initialized successfully.")
@@ -191,6 +199,126 @@ class BotStateManager:
         self.intent_threshold = value
         await self._save_config(CONFIG_KEY_INTENT_THRESHOLD, value, 'float')
         logger.info(f"Intent confidence threshold set to: {value}")
+
+    # --- Memory System Config ---
+
+    def get_session_timeout_hours(self) -> int:
+        return self.session_timeout_hours
+
+    async def set_session_timeout_hours(self, value: int):
+        if value < 1 or value > 168:
+            raise ValueError("Session timeout must be between 1 and 168 hours.")
+        self.session_timeout_hours = value
+        await self._save_config(CONFIG_KEY_SESSION_TIMEOUT, value, 'int')
+
+    def get_memory_summary_enabled(self) -> bool:
+        return self.memory_summary_enabled
+
+    async def set_memory_summary_enabled(self, value: bool):
+        self.memory_summary_enabled = value
+        await self._save_config(CONFIG_KEY_MEMORY_SUMMARY_ENABLED, value, 'bool')
+
+    def get_max_memory_summaries(self) -> int:
+        return self.max_memory_summaries
+
+    async def set_max_memory_summaries(self, value: int):
+        if value < 1 or value > 50:
+            raise ValueError("Max memory summaries must be between 1 and 50.")
+        self.max_memory_summaries = value
+        await self._save_config(CONFIG_KEY_MAX_MEMORY_SUMMARIES, value, 'int')
+
+    def get_effective_session_timeout(self, channel_id: str) -> int:
+        """Returns channel override if set, otherwise the global value."""
+        val = self._get_channel_memory_config(channel_id, 'session_timeout_hours')
+        return int(val) if val is not None else self.session_timeout_hours
+
+    def get_effective_memory_summary_enabled(self, channel_id: str) -> bool:
+        """Returns channel override if set, otherwise the global value."""
+        val = self._get_channel_memory_config(channel_id, 'memory_summary_enabled')
+        if val is not None:
+            return bool(int(val))
+        return self.memory_summary_enabled
+
+    def get_effective_max_memory_summaries(self, channel_id: str) -> int:
+        """Returns channel override if set, otherwise the global value."""
+        val = self._get_channel_memory_config(channel_id, 'max_memory_summaries')
+        return int(val) if val is not None else self.max_memory_summaries
+
+    def _get_channel_memory_config(self, channel_id: str, column: str):
+        """Reads a single memory config column from CHANNEL_CONFIG, returns None if not set."""
+        import sqlite3
+        sql = f"SELECT {column} FROM CHANNEL_CONFIG WHERE channel_id = ?;"
+        try:
+            cursor = self.db_manager._conn.cursor()
+            cursor.execute(sql, (str(channel_id),))
+            row = cursor.fetchone()
+            if row:
+                return row[column]
+            return None
+        except sqlite3.Error as e:
+            logger.error(f"Error reading {column} for channel {channel_id}: {e}", exc_info=True)
+            return None
+
+    def set_channel_memory_config(self, channel_id: str, session_timeout_hours=None,
+                                   memory_summary_enabled=None, max_memory_summaries=None):
+        """Updates per-channel memory config overrides (None = use global)."""
+        import sqlite3
+        self.db_manager._ensure_channel_exists(str(channel_id))
+        updates = []
+        params = []
+        if session_timeout_hours is not None:
+            updates.append("session_timeout_hours = ?")
+            params.append(session_timeout_hours)
+        if memory_summary_enabled is not None:
+            updates.append("memory_summary_enabled = ?")
+            params.append(1 if memory_summary_enabled else 0)
+        if max_memory_summaries is not None:
+            updates.append("max_memory_summaries = ?")
+            params.append(max_memory_summaries)
+        if not updates:
+            return
+        params.append(str(channel_id))
+        sql = f"UPDATE CHANNEL_CONFIG SET {', '.join(updates)} WHERE channel_id = ?;"
+        try:
+            with self.db_manager._conn:
+                cursor = self.db_manager._conn.cursor()
+                cursor.execute(sql, params)
+        except sqlite3.Error as e:
+            logger.error(f"Error updating memory config for channel {channel_id}: {e}", exc_info=True)
+            raise
+
+    def reset_channel_memory_config(self, channel_id: str):
+        """Clears per-channel memory overrides so the channel falls back to global."""
+        import sqlite3
+        sql = """UPDATE CHANNEL_CONFIG
+                 SET session_timeout_hours = NULL,
+                     memory_summary_enabled = NULL,
+                     max_memory_summaries = NULL
+                 WHERE channel_id = ?;"""
+        try:
+            with self.db_manager._conn:
+                cursor = self.db_manager._conn.cursor()
+                cursor.execute(sql, (str(channel_id),))
+        except sqlite3.Error as e:
+            logger.error(f"Error resetting memory config for channel {channel_id}: {e}", exc_info=True)
+            raise
+
+    # --- Channel Memory Delegation ---
+
+    def get_channel_memories(self, channel_id: str, limit: int = 10):
+        return self.db_manager.get_channel_memories(str(channel_id), limit)
+
+    def add_channel_memory(self, channel_id: str, summary: str, message_count: int) -> int:
+        return self.db_manager.add_channel_memory(str(channel_id), summary, message_count)
+
+    def delete_channel_memories(self, channel_id: str) -> int:
+        return self.db_manager.delete_channel_memories(str(channel_id))
+
+    def prune_channel_memories(self, channel_id: str, max_count: int) -> int:
+        return self.db_manager.prune_channel_memories(str(channel_id), max_count)
+
+    def get_all_memory_stats(self):
+        return self.db_manager.get_all_memory_stats()
 
     async def reload_intent_from_env(self):
         """Reloads intent settings from environment variables."""
@@ -668,14 +796,41 @@ class BotStateManager:
         return persona
 
     def get_effective_system_prompt(self, channel_id: str) -> Optional[str]:
-        """Gets the effective system prompt: Persona > Channel Config > Global."""
+        """Gets the effective system prompt: Persona > Channel Config > Global, with memory appended."""
         persona = self.get_effective_persona(channel_id)
         if persona and persona.get('system_prompt'):
-            return persona['system_prompt']
-        channel_prompt = self.get_channel_system_prompt(channel_id)
-        if channel_prompt:
-            return channel_prompt
-        return self.get_global_system_prompt()
+            base_prompt = persona['system_prompt']
+        else:
+            channel_prompt = self.get_channel_system_prompt(channel_id)
+            base_prompt = channel_prompt if channel_prompt else self.get_global_system_prompt()
+
+        memory_block = self._build_memory_context(channel_id)
+        if memory_block:
+            if base_prompt:
+                return base_prompt + "\n\n" + memory_block
+            return memory_block
+        return base_prompt
+
+    def _build_memory_context(self, channel_id: str) -> str:
+        """Builds a formatted memory block from stored summaries, or returns empty string."""
+        try:
+            limit = self.get_effective_max_memory_summaries(channel_id)
+            memories = self.get_channel_memories(channel_id, limit=limit)
+            if not memories:
+                return ""
+            lines = ["--- Channel Memory ---",
+                     "Here is what I remember from previous conversations in this channel:"]
+            for mem in memories:
+                ts = mem.get("created_at", "")
+                if hasattr(ts, "strftime"):
+                    ts_str = ts.strftime("%Y-%m-%d")
+                else:
+                    ts_str = str(ts)[:10]
+                lines.append(f"[{ts_str}]: {mem['summary']}")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"Error building memory context for channel {channel_id}: {e}", exc_info=True)
+            return ""
 
     def get_effective_provider(self, channel_id: str) -> str:
         """Gets the effective provider: Persona > Channel Config > Global."""

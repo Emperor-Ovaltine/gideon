@@ -16,6 +16,7 @@ from .trivia_manager import TriviaManager
 from .api_key_manager import APIKeyManager
 from .persona_manager import PersonaManager
 from .backup_manager import BackupManager
+from .memory_manager import MemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ class DatabaseManager:
             self._api_keys = APIKeyManager(self._conn)
             self._personas = PersonaManager(self._conn)
             self._backup = BackupManager(self._conn, self.db_path)
+            self._memory = MemoryManager(self._conn)
 
         except sqlite3.Error as e:
             logger.error(f"Database connection error to {self.db_path}: {e}", exc_info=True)
@@ -429,6 +431,29 @@ class DatabaseManager:
     def remove_channel_persona(self, channel_id: str) -> bool:
         """Removes the persona for a channel."""
         return self._personas.remove_channel_persona(channel_id)
+
+    # --- Channel Memory Methods (delegate to MemoryManager) ---
+
+    def get_channel_memories(self, channel_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Gets stored memory summaries for a channel (oldest first)."""
+        return self._memory.get_memories(channel_id, limit)
+
+    def add_channel_memory(self, channel_id: str, summary: str, message_count: int) -> int:
+        """Stores a new memory summary for a channel."""
+        self._ensure_channel_exists(channel_id)
+        return self._memory.add_memory(channel_id, summary, message_count)
+
+    def delete_channel_memories(self, channel_id: str) -> int:
+        """Deletes all memory summaries for a channel."""
+        return self._memory.delete_memories(channel_id)
+
+    def prune_channel_memories(self, channel_id: str, max_count: int) -> int:
+        """Keeps only the most recent `max_count` summaries for a channel."""
+        return self._memory.prune_memories(channel_id, max_count)
+
+    def get_all_memory_stats(self) -> List[Dict[str, Any]]:
+        """Returns per-channel memory stats (channel_id, count, latest timestamp)."""
+        return self._memory.get_all_memory_stats()
 
     # --- Backup & Restore Methods (delegate to BackupManager) ---
 

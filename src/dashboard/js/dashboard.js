@@ -209,6 +209,7 @@
             case 'personas': loadPersonas(); break;
             case 'image-gen': loadImageSettings(); break;
             case 'video-gen': loadVideoSettings(); break;
+            case 'memory': loadMemoryStats(); break;
             case 'messages': loadMessageSources(); break;
             case 'diagnostics': break;
             case 'backup': break;
@@ -254,6 +255,11 @@
             $('#setting-prune').value = data.prune_frequency_hours || 24;
             $('#setting-system-prompt').value = data.global_system_prompt || '';
 
+            // Memory system settings
+            $('#setting-session-timeout').value = data.session_timeout_hours || 24;
+            $('#setting-max-summaries').value = data.max_memory_summaries || 10;
+            $('#setting-memory-summary').value = data.memory_summary_enabled !== false ? 'true' : 'false';
+
             await loadModelsForProvider(provider, 'setting-model', data.global_model, null);
 
             var searchEl = document.getElementById('setting-model-search');
@@ -285,6 +291,20 @@
             showSaveStatus('settings-save-status', 'Settings saved', false);
         } catch (e) {
             showSaveStatus('settings-save-status', 'Error: ' + e.message, true);
+        }
+    }
+
+    async function saveMemorySettings(e) {
+        e.preventDefault();
+        try {
+            await api('PUT', '/api/settings', {
+                session_timeout_hours: parseInt($('#setting-session-timeout').value),
+                max_memory_summaries: parseInt($('#setting-max-summaries').value),
+                memory_summary_enabled: $('#setting-memory-summary').value === 'true',
+            });
+            showSaveStatus('memory-settings-save-status', 'Memory settings saved', false);
+        } catch (e) {
+            showSaveStatus('memory-settings-save-status', 'Error: ' + e.message, true);
         }
     }
 
@@ -2389,7 +2409,14 @@
 
         // Settings forms
         $('#settings-form').addEventListener('submit', saveSettings);
+        $('#memory-settings-form').addEventListener('submit', saveMemorySettings);
         $('#intent-form').addEventListener('submit', saveIntentSettings);
+
+        // Memory tab buttons
+        var memoryClearBtn = $('#memory-clear-btn');
+        if (memoryClearBtn) memoryClearBtn.addEventListener('click', clearChannelMemories);
+        var memorySumBtn = $('#memory-summarize-btn');
+        if (memorySumBtn) memorySumBtn.addEventListener('click', triggerSummarize);
 
         // Provider change reloads model list
         $('#setting-provider').addEventListener('change', onProviderChange);
@@ -2579,6 +2606,88 @@
 
         // Check auth on load
         checkAuth();
+    }
+
+    // ── Memory ───────────────────────────────────────────────
+
+    var currentMemoryChannelId = null;
+
+    window.loadMemoryStats = async function() {
+        var container = $('#memory-stats-list');
+        try {
+            const stats = await api('GET', '/api/memory');
+            if (!stats || stats.length === 0) {
+                container.innerHTML = '<p class="text-muted">No channel memories stored yet. Memories accumulate as sessions expire.</p>';
+                return;
+            }
+            var rows = stats.map(function(s) {
+                var name = escapeHtml(s.channel_name || s.channel_id);
+                var latest = s.latest_summary_at ? String(s.latest_summary_at).substring(0, 16) : '—';
+                return '<tr>' +
+                    '<td>' + name + '</td>' +
+                    '<td>' + s.summary_count + '</td>' +
+                    '<td>' + latest + '</td>' +
+                    '<td><button class="btn btn-secondary btn-small" onclick="window.viewChannelMemories(\'' + escapeHtml(s.channel_id) + '\', \'' + name + '\')">View</button></td>' +
+                    '</tr>';
+            });
+            container.innerHTML = '<table class="data-table"><thead><tr><th>Channel</th><th>Summaries</th><th>Latest</th><th></th></tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+        } catch (e) {
+            container.innerHTML = '<p class="text-muted">Error loading memory stats: ' + escapeHtml(e.message) + '</p>';
+        }
+    };
+
+    window.viewChannelMemories = async function(channelId, channelName) {
+        currentMemoryChannelId = channelId;
+        var card = $('#memory-channel-card');
+        var title = $('#memory-channel-title');
+        var list = $('#memory-entries-list');
+        title.textContent = 'Memories: #' + (channelName || channelId);
+        card.style.display = '';
+        list.innerHTML = '<p class="text-muted">Loading...</p>';
+        try {
+            const data = await api('GET', '/api/memory/' + channelId);
+            var memories = data.memories || [];
+            if (memories.length === 0) {
+                list.innerHTML = '<p class="text-muted">No memories stored for this channel.</p>';
+                return;
+            }
+            list.innerHTML = memories.map(function(m, i) {
+                var ts = String(m.created_at || '').substring(0, 16);
+                return '<div class="memory-entry">' +
+                    '<div class="memory-meta">' + ts + ' &bull; ' + m.message_count + ' messages archived</div>' +
+                    '<div class="memory-summary">' + escapeHtml(m.summary) + '</div>' +
+                    '</div>';
+            }).join('');
+        } catch (e) {
+            list.innerHTML = '<p class="text-muted">Error: ' + escapeHtml(e.message) + '</p>';
+        }
+    };
+
+    async function clearChannelMemories() {
+        if (!currentMemoryChannelId) return;
+        if (!confirm('Delete all stored memory summaries for this channel?')) return;
+        try {
+            await api('DELETE', '/api/memory/' + currentMemoryChannelId);
+            await window.loadMemoryStats();
+            $('#memory-entries-list').innerHTML = '<p class="text-muted">Memories cleared.</p>';
+            $('#memory-channel-card').style.display = 'none';
+            currentMemoryChannelId = null;
+        } catch (e) {
+            alert('Error clearing memories: ' + e.message);
+        }
+    }
+
+    async function triggerSummarize() {
+        if (!currentMemoryChannelId) return;
+        if (!confirm('Summarize the current conversation history for this channel and start a fresh session?')) return;
+        try {
+            const result = await api('POST', '/api/memory/' + currentMemoryChannelId + '/summarize');
+            alert('Summary stored! ' + result.messages_archived + ' messages archived.');
+            await window.loadMemoryStats();
+            await window.viewChannelMemories(currentMemoryChannelId, null);
+        } catch (e) {
+            alert('Error: ' + e.message);
+        }
     }
 
     // Boot
