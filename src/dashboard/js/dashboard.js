@@ -2652,9 +2652,11 @@
                 return;
             }
             list.innerHTML = memories.map(function(m, i) {
-                var ts = String(m.created_at || '').substring(0, 16);
+                // Show when the conversation actually happened (conversation_start), not when it was archived
+                var ts = String(m.conversation_start || m.created_at || '').substring(0, 16);
+                var label = m.conversation_start ? 'Conversation on' : 'Archived';
                 return '<div class="memory-entry">' +
-                    '<div class="memory-meta">' + ts + ' &bull; ' + m.message_count + ' messages archived</div>' +
+                    '<div class="memory-meta">' + label + ' ' + ts + ' &bull; ' + m.message_count + ' messages</div>' +
                     '<div class="memory-summary">' + escapeHtml(m.summary) + '</div>' +
                     '</div>';
             }).join('');

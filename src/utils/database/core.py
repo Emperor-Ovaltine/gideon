@@ -438,10 +438,11 @@ class DatabaseManager:
         """Gets stored memory summaries for a channel (oldest first)."""
         return self._memory.get_memories(channel_id, limit)
 
-    def add_channel_memory(self, channel_id: str, summary: str, message_count: int) -> int:
+    def add_channel_memory(self, channel_id: str, summary: str, message_count: int,
+                           conversation_start=None) -> int:
         """Stores a new memory summary for a channel."""
         self._ensure_channel_exists(channel_id)
-        return self._memory.add_memory(channel_id, summary, message_count)
+        return self._memory.add_memory(channel_id, summary, message_count, conversation_start)
 
     def delete_channel_memories(self, channel_id: str) -> int:
         """Deletes all memory summaries for a channel."""

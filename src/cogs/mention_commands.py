@@ -2,6 +2,7 @@
 import discord
 import asyncio # Added for iscoroutinefunction
 import logging # Added
+import re # Added for mention stripping in dedup check
 import io # Added for ComfyUI image data handling
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
@@ -1116,13 +1117,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
         # Check for session expiry and rotate before recording the new message
         if self.state and not message.content.startswith('/'):
             try:
-                model_id = self.state.get_effective_model(channel_id)
-                try:
-                    ch_provider, _ = model_id.split('/', 1)
-                except ValueError:
-                    ch_provider = "openrouter"
-                ch_client = self.clients.get(ch_provider) or self.clients.get("openrouter")
-                await check_and_rotate_session(channel_id, self.state, ch_client)
+                await check_and_rotate_session(channel_id, self.state, self.clients)
             except Exception as e:
                 logger.error(f"[Mention] Error during session rotation for channel {channel_id}: {e}", exc_info=True)
 
@@ -1402,16 +1397,17 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 # Get recent channel context from state manager
                 conversation_context = self.state.get_channel_history(channel_id)
 
-                # Format the final query with the current user's message
-                # Ensure the mention message itself isn't added twice if already added above
-                # Check if the last message in context is the same as the current one
+                # Format the final query with the current user's message.
+                # The message was already added to history above as raw content (including the
+                # @mention token).  The formatted version we send to the API has the @mention
+                # stripped, so a naive string comparison always fails and the message ends up
+                # duplicated in conversation_context.  Strip @mention tokens from the stored
+                # content before comparing so the dedup works correctly.
                 last_msg_in_context = conversation_context[-1]['content'] if conversation_context else None
                 current_user_formatted_msg = f"{message.author.display_name}: {content}"
 
-                if not conversation_context or last_msg_in_context != current_user_formatted_msg:
-                     # Add the user's current message to the context being sent to the API
-                     # Note: We already added the raw message earlier for history purposes.
-                     # This appends the potentially cleaned-up version for the API call.
+                stored_content_stripped = re.sub(r'<@!?\d+>\s*', '', last_msg_in_context or '').strip()
+                if not conversation_context or stored_content_stripped != content.strip():
                      conversation_context.append({
                          "role": "user",
                          "content": current_user_formatted_msg

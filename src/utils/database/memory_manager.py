@@ -15,7 +15,7 @@ class MemoryManager:
     def get_memories(self, channel_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Returns up to `limit` summaries for a channel, oldest first."""
         sql = """
-        SELECT id, channel_id, summary, message_count, created_at
+        SELECT id, channel_id, summary, message_count, conversation_start, created_at
         FROM CHANNEL_MEMORY
         WHERE channel_id = ?
         ORDER BY created_at DESC
@@ -30,16 +30,17 @@ class MemoryManager:
             logger.error(f"Error getting memories for channel '{channel_id}': {e}", exc_info=True)
             return []
 
-    def add_memory(self, channel_id: str, summary: str, message_count: int) -> int:
+    def add_memory(self, channel_id: str, summary: str, message_count: int,
+                   conversation_start: Optional[datetime] = None) -> int:
         """Inserts a new memory summary. Returns the new row id."""
         sql = """
-        INSERT INTO CHANNEL_MEMORY (channel_id, summary, message_count, created_at)
-        VALUES (?, ?, ?, ?);
+        INSERT INTO CHANNEL_MEMORY (channel_id, summary, message_count, conversation_start, created_at)
+        VALUES (?, ?, ?, ?, ?);
         """
         try:
             with self._conn:
                 cursor = self._conn.cursor()
-                cursor.execute(sql, (channel_id, summary, message_count, datetime.now()))
+                cursor.execute(sql, (channel_id, summary, message_count, conversation_start, datetime.now()))
                 return cursor.lastrowid
         except sqlite3.Error as e:
             logger.error(f"Error adding memory for channel '{channel_id}': {e}", exc_info=True)

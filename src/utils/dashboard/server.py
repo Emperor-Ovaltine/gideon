@@ -1379,7 +1379,9 @@ class DashboardServer:
             'channel_id': channel_id,
             'channel_name': channel_name,
             'memories': [
-                {**m, 'created_at': str(m['created_at'])} for m in memories
+                {**m,
+                 'conversation_start': str(m['conversation_start']) if m.get('conversation_start') else None,
+                 'created_at': str(m['created_at'])} for m in memories
             ],
         })
 
@@ -1400,29 +1402,20 @@ class DashboardServer:
         if not history:
             return web.json_response({'error': 'No conversation history to summarize.'}, status=400)
 
-        model_id = state.get_effective_model(channel_id)
-        try:
-            provider, _ = model_id.split('/', 1)
-        except ValueError:
-            provider = 'openrouter'
-
-        client = None
-        if hasattr(self.bot, 'openrouter_client'):
-            client_map = {
-                'openrouter': getattr(self.bot, 'openrouter_client', None),
-                'openai': getattr(self.bot, 'openai_client', None),
-            }
-            client = client_map.get(provider) or client_map.get('openrouter')
-
-        if not client:
+        clients = {
+            'openrouter': getattr(self.bot, 'openrouter_client', None),
+            'openai': getattr(self.bot, 'openai_client', None),
+        }
+        if not any(clients.values()):
             return web.json_response({'error': 'No LLM client available for summarization.'}, status=500)
 
-        from ..memory_service import _summarize_history
-        summary = await _summarize_history(history, channel_id, state, client)
+        from ..memory_service import _summarize_history, _parse_timestamp
+        conversation_start = _parse_timestamp(history[0].get('timestamp')) if history else None
+        summary = await _summarize_history(history, channel_id, state, clients)
         if not summary:
             return web.json_response({'error': 'Summarization failed or returned empty result.'}, status=500)
 
-        state.add_channel_memory(channel_id, summary, len(history))
+        state.add_channel_memory(channel_id, summary, len(history), conversation_start=conversation_start)
         max_summaries = state.get_effective_max_memory_summaries(channel_id)
         state.prune_channel_memories(channel_id, max_summaries)
         state.clear_channel_history(channel_id)

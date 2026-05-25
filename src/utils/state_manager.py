@@ -308,8 +308,9 @@ class BotStateManager:
     def get_channel_memories(self, channel_id: str, limit: int = 10):
         return self.db_manager.get_channel_memories(str(channel_id), limit)
 
-    def add_channel_memory(self, channel_id: str, summary: str, message_count: int) -> int:
-        return self.db_manager.add_channel_memory(str(channel_id), summary, message_count)
+    def add_channel_memory(self, channel_id: str, summary: str, message_count: int,
+                           conversation_start=None) -> int:
+        return self.db_manager.add_channel_memory(str(channel_id), summary, message_count, conversation_start)
 
     def delete_channel_memories(self, channel_id: str) -> int:
         return self.db_manager.delete_channel_memories(str(channel_id))
@@ -821,7 +822,8 @@ class BotStateManager:
             lines = ["--- Channel Memory ---",
                      "Here is what I remember from previous conversations in this channel:"]
             for mem in memories:
-                ts = mem.get("created_at", "")
+                # Prefer conversation_start (when the chat happened) over created_at (when summary was stored)
+                ts = mem.get("conversation_start") or mem.get("created_at", "")
                 if hasattr(ts, "strftime"):
                     ts_str = ts.strftime("%Y-%m-%d")
                 else:

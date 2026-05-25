@@ -180,6 +180,7 @@ class SchemaManager:
             channel_id TEXT NOT NULL,
             summary TEXT NOT NULL,
             message_count INTEGER NOT NULL DEFAULT 0,
+            conversation_start DATETIME,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         """
@@ -231,6 +232,7 @@ class SchemaManager:
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "session_timeout_hours", "INTEGER")
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "memory_summary_enabled", "INTEGER")
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "max_memory_summaries", "INTEGER")
+                SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_MEMORY", "conversation_start", "DATETIME")
 
                 logger.info("Database schema migration checks complete.")
         except sqlite3.Error as e:

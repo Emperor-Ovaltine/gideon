@@ -261,7 +261,7 @@ class ChatCommands(commands.Cog):
                 # If client_to_use is None, the error will be handled later
 
         # Check for session expiry and rotate if needed (before fetching history)
-        await check_and_rotate_session(channel_id, self.state, client_to_use)
+        await check_and_rotate_session(channel_id, self.state, self.clients)
 
         # Get effective system prompt (persona > channel config > global, with memory injected)
         channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
