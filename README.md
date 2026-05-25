@@ -28,7 +28,7 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 ### 🧠 Intelligence
 
 * **Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more through OpenRouter
-* **Conversation Memory** - Natural conversations with context across messages
+* **Persistent Channel Memory** - Long-term, channel-specific memory that grows over time. When a channel goes quiet for a configurable period (default 24 hours), Gideon automatically summarizes the conversation and stores it as a memory entry. Future conversations in that channel are informed by all past summaries — injected into the AI's context on every message — so the bot never loses track of recurring topics, decisions, or channel history. Memories are channel-isolated: `#general` never bleeds into `#dev`. Configurable via the dashboard or per-channel overrides.
 * **Natural Language Intent Detection** - Simply @mention Gideon with natural language to automatically execute commands without needing to remember slash command syntax. The AI understands your intent and routes to the appropriate feature:
   + **Reminders**: "@Gideon remind me to check the server logs tomorrow at 3pm"
   + **Image Generation**: "@Gideon draw a sunset over mountains with vibrant colors"
@@ -254,10 +254,11 @@ Keys stored in the database take priority over `.env` values. This is fully back
 | --- | --- |
 | Overview | Bot status, server count, message stats, uptime, latency, provider links |
 | API Keys | Encrypted API key management with validation, import from `.env`, and audit logging |
-| Settings | Edit global model, provider, system prompt, memory limits, and intent detection |
-| Channels | View and edit channel-specific configuration overrides |
+| Settings | Edit global model, provider, system prompt, memory limits, session timeout, auto-summarize toggle, and intent detection |
+| Channels | View and edit channel-specific configuration overrides (including per-channel memory settings) |
 | Threads | Manage AI conversation threads (rename, configure, delete) |
 | Messages | Browse stored conversation history with filtering and pagination |
+| Memory | Browse and manage long-term channel memories; view summaries with conversation dates; clear memories or manually trigger summarization |
 | Personas | Browse templates, configure per-channel personas, create custom templates |
 | Backup & Restore | Export/import configuration JSON or full SQLite database backup |
 | Diagnostics | System health checks, provider status, manual data pruning |
@@ -329,7 +330,7 @@ Generation typically takes 30 seconds to several minutes; the bot polls until th
 | `/search` | Search the web for current information using the AI |
 | `/reset` | Clear the conversation history for the current channel |
 | `/summarize` | Summarize the current conversation history |
-| `/memory` | Show conversation statistics (message count, history window) |
+| `/memory` | Show conversation statistics: message count, stored memory summaries, session age, session timeout, and auto-summarize status |
 | `/summarizeurl` | Fetch and summarize the content of a given URL |
 
 ### Persona Commands (Admin)
@@ -500,6 +501,7 @@ gideon/
 │       ├── cloudflare_client.py
 │       ├── encryption.py           # Fernet encryption utility
 │       ├── game_session.py         # In-memory trivia game state
+│       ├── memory_service.py       # Session rotation & channel memory summarization
 │       ├── model_manager.py
 │       ├── openai_client.py
 │       ├── openrouter_client.py
@@ -518,6 +520,7 @@ gideon/
 │           ├── schema.py           # Table definitions
 │           ├── api_key_manager.py
 │           ├── backup_manager.py   # Config/database backup & restore
+│           ├── memory_manager.py   # Channel memory CRUD (CHANNEL_MEMORY table)
 │           ├── persona_manager.py  # Persona template & channel persona CRUD
 │           ├── trivia_manager.py
 │           └── ...

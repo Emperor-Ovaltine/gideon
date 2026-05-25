@@ -82,7 +82,17 @@ Environment-based configuration loading:
 - `get_active_provider()` - Returns current AI provider client
 - `get_effective_persona(channel_id)` - Returns active persona for a channel or None
 - `get_effective_model(channel_id)` - Returns model, respecting persona model overrides
+- `get_effective_system_prompt(channel_id)` - Returns resolved system prompt with channel memory block appended
+- `get_effective_session_timeout(channel_id)` - Returns session timeout hours (channel override → global)
+- `get_effective_memory_summary_enabled(channel_id)` - Returns bool (channel override → global)
+- `get_effective_max_memory_summaries(channel_id)` - Returns summary cap (channel override → global)
+- `get_channel_memories(channel_id, limit)` / `add_channel_memory(...)` / `prune_channel_memories(...)` - Memory CRUD delegation
 - `reinitialize_state()` - Reloads all config from database (called after backup restore)
+
+**Memory Config Keys** (`GLOBAL_CONFIG` table):
+- `session_timeout_hours` (int, default 24) — Hours of silence before a channel session is considered expired
+- `memory_summary_enabled` (bool, default True) — Whether expired sessions are auto-summarized before clearing
+- `max_memory_summaries` (int, default 10) — Maximum number of memory summaries retained per channel
 
 #### 4. Provider Management (`src/utils/model_manager.py`)
 `ProviderManager` handles multiple AI providers:
@@ -111,6 +121,7 @@ Core tables:
 - `API_KEY_AUDIT` - Audit log for all key operations
 - `PERSONA_TEMPLATES` - Built-in and custom persona templates (name, display_name, avatar_url, system_prompt, model, is_builtin)
 - `CHANNEL_PERSONAS` - Per-channel persona configuration (display_name, avatar_url, system_prompt, model_override, webhook_id, webhook_token, is_active)
+- `CHANNEL_MEMORY` - Long-term per-channel memory summaries (channel_id, summary, message_count, conversation_start, created_at); not pruned by the time-window prune — persists until `max_memory_summaries` cap or manual deletion
 
 #### Database Managers
 - `core.py` - `DatabaseManager` orchestrator; delegates to all sub-managers
@@ -124,6 +135,7 @@ Core tables:
 - `api_key_manager.py` - Encrypted API key CRUD and audit logging
 - `persona_manager.py` - Persona template and channel persona CRUD
 - `backup_manager.py` - Config JSON export/import/validation and SQLite backup/restore
+- `memory_manager.py` - Long-term channel memory CRUD (`get_memories`, `add_memory`, `delete_memories`, `prune_memories`, `get_all_memory_stats`)
 
 ### Command Modules (`src/cogs/`)
 
@@ -286,8 +298,17 @@ aiohttp web server running in the same event loop as the bot:
 - `PATCH /api/personas/channels/{channel_id}/toggle` — Toggle active state
 - `DELETE /api/personas/channels/{channel_id}` — Remove channel persona
 
+**Memory API Endpoints:**
+- `GET /api/memory` — List all channels with stored memories (channel_id, count, latest summary date)
+- `GET /api/memory/{channel_id}` — Get all summaries for a channel (id, summary, message_count, conversation_start, created_at)
+- `DELETE /api/memory/{channel_id}` — Clear all memories for a channel
+- `POST /api/memory/{channel_id}/summarize` — Manually trigger summarization of current history and clear it
+
+The `GET/PUT /api/settings` and `GET/PUT /api/channels/{id}` endpoints also include the three memory config fields: `session_timeout_hours`, `memory_summary_enabled`, `max_memory_summaries` (per-channel values may be `null` to inherit global).
+
 #### Frontend (`src/dashboard/`)
 Single-page application with tab-based navigation:
+- **Memory tab** — Overview table of all channels with memories; channel detail card showing summaries with `conversation_start` dates and message counts; Clear and Trigger Summarize actions per channel
 - **Personas tab** — Template card grid, channel personas table, modal editor for create/edit
 - **Video Gen tab** — Backend status, model picker with capability hints (resolutions, aspect ratios, durations, audio, image-to-video), defaults form, and a test-generation card that submits a job, polls every 5s, and embeds the resulting `<video>` inline
 - **Backup & Restore tab** — Drag-and-drop upload zones, validation preview cards, confirmation modal for database restore
@@ -402,6 +423,18 @@ Logging uses Python's standard `logging` module:
 5. `state_manager.reinitialize_state()` reloads config from DB
 6. WebSocket broadcasts `config_imported` event; dashboard refreshes
 
+### Session Rotation & Channel Memory Flow
+1. User sends a message to a channel (via `/chat` or @mention)
+2. `check_and_rotate_session(channel_id, state, clients)` is called from `memory_service.py` **before** fetching history
+3. The timestamp of the most recent stored message is compared to `session_timeout_hours`
+4. If the session has expired **and** `memory_summary_enabled` is True **and** history has ≥ 3 messages:
+   a. Existing channel memories are fetched and injected as context into the summarization prompt
+   b. The LLM generates a 2–3 sentence summary of the old conversation
+   c. The summary is stored in `CHANNEL_MEMORY` with the original `conversation_start` timestamp
+   d. Memories are pruned to `max_memory_summaries`
+5. Channel history is cleared; the new message starts a fresh session
+6. On every subsequent LLM call, `get_effective_system_prompt(channel_id)` appends a `--- Channel Memory ---` block listing all stored summaries (oldest → newest), giving the model long-term context without inflating the live message window
+
 ### Intent Detection (@mentions)
 When `INTENT_DISCOVERY=TRUE`:
 1. User @mentions bot: "@Gideon remind me in 2 hours to check logs"
@@ -491,6 +524,7 @@ docker-compose down
 - ~~Per-channel personas with webhooks~~ (Implemented in v1.2)
 - ~~Backup & restore~~ (Implemented in v1.2)
 - ~~Video generation (OpenRouter `/api/v1/videos`)~~ (Implemented)
+- ~~Channel memory system (session rotation + persistent summaries)~~ (Implemented in v1.3)
 - Rate limiting per user/channel
 - Advanced permission system beyond admin/non-admin
 - Server templates/presets
@@ -498,6 +532,6 @@ docker-compose down
 
 ---
 
-**Last Updated**: 2026-05-07
-**Version**: v1.2
+**Last Updated**: 2026-05-25
+**Version**: v1.3
 **Maintainer**: eoko-dev
