@@ -48,7 +48,9 @@ class OpenRouterClient:
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
         web_search: bool = False,
-        response_format: Optional[Dict[str, Any]] = None # Add response_format parameter
+        response_format: Optional[Dict[str, Any]] = None, # Add response_format parameter
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None
     ) -> str:
         """Send a message with conversation history to the AI model."""
         # Use provided system prompt or fall back to default
@@ -126,6 +128,15 @@ class OpenRouterClient:
             payload["response_format"] = response_format
             logger.info(f"Using response_format: {response_format.get('type')}") # Log the type being used
 
+        # Add tools to the payload if provided (native function/tool calling)
+        if tools:
+            payload["tools"] = tools
+            if tool_choice:
+                payload["tool_choice"] = tool_choice
+            else:
+                payload["tool_choice"] = "auto"
+            logger.info(f"Tool calling enabled with {len(tools)} tool(s)")
+
         # Send the request
         try:
             async with aiohttp.ClientSession() as session:
@@ -153,8 +164,20 @@ class OpenRouterClient:
                     try:
                         if "choices" in result and len(result["choices"]) > 0:
                             choice = result["choices"][0]
-                            if "message" in choice and "content" in choice["message"]:
-                                return choice["message"]["content"]
+                            if "message" in choice:
+                                message = choice["message"]
+                                # Check for tool calls first
+                                if message.get("tool_calls"):
+                                    logger.info(f"Model requested {len(message['tool_calls'])} tool call(s)")
+                                    return {
+                                        "content": message.get("content"),
+                                        "tool_calls": message["tool_calls"]
+                                    }
+                                elif "content" in message:
+                                    return message["content"]
+                                else:
+                                    logger.error(f"Unexpected choice format: {choice}")
+                                    return "⚠️ Choice missing message or content field"
                             else:
                                 logger.error(f"Unexpected choice format: {choice}")
                                 return "⚠️ Choice missing message or content field"
