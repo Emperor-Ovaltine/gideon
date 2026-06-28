@@ -49,23 +49,35 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 # Examples: http://127.0.0.1:8188 or http://your-server.com:8188
 COMFYUI_URL = os.getenv('COMFYUI_URL', '')
 
-# Intent Discovery - Enable AI-powered intent detection for @mentions (opt-in feature)
-# When enabled, adds AI call on every mention to detect intents (reminders, etc.)
-# Default: FALSE (users must opt-in due to additional API calls)
+# ─── Native Tool Calling ────────────────────────────────────────────────────
+# Replaces the old intent classification system. When enabled, the primary LLM
+# model receives tool definitions and decides natively whether to call a tool
+# (reminder, image generation, calculation, etc.) or respond conversationally.
+# This eliminates the need for a separate classification LLM call.
+#
+# The INTENT_DISCOVERY env var is kept for backward compatibility — if set to
+# TRUE, it enables tool calling. New installs should use TOOL_CALLING_ENABLED.
+TOOL_CALLING_ENABLED = os.getenv('TOOL_CALLING_ENABLED', '').upper() == 'TRUE'
 INTENT_DISCOVERY = os.getenv('INTENT_DISCOVERY', 'FALSE').upper() == 'TRUE'
 
-# Intent Detection Model (fast, lightweight model for intent classification)
-# Only used when INTENT_DISCOVERY=TRUE
-# Format: "provider/model_name" - should be a fast, cheap model
+# Combined flag: tool calling is enabled if either new or old env var is TRUE
+# (backward compatibility: existing INTENT_DISCOVERY=TRUE users get tool calling)
+CONFIG_TOOL_CALLING_ENABLED = TOOL_CALLING_ENABLED or INTENT_DISCOVERY
+
+# Maximum number of tool-call round-trips before forcing a text response
+# Prevents infinite loops if the model keeps calling tools
+try:
+    TOOL_CALLING_MAX_ITERATIONS = int(os.getenv('TOOL_CALLING_MAX_ITERATIONS', '3'))
+except ValueError:
+    TOOL_CALLING_MAX_ITERATIONS = 3
+
+# ─── Deprecated (kept for backward compatibility) ───────────────────────────
+# These are no longer used by the tool-calling system but are preserved so
+# existing configs and state manager DB entries don't break.
 INTENT_DETECTION_MODEL = os.getenv('INTENT_DETECTION_MODEL', 'openai/gpt-4o-mini')
 
-# Intent Confidence Threshold (minimum confidence to execute intent handlers)
-# Only used when INTENT_DISCOVERY=TRUE
-# Range: 0.0-1.0, Default: 0.7
-# Lower = more aggressive (more false positives), Higher = more conservative (more false negatives)
 try:
     INTENT_CONFIDENCE_THRESHOLD = float(os.getenv('INTENT_CONFIDENCE_THRESHOLD', '0.7'))
-    # Clamp to valid range
     if INTENT_CONFIDENCE_THRESHOLD < 0.0:
         INTENT_CONFIDENCE_THRESHOLD = 0.0
     elif INTENT_CONFIDENCE_THRESHOLD > 1.0:

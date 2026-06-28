@@ -63,6 +63,9 @@
                 <li class="nav-item" data-tab="video-gen">
                     <span class="nav-icon">&#127909;</span> <span class="nav-label">Video Gen</span>
                 </li>
+                <li class="nav-item" data-tab="memory">
+                    <span class="nav-icon">&#129504;</span> <span class="nav-label">Memory</span>
+                </li>
                 <li class="nav-item" data-tab="messages">
                     <span class="nav-icon">&#9993;</span> <span class="nav-label">Messages</span>
                 </li>
@@ -296,6 +299,37 @@
                             <div class="form-actions">
                                 <button type="submit" class="btn btn-primary">Save Settings</button>
                                 <span id="settings-save-status" class="save-status"></span>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h3>Memory System</h3></div>
+                    <div class="card-body">
+                        <form id="memory-settings-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="setting-session-timeout">Session Timeout (hours, 1–168)</label>
+                                    <input type="number" id="setting-session-timeout" min="1" max="168">
+                                    <small class="form-hint">If a channel is silent for this many hours, Gideon starts a fresh session.</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setting-max-summaries">Max Memory Summaries per Channel</label>
+                                    <input type="number" id="setting-max-summaries" min="1" max="50">
+                                    <small class="form-hint">Oldest summaries are pruned when this limit is exceeded.</small>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-memory-summary">Auto-Summarize on Session End</label>
+                                <select id="setting-memory-summary">
+                                    <option value="true">Enabled — summarize conversation before clearing</option>
+                                    <option value="false">Disabled — just clear history silently</option>
+                                </select>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Memory Settings</button>
+                                <span id="memory-settings-save-status" class="save-status"></span>
                             </div>
                         </form>
                     </div>
@@ -953,6 +987,39 @@
                             </div>
                         </form>
                         <div id="video-test-result" style="margin-top:16px;"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Memory Tab -->
+            <section id="tab-memory" class="tab-content">
+                <div class="tab-header">
+                    <h2>Channel Memory</h2>
+                    <p class="tab-description">Long-term AI-generated summaries of past conversations, stored per channel.</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Memory Overview</h3>
+                        <button class="btn btn-secondary btn-small" onclick="window.loadMemoryStats()">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <div id="memory-stats-list">
+                            <p class="text-muted">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" id="memory-channel-card" style="display:none">
+                    <div class="card-header">
+                        <h3 id="memory-channel-title">Channel Memories</h3>
+                        <div class="card-actions">
+                            <button class="btn btn-secondary btn-small" id="memory-summarize-btn">Summarize &amp; Rotate Now</button>
+                            <button class="btn btn-danger btn-small" id="memory-clear-btn">Clear All Memories</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="memory-entries-list"></div>
                     </div>
                 </div>
             </section>

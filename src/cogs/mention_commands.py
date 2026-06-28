@@ -2,9 +2,11 @@
 import discord
 import asyncio # Added for iscoroutinefunction
 import logging # Added
+import re # Added for mention stripping in dedup check
 import io # Added for ComfyUI image data handling
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
+from ..utils.memory_service import check_and_rotate_session
 # Removed import for conversation, now handled by state_manager
 # Removed OpenRouterClient import as we use clients dict
 from ..config import SYSTEM_PROMPT, DEFAULT_MODEL
@@ -13,16 +15,7 @@ import pytz
 import os
 import json
 from typing import Optional, Dict, Any
-from ..utils.intent_handlers import (
-    handle_calculation,
-    handle_translation,
-    handle_definition,
-    handle_poll_creation,
-    handle_timezone_conversion,
-    handle_unit_conversion,
-    handle_dice_roll,
-    handle_event_scheduling
-)
+from ..utils.tool_registry import get_tool_definitions, execute_tool
 
 # Set up logging
 logger = logging.getLogger('mention_commands') # Added logger
@@ -1112,6 +1105,13 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
 
         channel_id = str(message.channel.id)
 
+        # Check for session expiry and rotate before recording the new message
+        if self.state and not message.content.startswith('/'):
+            try:
+                await check_and_rotate_session(channel_id, self.state, self.clients)
+            except Exception as e:
+                logger.error(f"[Mention] Error during session rotation for channel {channel_id}: {e}", exc_info=True)
+
         # Add all regular user messages to history (if state manager is available)
         if self.state and not message.content.startswith('/'):  # Ignore slash commands
             try:
@@ -1191,179 +1191,17 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 if not content:
                     content = "Hello!"
 
-                # Intent-based routing (if intent discovery is enabled)
-                intent_enabled = self.state.get_intent_enabled()
-                intent_threshold = self.state.get_intent_threshold()
-                if intent_enabled:
-                    try:
-                        intent_result = await self.detect_user_intent(content, channel_id)
+                # ─── Native Tool Calling Flow ───────────────────────────────
+                # Replaces the old two-phase intent classification system.
+                # The primary LLM model decides which tools to call natively,
+                # eliminating the need for a separate classification LLM call.
 
-                        if intent_result:
-                            intent_type = intent_result.get("intent")
-                            confidence = intent_result.get("confidence", 0.0)
-                            data = intent_result.get("data", {})
-
-                            logger.info(f"[Intent] Detected intent='{intent_type}' confidence={confidence:.2f} (threshold={intent_threshold})")
-
-                            # Only act on high-confidence intents (>= configured threshold)
-                            if confidence >= intent_threshold:
-                                if intent_type == "reminder":
-                                    # Route to reminder handler
-                                    await self.handle_reminder_request(
-                                        message, channel_id,
-                                        data.get("reminder_message", ""),
-                                        data.get("time_expression", "")
-                                    )
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "image_generation":
-                                    # Route to image generation handler
-                                    await self.handle_image_generation_request(
-                                        message, channel_id,
-                                        data.get("prompt", ""),
-                                        data.get("negative_prompt", ""),
-                                        data.get("size", ""),
-                                        data.get("quality", ""),
-                                        data.get("style", "")
-                                    )
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "search":
-                                    # Route to search handler
-                                    await self.handle_search_request(
-                                        message, channel_id,
-                                        data.get("query", "")
-                                    )
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "calculation":
-                                    # Route to calculation handler
-                                    try:
-                                        await handle_calculation(
-                                            self, message, channel_id,
-                                            data.get("expression", "")
-                                        )
-                                    except Exception as handler_error:
-                                        logger.exception(f"[Intent] Error in calculation handler: {handler_error}")
-                                        await message.channel.send(f"❌ Failed to process calculation: {str(handler_error)}")
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "translation":
-                                    # Route to translation handler
-                                    try:
-                                        await handle_translation(
-                                            self, message, channel_id,
-                                            data.get("text", ""),
-                                            data.get("source_language", ""),
-                                            data.get("target_language", "")
-                                        )
-                                    except Exception as handler_error:
-                                        logger.exception(f"[Intent] Error in translation handler: {handler_error}")
-                                        await message.channel.send(f"❌ Failed to process translation: {str(handler_error)}")
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "definition":
-                                    # Route to definition handler
-                                    try:
-                                        await handle_definition(
-                                            self, message, channel_id,
-                                            data.get("term", ""),
-                                            data.get("depth", "brief")
-                                        )
-                                    except Exception as handler_error:
-                                        logger.exception(f"[Intent] Error in definition handler: {handler_error}")
-                                        await message.channel.send(f"❌ Failed to look up definition: {str(handler_error)}")
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "poll_creation":
-                                    # Route to poll creation handler
-                                    try:
-                                        await handle_poll_creation(
-                                            self, message, channel_id,
-                                            data.get("question", ""),
-                                            data.get("options", []),
-                                            data.get("duration", 24)
-                                        )
-                                    except Exception as handler_error:
-                                        logger.exception(f"[Intent] Error in poll_creation handler: {handler_error}")
-                                        await message.channel.send(f"❌ Failed to create poll: {str(handler_error)}")
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "timezone_conversion":
-                                    # Route to timezone conversion handler
-                                    try:
-                                        await handle_timezone_conversion(
-                                            self, message, channel_id,
-                                            data.get("time", ""),
-                                            data.get("source_timezone", ""),
-                                            data.get("target_timezone", "")
-                                        )
-                                    except Exception as handler_error:
-                                        logger.exception(f"[Intent] Error in timezone_conversion handler: {handler_error}")
-                                        await message.channel.send(f"❌ Failed to convert timezone: {str(handler_error)}")
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "unit_conversion":
-                                    # Route to unit conversion handler
-                                    try:
-                                        await handle_unit_conversion(
-                                            self, message, channel_id,
-                                            data.get("value", ""),
-                                            data.get("source_unit", ""),
-                                            data.get("target_unit", ""),
-                                            data.get("category", "")
-                                        )
-                                    except Exception as handler_error:
-                                        logger.exception(f"[Intent] Error in unit_conversion handler: {handler_error}")
-                                        await message.channel.send(f"❌ Failed to convert units: {str(handler_error)}")
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "dice_roll":
-                                    # Route to dice roll handler
-                                    try:
-                                        await handle_dice_roll(
-                                            self, message, channel_id,
-                                            data.get("dice_notation", ""),
-                                            data.get("options", []),
-                                            data.get("range_min"),
-                                            data.get("range_max")
-                                        )
-                                    except Exception as handler_error:
-                                        logger.exception(f"[Intent] Error in dice_roll handler: {handler_error}")
-                                        await message.channel.send(f"❌ Failed to roll dice: {str(handler_error)}")
-                                    return  # Exit early, skip normal AI flow
-
-                                elif intent_type == "event_scheduling":
-                                    # Route to event scheduling handler
-                                    try:
-                                        await handle_event_scheduling(
-                                            self, message, channel_id,
-                                            data.get("event_name", ""),
-                                            data.get("date_time", ""),
-                                            data.get("duration", 60),
-                                            data.get("description", "")
-                                        )
-                                    except Exception as handler_error:
-                                        logger.exception(f"[Intent] Error in event_scheduling handler: {handler_error}")
-                                        await message.channel.send(f"❌ Failed to process event scheduling request: {str(handler_error)}")
-                                    return  # Exit early, skip normal AI flow
-
-                                # Future intents can be added here:
-                                # elif intent_type == "channel_settings":
-                                #     await self.handle_channel_settings(message, channel_id, data)
-                                #     return
-                            else:
-                                logger.info(f"[Intent] Low confidence ({confidence:.2f} < {intent_threshold}), falling back to conversation")
-
-                    except Exception as e:
-                        logger.error(f"[Intent] Error in intent detection: {e}", exc_info=True)
-                        # Fall through to normal conversation on error
+                tool_calling_enabled = self.state.get_intent_enabled()  # Reuses the same toggle
 
                 # Process images if any are attached
                 images = []
-                client_supports_vision = False # Default
+                client_supports_vision = False
                 if client_to_use and hasattr(client_to_use, 'model_supports_vision') and message.attachments:
-                    # Check if the specific model within the provider supports vision
                     if asyncio.iscoroutinefunction(client_to_use.model_supports_vision):
                         client_supports_vision = await client_to_use.model_supports_vision(model_name)
                     else:
@@ -1388,47 +1226,126 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 # Get recent channel context from state manager
                 conversation_context = self.state.get_channel_history(channel_id)
 
-                # Format the final query with the current user's message
-                # Ensure the mention message itself isn't added twice if already added above
-                # Check if the last message in context is the same as the current one
+                # Format the final query with the current user's message.
+                # The message was already added to history above as raw content (including the
+                # @mention token).  The formatted version we send to the API has the @mention
+                # stripped, so a naive string comparison always fails and the message ends up
+                # duplicated in conversation_context.  Strip @mention tokens from the stored
+                # content before comparing so the dedup works correctly.
                 last_msg_in_context = conversation_context[-1]['content'] if conversation_context else None
                 current_user_formatted_msg = f"{message.author.display_name}: {content}"
 
-                if not conversation_context or last_msg_in_context != current_user_formatted_msg:
-                     # Add the user's current message to the context being sent to the API
-                     # Note: We already added the raw message earlier for history purposes.
-                     # This appends the potentially cleaned-up version for the API call.
+                stored_content_stripped = re.sub(r'<@!?\d+>\s*', '', last_msg_in_context or '').strip()
+                if not conversation_context or stored_content_stripped != content.strip():
                      conversation_context.append({
                          "role": "user",
                          "content": current_user_formatted_msg
                      })
 
-
                 # Send "thinking" message with typing indicator
                 async with message.channel.typing():
-                    # --- Select and Call Correct Client ---
-                    logger.debug(f"[Mention] Attempting to select client. Provider='{provider}', Client Object='{client_to_use}', Has Send Method='{hasattr(client_to_use, 'send_message_with_history') if client_to_use else 'N/A'}'")
-                    if client_to_use and hasattr(client_to_use, 'send_message_with_history'):
-                        logger.info(f"[Mention] ✅ Calling send_message_with_history on client for provider '{provider}' ({type(client_to_use).__name__}) with model '{model_name}'")
+                    if not client_to_use or not hasattr(client_to_use, 'send_message_with_history'):
+                        # Client not available
+                        if client_to_use:
+                            logger.error(f"[Mention] ❌ Client for provider '{provider}' exists but does not have 'send_message_with_history' method.")
+                            response = f"⚠️ Error: Client for provider '{provider}' does not support chat ('send_message_with_history' missing)."
+                        else:
+                            logger.error(f"[Mention] ❌ Client for provider '{provider}' not found or not initialized in self.clients.")
+                            response = f"⚠️ Error: Client for provider '{provider}' not available or not initialized."
+                    elif tool_calling_enabled:
+                        # ─── Tool Calling Path ──────────────────────────────
+                        # Single LLM call with tools — the model decides whether
+                        # to call a tool or respond conversationally.
+                        logger.info(f"[Mention] ✅ Calling send_message_with_history with tools on provider '{provider}' ({type(client_to_use).__name__}) model '{model_name}'")
+
+                        tools = get_tool_definitions()
+
                         response = await client_to_use.send_message_with_history(
                             messages=conversation_context,
-                            model=model_name, # Pass only the model name part
+                            model=model_name,
                             system_prompt=channel_system_prompt,
-                            images=images # Pass processed images (will be empty if not supported/present)
+                            images=images,
+                            tools=tools,
+                            tool_choice="auto"
                         )
-                    elif client_to_use:
-                         logger.error(f"[Mention] ❌ Client for provider '{provider}' exists but does not have 'send_message_with_history' method.")
-                         response = f"⚠️ Error: Client for provider '{provider}' does not support chat ('send_message_with_history' missing)."
-                    else:
-                         logger.error(f"[Mention] ❌ Client for provider '{provider}' not found or not initialized in self.clients.")
-                         response = f"⚠️ Error: Client for provider '{provider}' not available or not initialized."
-                    # --- End Client Call ---
 
+                        # Check if the model requested tool calls
+                        if isinstance(response, dict) and response.get("tool_calls"):
+                            tool_calls = response["tool_calls"]
+                            logger.info(f"[Tool] Model requested {len(tool_calls)} tool call(s)")
+
+                            # Build tool context for execution
+                            tool_context = {
+                                "bot": self.bot,
+                                "state": self.state,
+                                "message": message,
+                                "channel_id": channel_id,
+                                "clients": self.clients,
+                                "cog": self  # For inline handlers (reminder, image, search)
+                            }
+
+                            # Add the assistant's tool-call message to conversation
+                            conversation_context.append({
+                                "role": "assistant",
+                                "content": response.get("content") or "",
+                                "tool_calls": tool_calls
+                            })
+
+                            # Execute each tool call
+                            for tc in tool_calls:
+                                func_name = tc.get("function", {}).get("name", "")
+                                func_args_str = tc.get("function", {}).get("arguments", "{}")
+                                tool_call_id = tc.get("id", "")
+
+                                try:
+                                    func_args = json.loads(func_args_str) if func_args_str else {}
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"[Tool] Failed to parse tool arguments for '{func_name}': {e}")
+                                    func_args = {}
+
+                                logger.info(f"[Tool] Executing '{func_name}' with args: {func_args}")
+
+                                try:
+                                    tool_result = await execute_tool(func_name, func_args, tool_context)
+                                except Exception as e:
+                                    logger.exception(f"[Tool] Error executing '{func_name}': {e}")
+                                    tool_result = f"Error: {str(e)}"
+
+                                # Add tool result to conversation
+                                conversation_context.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call_id,
+                                    "content": tool_result
+                                })
+
+                            # Tool handlers already sent their response to Discord.
+                            # Skip the follow-up LLM call to avoid duplicate messages.
+                            response = None
+
+                        elif isinstance(response, dict):
+                            # Model returned content without tool calls
+                            response = response.get("content") or ""
+                        # else: response is already a string (normal or error)
+
+                    else:
+                        # ─── Plain Conversation Path (no tools) ─────────────
+                        # Fallback for when tool calling is disabled
+                        logger.info(f"[Mention] ✅ Calling send_message_with_history (no tools) on provider '{provider}' ({type(client_to_use).__name__}) model '{model_name}'")
+                        response = await client_to_use.send_message_with_history(
+                            messages=conversation_context,
+                            model=model_name,
+                            system_prompt=channel_system_prompt,
+                            images=images
+                        )
+
+                # If tool calls were executed, response is None (handlers already sent output)
+                if response is None:
+                    pass  # Already handled by tool execution
                 # Check if response is an error
-                if response.startswith("⚠️"):
+                elif isinstance(response, str) and response.startswith("⚠️"):
                     # If it's an error, don't split chunks and don't add to history
                     await message.channel.send(response)
-                else:
+                elif isinstance(response, str):
                     # Add assistant's response to history
                     await self.state.add_to_channel_history(channel_id, {
                         "role": "assistant",
@@ -1443,6 +1360,10 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                     # Send each chunk via persona webhook if configured
                     for chunk in chunks:
                         await self.bot.webhook_sender.send_response(message.channel, chunk, channel_id)
+                else:
+                    # Unexpected response type
+                    logger.error(f"[Mention] Unexpected response type: {type(response)}")
+                    await message.channel.send("⚠️ An unexpected response format was received.")
 
             except Exception as e:
                  logger.exception(f"[Mention] Error processing mention in channel {channel_id}: {e}")

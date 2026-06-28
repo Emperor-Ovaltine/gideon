@@ -173,6 +173,16 @@ class SchemaManager:
             FOREIGN KEY (channel_id) REFERENCES CHANNELS(channel_id) ON DELETE CASCADE,
             FOREIGN KEY (template_id) REFERENCES PERSONA_TEMPLATES(template_id) ON DELETE SET NULL
         );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS CHANNEL_MEMORY (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            message_count INTEGER NOT NULL DEFAULT 0,
+            conversation_start DATETIME,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         """
     ]
 
@@ -194,7 +204,9 @@ class SchemaManager:
         """CREATE INDEX IF NOT EXISTS idx_api_key_audit_timestamp ON API_KEY_AUDIT (timestamp);""",
         """CREATE INDEX IF NOT EXISTS idx_channel_personas_template ON CHANNEL_PERSONAS (template_id);""",
         """CREATE INDEX IF NOT EXISTS idx_channel_personas_active ON CHANNEL_PERSONAS (is_active);""",
-        """CREATE INDEX IF NOT EXISTS idx_persona_templates_builtin ON PERSONA_TEMPLATES (is_builtin);"""
+        """CREATE INDEX IF NOT EXISTS idx_persona_templates_builtin ON PERSONA_TEMPLATES (is_builtin);""",
+        """CREATE INDEX IF NOT EXISTS idx_channel_memory_channel_id ON CHANNEL_MEMORY (channel_id);""",
+        """CREATE INDEX IF NOT EXISTS idx_channel_memory_created_at ON CHANNEL_MEMORY (channel_id, created_at);"""
     ]
 
     @staticmethod
@@ -217,6 +229,10 @@ class SchemaManager:
                 # Run migrations
                 SchemaManager._migrate_remove_news_feeds(cursor)
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "provider", "TEXT")
+                SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "session_timeout_hours", "INTEGER")
+                SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "memory_summary_enabled", "INTEGER")
+                SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "max_memory_summaries", "INTEGER")
+                SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_MEMORY", "conversation_start", "DATETIME")
 
                 logger.info("Database schema migration checks complete.")
         except sqlite3.Error as e:
