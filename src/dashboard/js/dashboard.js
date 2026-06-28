@@ -193,7 +193,13 @@
 
     function switchTab(tabName) {
         $$('.nav-item').forEach(function(item) {
-            item.classList.toggle('active', item.dataset.tab === tabName);
+            var isActive = item.dataset.tab === tabName;
+            item.classList.toggle('active', isActive);
+            if (isActive) {
+                item.setAttribute('aria-current', 'page');
+            } else {
+                item.removeAttribute('aria-current');
+            }
         });
         $$('.tab-content').forEach(function(tab) {
             tab.classList.toggle('active', tab.id === 'tab-' + tabName);
@@ -260,18 +266,17 @@
             $('#setting-max-summaries').value = data.max_memory_summaries || 10;
             $('#setting-memory-summary').value = data.memory_summary_enabled !== false ? 'true' : 'false';
 
+            // Tool calling settings
+            var tcEnabled = data.tool_calling_enabled !== false;
+            $('#tool-calling-enabled').checked = tcEnabled;
+            var tcLabel = $('#tool-calling-enabled-label');
+            if (tcLabel) tcLabel.textContent = tcEnabled ? 'Enabled — native tool calling via LLM' : 'Disabled — fallback to intent classification';
+            $('#tool-calling-max-iterations').value = data.tool_calling_max_iterations || 3;
+
             await loadModelsForProvider(provider, 'setting-model', data.global_model, null);
 
             var searchEl = document.getElementById('setting-model-search');
             if (searchEl) searchEl.value = '';
-
-            const intent = await api('GET', '/api/settings/intent');
-            $('#intent-enabled').value = intent.enabled ? 'true' : 'false';
-            $('#intent-threshold').value = intent.threshold !== undefined ? intent.threshold : 0.7;
-
-            await loadModelsForProvider(provider, 'intent-model', intent.model, null);
-            var intentSearchEl = document.getElementById('intent-model-search');
-            if (intentSearchEl) intentSearchEl.value = '';
         } catch (e) {
             console.error('Failed to load settings:', e);
         }
@@ -308,25 +313,23 @@
         }
     }
 
-    async function saveIntentSettings(e) {
-        e.preventDefault();
-        try {
-            await api('PUT', '/api/settings/intent', {
-                enabled: $('#intent-enabled').value === 'true',
-                model: $('#intent-model').value,
-                threshold: parseFloat($('#intent-threshold').value),
-            });
-            showSaveStatus('intent-save-status', 'Intent settings saved', false);
-        } catch (e) {
-            showSaveStatus('intent-save-status', 'Error: ' + e.message, true);
-        }
-    }
-
     async function onProviderChange() {
         var provider = $('#setting-provider').value;
         delete modelCache[provider];
         await loadModelsForProvider(provider, 'setting-model', null, null);
-        await loadModelsForProvider(provider, 'intent-model', null, null);
+    }
+
+    async function saveToolCallingSettings(e) {
+        e.preventDefault();
+        try {
+            await api('PUT', '/api/settings', {
+                tool_calling_enabled: $('#tool-calling-enabled').checked,
+                tool_calling_max_iterations: parseInt($('#tool-calling-max-iterations').value),
+            });
+            showSaveStatus('tool-calling-save-status', 'Tool calling settings saved', false);
+        } catch (e) {
+            showSaveStatus('tool-calling-save-status', 'Error: ' + e.message, true);
+        }
     }
 
     // ── Channels ─────────────────────────────────────────────
@@ -794,7 +797,7 @@
                 html += diagItem('History Limit', data.settings.max_channel_history);
                 html += diagItem('Time Window', data.settings.time_window_hours + 'h');
                 html += diagItem('Prune Every', data.settings.prune_frequency_hours + 'h');
-                html += diagItem('Intent Detection', data.settings.intent_enabled ? 'Enabled' : 'Disabled');
+                html += diagItem('Intent Detection', data.settings.tool_calling_enabled ? 'Enabled' : 'Disabled');
                 html += '</div>';
             }
 
@@ -1684,7 +1687,7 @@
             if (!activeTab) return;
             var tab = activeTab.dataset.tab;
 
-            if (data.type === 'settings_updated' || data.type === 'intent_settings_updated') {
+            if (data.type === 'settings_updated') {
                 if (tab === 'settings') loadSettings();
                 if (tab === 'overview') loadOverview();
             }
@@ -1761,9 +1764,6 @@
                 break;
             case 'settings_updated':
                 detail = 'Fields: ' + (data.fields || []).join(', ');
-                break;
-            case 'intent_settings_updated':
-                detail = 'Intent fields: ' + (data.fields || []).join(', ');
                 break;
             case 'channel_updated':
                 detail = 'Channel ' + (data.channel_id || '') + ': ' + (data.fields || []).join(', ');
@@ -2410,7 +2410,11 @@
         // Settings forms
         $('#settings-form').addEventListener('submit', saveSettings);
         $('#memory-settings-form').addEventListener('submit', saveMemorySettings);
-        $('#intent-form').addEventListener('submit', saveIntentSettings);
+        $('#tool-calling-form').addEventListener('submit', saveToolCallingSettings);
+        $('#tool-calling-enabled').addEventListener('change', function() {
+            var label = $('#tool-calling-enabled-label');
+            if (label) label.textContent = this.checked ? 'Enabled — native tool calling via LLM' : 'Disabled — fallback to intent classification';
+        });
 
         // Memory tab buttons
         var memoryClearBtn = $('#memory-clear-btn');
@@ -2423,7 +2427,6 @@
 
         // Model search filters
         setupModelSearch('setting-model-search', 'setting-model');
-        setupModelSearch('intent-model-search', 'intent-model');
         setupModelSearch('channel-model-search', 'channel-edit-model');
         setupModelSearch('thread-model-search', 'thread-edit-model');
 

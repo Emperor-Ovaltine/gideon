@@ -10,7 +10,7 @@ from .database import DatabaseManager
 from ..config import (
     DEFAULT_MODEL as CONFIG_DEFAULT_MODEL,
     CONFIG_TOOL_CALLING_ENABLED,
-    TOOL_CALLING_MAX_ITERATIONS,
+    TOOL_CALLING_MAX_ITERATIONS as CONFIG_TOOL_CALLING_MAX_ITERATIONS,
     INTENT_DISCOVERY as CONFIG_INTENT_DISCOVERY,
     INTENT_DETECTION_MODEL as CONFIG_INTENT_MODEL,
     INTENT_CONFIDENCE_THRESHOLD as CONFIG_INTENT_THRESHOLD
@@ -32,6 +32,7 @@ CONFIG_KEY_INTENT_THRESHOLD = "intent_threshold"
 CONFIG_KEY_SESSION_TIMEOUT = "session_timeout_hours"
 CONFIG_KEY_MEMORY_SUMMARY_ENABLED = "memory_summary_enabled"
 CONFIG_KEY_MAX_MEMORY_SUMMARIES = "max_memory_summaries"
+CONFIG_KEY_TOOL_CALLING_MAX_ITERATIONS = "tool_calling_max_iterations"
 
 class BotStateManager:
     """Singleton class to manage shared state via DatabaseManager."""
@@ -71,6 +72,8 @@ class BotStateManager:
         self.intent_enabled = await self._load_or_set_config(CONFIG_KEY_INTENT_ENABLED, CONFIG_TOOL_CALLING_ENABLED, 'bool')
         self.intent_model = await self._load_or_set_config(CONFIG_KEY_INTENT_MODEL, CONFIG_INTENT_MODEL, 'string')
         self.intent_threshold = await self._load_or_set_config(CONFIG_KEY_INTENT_THRESHOLD, CONFIG_INTENT_THRESHOLD, 'float')
+        self.tool_calling_enabled = self.intent_enabled  # Alias for new API
+        self.tool_calling_max_iterations = await self._load_or_set_config(CONFIG_KEY_TOOL_CALLING_MAX_ITERATIONS, CONFIG_TOOL_CALLING_MAX_ITERATIONS, 'int')
 
         # Memory system settings
         self.session_timeout_hours = await self._load_or_set_config(CONFIG_KEY_SESSION_TIMEOUT, 24, 'int')
@@ -146,63 +149,63 @@ class BotStateManager:
         self.prune_frequency_hours = value
         await self._save_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, value, 'int')
 
-    # --- Intent Detection Methods ---
+    # --- Intent Detection Methods (Deprecated) ---
 
     def get_intent_enabled(self) -> bool:
-        """Gets whether intent detection is enabled."""
-        return self.intent_enabled
+        """Deprecated: Use get_tool_calling_enabled() instead."""
+        return self.tool_calling_enabled
 
     async def set_intent_enabled(self, value: bool):
-        """Sets whether intent detection is enabled."""
-        self.intent_enabled = value
+        """Deprecated: Use set_tool_calling_enabled() instead."""
+        self.tool_calling_enabled = value
         await self._save_config(CONFIG_KEY_INTENT_ENABLED, value, 'bool')
-        logger.info(f"Intent detection {'enabled' if value else 'disabled'}")
+        logger.info(f"Tool calling {'enabled' if value else 'disabled'}")
 
     def get_intent_model(self) -> str:
-        """Gets the intent detection model."""
-        return self.intent_model
+        """Deprecated: No longer used. Returns empty string for backward compatibility."""
+        return ""
 
     async def set_intent_model(self, model: str):
-        """Sets the intent detection model after validation."""
-        if not self.model_manager:
-            raise RuntimeError("ModelManager not set in BotStateManager")
-
-        # Parse and validate the model ID format
-        provider, model_name = self.model_manager.parse_model_id(model)
-        canonical_model_id = f"{provider}/{model_name}"
-
-        # Force refresh models for the parsed provider before validation
-        await self.model_manager.get_models(provider, force_refresh=True)
-
-        # Validate the canonical model ID
-        is_valid = await self.model_manager.is_valid_model(canonical_model_id)
-        if not is_valid:
-            # Fetch models for the specific provider for the error message
-            provider_models = []
-            try:
-                models = await self.model_manager.get_models(provider, force_refresh=False)
-                provider_models = [f"{provider}/{m}" for m in models]
-            except Exception as ex:
-                logger.warning(f"Could not fetch models for provider {provider} for error message: {ex}")
-
-            allowed_str = ', '.join(provider_models[:10]) + ('...' if len(provider_models) > 10 else '')
-            raise ValueError(f"Model '{canonical_model_id}' not found for provider '{provider}'. Allowed: {allowed_str}")
-
-        self.intent_model = canonical_model_id
-        await self._save_config(CONFIG_KEY_INTENT_MODEL, canonical_model_id, 'string')
-        logger.info(f"Intent detection model set to: {canonical_model_id}")
+        """Deprecated: No longer functional. Raises DeprecationWarning."""
+        import warnings
+        warnings.warn("set_intent_model is deprecated. Tool calling uses the global model.", DeprecationWarning)
+        logger.warning(f"Ignored attempt to set deprecated intent model: {model}")
 
     def get_intent_threshold(self) -> float:
-        """Gets the intent confidence threshold."""
-        return self.intent_threshold
+        """Deprecated: No longer used. Returns 0.0 for backward compatibility."""
+        return 0.0
 
     async def set_intent_threshold(self, value: float):
-        """Sets the intent confidence threshold (0.0-1.0)."""
+        """Deprecated: No longer functional. Raises DeprecationWarning."""
         if value < 0.0 or value > 1.0:
             raise ValueError("Intent threshold must be between 0.0 and 1.0")
-        self.intent_threshold = value
-        await self._save_config(CONFIG_KEY_INTENT_THRESHOLD, value, 'float')
-        logger.info(f"Intent confidence threshold set to: {value}")
+        import warnings
+        warnings.warn("set_intent_threshold is deprecated.", DeprecationWarning)
+        logger.warning(f"Ignored attempt to set deprecated intent threshold: {value}")
+
+    # --- Tool Calling Methods ---
+
+    def get_tool_calling_enabled(self) -> bool:
+        """Gets whether tool calling (native) is enabled."""
+        return self.tool_calling_enabled
+
+    async def set_tool_calling_enabled(self, value: bool):
+        """Sets whether tool calling is enabled."""
+        self.tool_calling_enabled = value
+        await self._save_config(CONFIG_KEY_INTENT_ENABLED, value, 'bool')
+        logger.info(f"Tool calling {'enabled' if value else 'disabled'}")
+
+    def get_tool_calling_max_iterations(self) -> int:
+        """Gets the max tool-calling iterations."""
+        return self.tool_calling_max_iterations
+
+    async def set_tool_calling_max_iterations(self, value: int):
+        """Sets the max tool-calling iterations (1-10)."""
+        if value < 1 or value > 10:
+            raise ValueError("Tool calling max iterations must be between 1 and 10.")
+        self.tool_calling_max_iterations = value
+        await self._save_config(CONFIG_KEY_TOOL_CALLING_MAX_ITERATIONS, value, 'int')
+        logger.info(f"Tool calling max iterations set to: {value}")
 
     # --- Memory System Config ---
 
@@ -326,7 +329,7 @@ class BotStateManager:
         return self.db_manager.get_all_memory_stats()
 
     async def reload_intent_from_env(self):
-        """Reloads intent settings from environment variables."""
+        """Reloads intent (now tool calling) settings from environment variables."""
         self.intent_enabled = CONFIG_INTENT_DISCOVERY
         self.intent_model = CONFIG_INTENT_MODEL
         self.intent_threshold = CONFIG_INTENT_THRESHOLD
@@ -334,6 +337,9 @@ class BotStateManager:
         await self._save_config(CONFIG_KEY_INTENT_ENABLED, self.intent_enabled, 'bool')
         await self._save_config(CONFIG_KEY_INTENT_MODEL, self.intent_model, 'string')
         await self._save_config(CONFIG_KEY_INTENT_THRESHOLD, self.intent_threshold, 'float')
+        # Also load tool_calling_max_iterations from config
+        from ..config import TOOL_CALLING_MAX_ITERATIONS as CFG_TOOL_CALLING_MAX_ITERATIONS
+        self.tool_calling_max_iterations = await self._load_or_set_config(CONFIG_KEY_TOOL_CALLING_MAX_ITERATIONS, CFG_TOOL_CALLING_MAX_ITERATIONS, 'int')
         logger.info(f"Intent settings reloaded from .env: enabled={self.intent_enabled}, model={self.intent_model}, threshold={self.intent_threshold}")
 
     async def reload_all_from_env(self, system_prompt: str) -> dict:
@@ -343,7 +349,8 @@ class BotStateManager:
             DEFAULT_MODEL,
             INTENT_DISCOVERY,
             INTENT_DETECTION_MODEL,
-            INTENT_CONFIDENCE_THRESHOLD
+            INTENT_CONFIDENCE_THRESHOLD,
+            TOOL_CALLING_MAX_ITERATIONS,
         )
 
         # Reload global model
@@ -359,13 +366,16 @@ class BotStateManager:
         # Reload system prompt (passed in since it comes from config)
         await self.set_global_system_prompt(system_prompt)
 
-        # Reload intent settings
+        # Reload tool calling settings
         self.intent_enabled = INTENT_DISCOVERY
         self.intent_model = INTENT_DETECTION_MODEL
         self.intent_threshold = INTENT_CONFIDENCE_THRESHOLD
+        self.tool_calling_enabled = self.intent_enabled
+        self.tool_calling_max_iterations = TOOL_CALLING_MAX_ITERATIONS
         await self._save_config(CONFIG_KEY_INTENT_ENABLED, self.intent_enabled, 'bool')
         await self._save_config(CONFIG_KEY_INTENT_MODEL, self.intent_model, 'string')
         await self._save_config(CONFIG_KEY_INTENT_THRESHOLD, self.intent_threshold, 'float')
+        await self._save_config(CONFIG_KEY_TOOL_CALLING_MAX_ITERATIONS, self.tool_calling_max_iterations, 'int')
 
         logger.info(f"All settings reloaded from .env")
 
@@ -375,7 +385,7 @@ class BotStateManager:
             "time_window_hours": self.time_window_hours,
             "intent_enabled": self.intent_enabled,
             "intent_model": self.intent_model,
-            "intent_threshold": self.intent_threshold
+            "intent_threshold": self.intent_threshold,
         }
 
 

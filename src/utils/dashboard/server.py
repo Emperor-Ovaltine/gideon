@@ -88,10 +88,6 @@ class DashboardServer:
         router.add_get('/api/settings', self._handle_get_settings)
         router.add_put('/api/settings', self._handle_update_settings)
 
-        # Intent settings API
-        router.add_get('/api/settings/intent', self._handle_get_intent_settings)
-        router.add_put('/api/settings/intent', self._handle_update_intent_settings)
-
         # Channel API
         router.add_get('/api/channels', self._handle_get_channels)
         router.add_get('/api/channels/all', self._handle_get_all_channels)
@@ -271,6 +267,8 @@ class DashboardServer:
             'session_timeout_hours': state.get_session_timeout_hours(),
             'memory_summary_enabled': state.get_memory_summary_enabled(),
             'max_memory_summaries': state.get_max_memory_summaries(),
+            'tool_calling_enabled': state.get_tool_calling_enabled(),
+            'tool_calling_max_iterations': state.get_tool_calling_max_iterations(),
         })
 
     async def _handle_update_settings(self, request):
@@ -329,49 +327,24 @@ class DashboardServer:
                 await state.set_max_memory_summaries(val)
                 updated.append('max_memory_summaries')
 
+            if 'tool_calling_enabled' in data:
+                await state.set_tool_calling_enabled(bool(data['tool_calling_enabled']))
+                updated.append('tool_calling_enabled')
+
+            if 'tool_calling_max_iterations' in data:
+                val = int(data['tool_calling_max_iterations'])
+                if val < 1 or val > 10:
+                    return web.json_response({'error': 'tool_calling_max_iterations must be 1-10'}, status=400)
+                await state.set_tool_calling_max_iterations(val)
+                updated.append('tool_calling_max_iterations')
+
         except ValueError as e:
             return web.json_response({'error': str(e)}, status=400)
 
         await self._broadcast_ws({'type': 'settings_updated', 'fields': updated})
         return web.json_response({'status': 'ok', 'updated': updated})
 
-    async def _handle_get_intent_settings(self, request):
-        """Get intent detection settings."""
-        state = self.bot.state_manager
-        return web.json_response({
-            'enabled': state.get_intent_enabled(),
-            'model': state.get_intent_model(),
-            'threshold': state.get_intent_threshold(),
-        })
-
-    async def _handle_update_intent_settings(self, request):
-        """Update intent detection settings."""
-        try:
-            data = await request.json()
-        except Exception:
-            return web.json_response({'error': 'Invalid JSON'}, status=400)
-
-        state = self.bot.state_manager
-        updated = []
-
-        try:
-            if 'enabled' in data:
-                await state.set_intent_enabled(bool(data['enabled']))
-                updated.append('enabled')
-
-            if 'model' in data:
-                await state.set_intent_model(data['model'])
-                updated.append('model')
-
-            if 'threshold' in data:
-                await state.set_intent_threshold(float(data['threshold']))
-                updated.append('threshold')
-
-        except ValueError as e:
-            return web.json_response({'error': str(e)}, status=400)
-
-        await self._broadcast_ws({'type': 'intent_settings_updated', 'fields': updated})
-        return web.json_response({'status': 'ok', 'updated': updated})
+    
 
     # ── Channel Handlers ───────────────────────────────────────────
 
@@ -1129,7 +1102,7 @@ class DashboardServer:
             'max_channel_history': state.get_max_channel_history(),
             'time_window_hours': state.get_time_window_hours(),
             'prune_frequency_hours': state.get_prune_frequency_hours(),
-            'intent_enabled': state.get_intent_enabled(),
+            'tool_calling_enabled': state.get_tool_calling_enabled(),
         }
 
         return web.json_response(results)
