@@ -9,6 +9,8 @@ from .database import DatabaseManager
 # Keep config import for default values if DB is empty
 from ..config import (
     DEFAULT_MODEL as CONFIG_DEFAULT_MODEL,
+    CONFIG_TOOL_CALLING_ENABLED,
+    TOOL_CALLING_MAX_ITERATIONS,
     INTENT_DISCOVERY as CONFIG_INTENT_DISCOVERY,
     INTENT_DETECTION_MODEL as CONFIG_INTENT_MODEL,
     INTENT_CONFIDENCE_THRESHOLD as CONFIG_INTENT_THRESHOLD
@@ -63,8 +65,10 @@ class BotStateManager:
         self.global_system_prompt = await self._load_or_set_config(CONFIG_KEY_GLOBAL_SYSTEM_PROMPT, None, 'string')
         self.prune_frequency_hours = await self._load_or_set_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, 24, 'int')
 
-        # Intent detection settings - load from DB or use .env defaults
-        self.intent_enabled = await self._load_or_set_config(CONFIG_KEY_INTENT_ENABLED, CONFIG_INTENT_DISCOVERY, 'bool')
+        # Tool calling settings - load from DB or use .env defaults
+        # Uses CONFIG_TOOL_CALLING_ENABLED which combines TOOL_CALLING_ENABLED
+        # and INTENT_DISCOVERY for backward compatibility
+        self.intent_enabled = await self._load_or_set_config(CONFIG_KEY_INTENT_ENABLED, CONFIG_TOOL_CALLING_ENABLED, 'bool')
         self.intent_model = await self._load_or_set_config(CONFIG_KEY_INTENT_MODEL, CONFIG_INTENT_MODEL, 'string')
         self.intent_threshold = await self._load_or_set_config(CONFIG_KEY_INTENT_THRESHOLD, CONFIG_INTENT_THRESHOLD, 'float')
 

@@ -29,10 +29,19 @@ Gideon transforms your Discord server into an AI-powered hub, connecting members
 
 * **Multiple AI Models** - Access OpenAI, Anthropic Claude, Google Gemini, and more through OpenRouter
 * **Persistent Channel Memory** - Long-term, channel-specific memory that grows over time. When a channel goes quiet for a configurable period (default 24 hours), Gideon automatically summarizes the conversation and stores it as a memory entry. Future conversations in that channel are informed by all past summaries — injected into the AI's context on every message — so the bot never loses track of recurring topics, decisions, or channel history. Memories are channel-isolated: `#general` never bleeds into `#dev`. Configurable via the dashboard or per-channel overrides.
-* **Natural Language Intent Detection** - Simply @mention Gideon with natural language to automatically execute commands without needing to remember slash command syntax. The AI understands your intent and routes to the appropriate feature:
+* **Native Tool Calling** - Simply @mention Gideon with natural language to automatically execute commands without needing to remember slash command syntax. The primary LLM model natively decides whether to call a tool or respond conversationally — no separate intent classification step needed:
   + **Reminders**: "@Gideon remind me to check the server logs tomorrow at 3pm"
   + **Image Generation**: "@Gideon draw a sunset over mountains with vibrant colors"
   + **Web Search**: "@Gideon what are the current best games on Xbox Game Pass"
+  + **Calculations**: "@Gideon what's 15% of 250?"
+  + **Translations**: "@Gideon translate 'hello world' to French"
+  + **Definitions**: "@Gideon define serendipity"
+  + **Polls**: "@Gideon create a poll: pizza vs burgers vs tacos"
+  + **Timezone Conversion**: "@Gideon what's 3pm EST in Tokyo?"
+  + **Unit Conversion**: "@Gideon convert 5 miles to kilometers"
+  + **Dice Rolls**: "@Gideon roll 3d6"
+  + **Events**: "@Gideon schedule a team meeting next Friday at 2pm"
+  + **Multi-Tool**: "@Gideon calculate 15% of 250 and translate the result to French"
   + **Conversation**: Any other @mention automatically engages in natural conversation
 * **Web Search** - Search the web for current information through conversational AI responses or natural language (@mention)
 * **Image Generation** - Create stunning visuals using the unified `/dream` command or natural language @mentions. Supports multiple backend providers (AI Horde, Cloudflare Worker, OpenAI DALL-E, ComfyUI, OpenRouter). Admins can configure the active provider and its default settings.
@@ -75,7 +84,7 @@ Give Gideon a unique identity in every channel using Discord webhooks. Each pers
 * **API Key Management** - Add, edit, validate, and delete API keys for all providers via the dashboard, with Fernet-encrypted database storage and full audit logging
 * **Personas Tab** - Browse, create, edit, and apply channel personas and templates from the browser
 * **Backup & Restore** - Export and import your configuration (JSON) or full database (SQLite) directly from the dashboard
-* **Settings Management** - Edit global settings, channel overrides, and intent detection from the browser
+* **Settings Management** - Edit global settings, channel overrides, session timeout, auto-summarize toggle, and tool calling from the browser
 * **Thread & Channel Management** - View, edit, and delete threads and channel configurations
 * **System Diagnostics** - Run diagnostics, check provider status, and trigger data pruning
 * **Secure Authentication** - Token-based authentication with configurable secret key
@@ -195,25 +204,34 @@ python3 -m src
    * Scopes: `bot`, `applications.commands`
    * Permissions: Send Messages, Read Message History, Embed Links, Use Slash Commands, Manage Threads, **Manage Webhooks** (required for persona feature)
 
-### Intent Detection Configuration (Optional)
+### Tool Calling Configuration (Optional)
 
-Gideon's intent detection feature allows users to interact naturally with the bot through @mentions instead of slash commands. Enabled by default.
+Gideon's native tool calling feature allows users to interact naturally with the bot through @mentions instead of slash commands. The primary LLM model receives tool definitions and decides natively whether to call a tool or respond conversationally — no separate intent classification step needed. Enabled by default.
 
 **Environment Variables:**
 
 ```env
-INTENT_DISCOVERY=true
-INTENT_DETECTION_MODEL=anthropic/claude-3.5-haiku
-INTENT_CONFIDENCE_THRESHOLD=0.7
+TOOL_CALLING_ENABLED=TRUE
+TOOL_CALLING_MAX_ITERATIONS=3
 ```
 
+> **Backward Compatibility:** The legacy `INTENT_DISCOVERY=TRUE` env var still works as an alias for `TOOL_CALLING_ENABLED`. The old `INTENT_DETECTION_MODEL` and `INTENT_CONFIDENCE_THRESHOLD` vars are deprecated and no longer used.
+
 **How It Works:**
-When you @mention Gideon, the bot uses AI to analyze your message and classify intent:
+When you @mention Gideon, the bot sends your message to the primary LLM model with tool definitions attached:
 
-* **High confidence (≥0.7)**: Routes to the appropriate handler (reminder, image generation, or search)
-* **Low confidence (<0.7)**: Falls back to normal conversation
+1. The model decides natively whether to call a tool or respond conversationally
+2. If the model requests tool calls, each tool is executed and results are fed back
+3. The model generates a final text response incorporating the tool results
+4. If tool calling is disabled, falls back to plain conversation (no tools)
 
-**Supported Intents:** Reminder, Image Generation, Search (OpenRouter only), Conversation
+**Available Tools:** `set_reminder`, `generate_image`, `web_search`, `calculate`, `translate`, `define`, `create_poll`, `convert_timezone`, `convert_units`, `roll_dice`, `schedule_event`
+
+**Key advantages over the old intent classification system:**
+- Single LLM call instead of two (classification + response)
+- No separate classification model or confidence threshold
+- Supports multi-tool requests (e.g., "calculate 15% of 250 and translate the result to French")
+- Uses full conversation context (the model sees chat history)
 
 ### Admin Dashboard Configuration (Optional)
 
@@ -254,7 +272,7 @@ Keys stored in the database take priority over `.env` values. This is fully back
 | --- | --- |
 | Overview | Bot status, server count, message stats, uptime, latency, provider links |
 | API Keys | Encrypted API key management with validation, import from `.env`, and audit logging |
-| Settings | Edit global model, provider, system prompt, memory limits, session timeout, auto-summarize toggle, and intent detection |
+| Settings | Edit global model, provider, system prompt, memory limits, session timeout, auto-summarize toggle, and tool calling |
 | Channels | View and edit channel-specific configuration overrides (including per-channel memory settings) |
 | Threads | Manage AI conversation threads (rename, configure, delete) |
 | Messages | Browse stored conversation history with filtering and pagination |
@@ -482,7 +500,7 @@ gideon/
 │   │   ├── channel_commands.py     # Channel settings (/channel group)
 │   │   ├── chat_commands.py        # AI chat (/chat, /reset, etc.)
 │   │   ├── dashboard_commands.py   # Web admin dashboard (/dashboard)
-│   │   ├── mention_commands.py     # Bot @mention handling
+│   │   ├── mention_commands.py     # Bot @mention handling & native tool calling
 │   │   ├── persona_commands.py     # Per-channel personas (/persona group)
 │   │   ├── reminder_commands.py    # Reminder management
 │   │   ├── settings_commands.py    # Global settings (/settings group)
@@ -509,6 +527,7 @@ gideon/
 │       ├── permissions.py
 │       ├── persona_templates.py    # Built-in persona template definitions
 │       ├── state_manager.py        # Centralized state management
+│       ├── tool_registry.py        # Native LLM tool definitions & execution
 │       ├── trivia_ai.py
 │       ├── trivia_config.py
 │       ├── webhook_sender.py       # Webhook lifecycle management for personas

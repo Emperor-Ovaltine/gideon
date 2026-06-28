@@ -57,9 +57,11 @@ Environment-based configuration loading:
 - `SYSTEM_PROMPT` - Default AI personality
 - `DEFAULT_MODEL` - Initial model (format: `provider/model-name`)
 - `DATA_DIRECTORY` - Database and data storage location
-- `INTENT_DISCOVERY` - Enable/disable AI intent detection for @mentions
-- `INTENT_DETECTION_MODEL` - Model for intent classification
-- `INTENT_CONFIDENCE_THRESHOLD` - Confidence threshold (0.0-1.0)
+- `TOOL_CALLING_ENABLED` - Enable/disable native LLM tool calling for @mentions
+- `TOOL_CALLING_MAX_ITERATIONS` - Max tool-call round-trips before forcing text response
+- `INTENT_DISCOVERY` - (Deprecated) Backward compat alias for `TOOL_CALLING_ENABLED`
+- `INTENT_DETECTION_MODEL` - (Deprecated) No longer used by tool-calling system
+- `INTENT_CONFIDENCE_THRESHOLD` - (Deprecated) No longer used by tool-calling system
 - `ENCRYPTION_MASTER_KEY` - Master key for Fernet encryption of API keys stored in DB
 - `DASHBOARD_ENABLED` - Enable/disable web admin dashboard
 - `DASHBOARD_PORT` - Dashboard server port (default: 8080)
@@ -149,8 +151,10 @@ Each cog is a self-contained feature module loaded dynamically at startup:
    - Checks for active persona per channel and routes responses through `WebhookSender`
 
 3. **`mention_commands.py`** - Handles @mentions of the bot
-   - Detects user intent (conversation, reminder, image gen, search)
-   - Routes to appropriate handler based on AI classification
+   - Uses native LLM tool calling (when `TOOL_CALLING_ENABLED=TRUE`)
+   - The primary model receives tool definitions and decides natively whether to call a tool (reminder, image generation, calculation, translation, etc.) or respond conversationally
+   - Eliminates the need for a separate intent classification LLM call
+   - Tool definitions are managed in `src/utils/tool_registry.py`
    - Maintains conversation context across mentions
    - Supports image analysis via attachments
 
@@ -435,13 +439,26 @@ Logging uses Python's standard `logging` module:
 5. Channel history is cleared; the new message starts a fresh session
 6. On every subsequent LLM call, `get_effective_system_prompt(channel_id)` appends a `--- Channel Memory ---` block listing all stored summaries (oldest → newest), giving the model long-term context without inflating the live message window
 
-### Intent Detection (@mentions)
-When `INTENT_DISCOVERY=TRUE`:
+### Native Tool Calling (@mentions)
+When `TOOL_CALLING_ENABLED=TRUE` (or legacy `INTENT_DISCOVERY=TRUE`):
 1. User @mentions bot: "@Gideon remind me in 2 hours to check logs"
-2. `mention_commands.py` sends message to `INTENT_DETECTION_MODEL`
-3. AI classifies intent: `reminder`, `image_generation`, `search`, or `conversation`
-4. If confidence >= `INTENT_CONFIDENCE_THRESHOLD`, routes to handler
-5. Otherwise, falls back to normal conversation
+2. `mention_commands.py` sends the message to the **primary LLM model** with tool definitions attached
+3. The model decides natively whether to call a tool (`set_reminder`, `generate_image`, `web_search`, `calculate`, `translate`, `define`, `create_poll`, `convert_timezone`, `convert_units`, `roll_dice`, `schedule_event`) or respond conversationally
+4. If the model requests tool calls, each tool is executed via `tool_registry.execute_tool()` and results are fed back to the model
+5. The model generates a final text response incorporating the tool results
+6. If tool calling is disabled, falls back to plain conversation (no tools)
+
+**Key advantages over the old intent classification system:**
+- Single LLM call instead of two (classification + response)
+- No 320-line classification prompt — tool descriptions are compact
+- No confidence threshold heuristic — the model decides natively
+- Supports multi-tool requests (e.g., "calculate 15% of 250 and translate the result to French")
+- Uses conversation context (the model sees chat history, so "translate that" works)
+
+**Tool definitions** are managed in `src/utils/tool_registry.py`. To add a new tool:
+1. Add a tool definition to `TOOL_DEFINITIONS` (OpenAI function schema format)
+2. Add an execution function `_execute_new_tool()`
+3. Add a dispatch case in `execute_tool()`
 
 ### Image Generation Flow
 1. User runs `/dream prompt:"sunset over mountains"`
@@ -518,7 +535,7 @@ docker-compose down
 
 - Redis/PostgreSQL support for high-scale deployments
 - Multi-server support (currently single-server focused)
-- More intent handlers (code execution, math solver, etc.)
+- More tool handlers (code execution, math solver, etc.)
 - Voice integration (TTS/STT)
 - ~~Web dashboard for config management~~ (Implemented in v1.1)
 - ~~Per-channel personas with webhooks~~ (Implemented in v1.2)
@@ -532,6 +549,6 @@ docker-compose down
 
 ---
 
-**Last Updated**: 2026-05-25
-**Version**: v1.3
+**Last Updated**: 2026-06-28
+**Version**: v1.4
 **Maintainer**: eoko-dev

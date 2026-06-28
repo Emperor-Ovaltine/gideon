@@ -116,11 +116,14 @@ class OpenAIClient:
                       For vision models, content can be a list: [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}]
             model: The specific OpenAI model to use (e.g., "gpt-4o", "gpt-3.5-turbo").
             system_prompt: An optional system prompt to guide the AI.
-            **kwargs: Potential additional arguments, primarily 'images' for vision models.
-                      'images' should be a list of dicts: [{'data': bytes, 'type': 'image/jpeg'}]
+            **kwargs: Potential additional arguments:
+                      'images' for vision models: [{'data': bytes, 'type': 'image/jpeg'}]
+                      'tools' for native tool calling: List of tool definitions (OpenAI function schema)
+                      'tool_choice' for tool calling: "auto", "none", or specific tool
 
         Returns:
-            The text content of the AI's response, or a formatted error string starting with "⚠️ Error: ".
+            The text content of the AI's response, a dict with tool_calls if the model
+            requested tool execution, or a formatted error string starting with "⚠️ Error: ".
         """
         if not self.client:
             return "⚠️ OpenAI Error: Client is not initialized (API key missing or invalid)."
@@ -168,17 +171,46 @@ class OpenAIClient:
 
 
         logger.debug(f"Sending request to OpenAI model '{model}' with {len(api_messages)} messages.")
-        # logger.debug(f"API Messages Payload: {api_messages}") # Be careful logging potentially large payloads
+
+        # Build API call parameters
+        api_params = {
+            "model": model,
+            "messages": api_messages,
+        }
+
+        # Add tools if provided (native function/tool calling)
+        tools = kwargs.get('tools')
+        if tools:
+            api_params["tools"] = tools
+            tool_choice = kwargs.get('tool_choice', 'auto')
+            api_params["tool_choice"] = tool_choice
+            logger.info(f"Tool calling enabled with {len(tools)} tool(s)")
 
         try:
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=api_messages,
-                # Add other parameters like temperature, max_tokens if needed later
-            )
+            response = await self.client.chat.completions.create(**api_params)
 
             if response.choices and response.choices[0].message:
-                ai_response = response.choices[0].message.content
+                message = response.choices[0].message
+                # Check for tool calls first
+                if hasattr(message, 'tool_calls') and message.tool_calls:
+                    logger.info(f"Model requested {len(message.tool_calls)} tool call(s)")
+                    # Convert tool_calls to serializable format
+                    tool_calls_data = []
+                    for tc in message.tool_calls:
+                        tool_calls_data.append({
+                            "id": tc.id,
+                            "type": tc.type,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        })
+                    return {
+                        "content": message.content,
+                        "tool_calls": tool_calls_data
+                    }
+                
+                ai_response = message.content
                 logger.info(f"Received response from OpenAI model '{model}'")
                 return ai_response.strip() if ai_response else ""
             else:
