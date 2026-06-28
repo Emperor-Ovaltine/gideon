@@ -3,3 +3,4 @@ src/.DS_Store
 .env
 .claude
 __pycache__/
+.kilo

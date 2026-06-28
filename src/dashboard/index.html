@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gideon Admin Dashboard</title>
-    <link rel="stylesheet" href="/css/dashboard.css?v=3">
+    <link rel="stylesheet" href="/css/dashboard.css?v=4">
 </head>
 <body>
     <!-- Login Screen -->
@@ -29,59 +29,62 @@
     <!-- Main Dashboard -->
     <div id="dashboard" class="dashboard" style="display:none;">
         <!-- Sidebar -->
-        <nav class="sidebar">
+        <nav class="sidebar" role="navigation" aria-label="Main navigation">
             <div class="sidebar-header">
-                <div class="sidebar-logo">G</div>
+                <div class="sidebar-logo" aria-hidden="true">G</div>
                 <h2>Gideon</h2>
                 <span class="badge" id="bot-status-badge">Connecting...</span>
             </div>
             <div class="sidebar-search">
-                <input type="text" id="global-search" placeholder="Search tabs..." autocomplete="off">
+                <input type="text" id="global-search" placeholder="Search tabs..." autocomplete="off" aria-label="Search sidebar tabs">
             </div>
             <ul class="nav-menu">
-                <li class="nav-item active" data-tab="overview">
-                    <span class="nav-icon">&#9634;</span> <span class="nav-label">Overview</span>
+                <li class="nav-section-header" aria-hidden="true">Management</li>
+                <li class="nav-item active" data-tab="overview" aria-current="page">
+                    <span class="nav-icon" aria-hidden="true">&#9634;</span> <span class="nav-label">Overview</span>
                 </li>
                 <li class="nav-item" data-tab="api-keys">
-                    <span class="nav-icon">&#128273;</span> <span class="nav-label">API Keys</span>
+                    <span class="nav-icon" aria-hidden="true">&#128273;</span> <span class="nav-label">API Keys</span>
                 </li>
                 <li class="nav-item" data-tab="settings">
-                    <span class="nav-icon">&#9881;</span> <span class="nav-label">Settings</span>
+                    <span class="nav-icon" aria-hidden="true">&#9881;</span> <span class="nav-label">Settings</span>
                 </li>
+                <li class="nav-section-header" aria-hidden="true">Configuration</li>
                 <li class="nav-item" data-tab="channels">
-                    <span class="nav-icon">&#9776;</span> <span class="nav-label">Channels</span>
+                    <span class="nav-icon" aria-hidden="true">&#9776;</span> <span class="nav-label">Channels</span>
                 </li>
                 <li class="nav-item" data-tab="threads">
-                    <span class="nav-icon">&#8801;</span> <span class="nav-label">Threads</span>
+                    <span class="nav-icon" aria-hidden="true">&#8801;</span> <span class="nav-label">Threads</span>
                 </li>
                 <li class="nav-item" data-tab="personas">
-                    <span class="nav-icon">&#128125;</span> <span class="nav-label">Personas</span>
+                    <span class="nav-icon" aria-hidden="true">&#128125;</span> <span class="nav-label">Personas</span>
                 </li>
                 <li class="nav-item" data-tab="image-gen">
-                    <span class="nav-icon">&#127912;</span> <span class="nav-label">Image Gen</span>
+                    <span class="nav-icon" aria-hidden="true">&#127912;</span> <span class="nav-label">Image Gen</span>
                 </li>
                 <li class="nav-item" data-tab="video-gen">
-                    <span class="nav-icon">&#127909;</span> <span class="nav-label">Video Gen</span>
+                    <span class="nav-icon" aria-hidden="true">&#127909;</span> <span class="nav-label">Video Gen</span>
                 </li>
+                <li class="nav-section-header" aria-hidden="true">Monitoring</li>
                 <li class="nav-item" data-tab="memory">
-                    <span class="nav-icon">&#129504;</span> <span class="nav-label">Memory</span>
+                    <span class="nav-icon" aria-hidden="true">&#129504;</span> <span class="nav-label">Memory</span>
                 </li>
                 <li class="nav-item" data-tab="messages">
-                    <span class="nav-icon">&#9993;</span> <span class="nav-label">Messages</span>
+                    <span class="nav-icon" aria-hidden="true">&#9993;</span> <span class="nav-label">Messages</span>
                 </li>
                 <li class="nav-item" data-tab="diagnostics">
-                    <span class="nav-icon">&#9889;</span> <span class="nav-label">Diagnostics</span>
+                    <span class="nav-icon" aria-hidden="true">&#9889;</span> <span class="nav-label">Diagnostics</span>
                 </li>
                 <li class="nav-item" data-tab="backup">
-                    <span class="nav-icon">&#128190;</span> <span class="nav-label">Backup & Restore</span>
+                    <span class="nav-icon" aria-hidden="true">&#128190;</span> <span class="nav-label">Backup & Restore</span>
                 </li>
                 <li class="nav-item" data-tab="activity">
-                    <span class="nav-icon pulse-dot">&#9679;</span> <span class="nav-label">Live Activity</span>
+                    <span class="nav-icon pulse-dot" aria-hidden="true">&#9679;</span> <span class="nav-label">Live Activity</span>
                 </li>
             </ul>
             <div class="sidebar-footer">
-                <button id="theme-toggle" class="theme-toggle">
-                    <span id="theme-icon">&#9790;</span> <span id="theme-label">Light Mode</span>
+                <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">
+                    <span id="theme-icon" aria-hidden="true">&#9790;</span> <span id="theme-label">Light Mode</span>
                 </button>
                 <button id="logout-btn" class="btn btn-secondary btn-small btn-full">Sign Out</button>
             </div>
@@ -335,35 +338,32 @@
                     </div>
                 </div>
 
+                <hr class="section-divider">
+
                 <div class="card">
-                    <div class="card-header"><h3>Intent Detection</h3></div>
+                    <div class="card-header"><h3>Tool Calling</h3></div>
                     <div class="card-body">
-                        <form id="intent-form">
+                        <form id="tool-calling-form">
                             <div class="form-row">
                                 <div class="form-group">
-                                    <label for="intent-enabled">Intent Detection</label>
-                                    <select id="intent-enabled">
-                                        <option value="true">Enabled</option>
-                                        <option value="false">Disabled</option>
-                                    </select>
+                                    <label>Tool Calling</label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="tool-calling-enabled" checked>
+                                        <span class="toggle-track">
+                                            <span class="toggle-thumb"></span>
+                                        </span>
+                                        <span id="tool-calling-enabled-label">Enabled — native tool calling via LLM</span>
+                                    </label>
                                 </div>
                                 <div class="form-group">
-                                    <label for="intent-threshold">Confidence Threshold</label>
-                                    <input type="number" id="intent-threshold" min="0" max="1" step="0.05">
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label for="intent-model">Intent Model</label>
-                                <div class="model-select-wrapper">
-                                    <input type="text" id="intent-model-search" class="model-search" placeholder="Type to filter models..." autocomplete="off">
-                                    <select id="intent-model" size="6" class="model-select">
-                                        <option value="">Loading models...</option>
-                                    </select>
+                                    <label for="tool-calling-max-iterations">Max Iterations (1–10)</label>
+                                    <input type="number" id="tool-calling-max-iterations" min="1" max="10" value="3">
+                                    <small class="form-hint">Maximum round-trips between tool calls and the LLM before forcing a text response.</small>
                                 </div>
                             </div>
                             <div class="form-actions">
-                                <button type="submit" class="btn btn-primary">Save Intent Settings</button>
-                                <span id="intent-save-status" class="save-status"></span>
+                                <button type="submit" class="btn btn-primary">Save Tool Calling Settings</button>
+                                <span id="tool-calling-save-status" class="save-status"></span>
                             </div>
                         </form>
                     </div>
@@ -1201,6 +1201,6 @@
         </main>
     </div>
 
-    <script src="/js/dashboard.js?v=3"></script>
+    <script src="/js/dashboard.js?v=4"></script>
 </body>
 </html>
