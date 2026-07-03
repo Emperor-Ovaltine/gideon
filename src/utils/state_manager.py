@@ -11,9 +11,6 @@ from ..config import (
     DEFAULT_MODEL as CONFIG_DEFAULT_MODEL,
     CONFIG_TOOL_CALLING_ENABLED,
     TOOL_CALLING_MAX_ITERATIONS as CONFIG_TOOL_CALLING_MAX_ITERATIONS,
-    INTENT_DISCOVERY as CONFIG_INTENT_DISCOVERY,
-    INTENT_DETECTION_MODEL as CONFIG_INTENT_MODEL,
-    INTENT_CONFIDENCE_THRESHOLD as CONFIG_INTENT_THRESHOLD
 )
 
 logger = logging.getLogger('state_manager')
@@ -26,9 +23,7 @@ CONFIG_KEY_GLOBAL_MODEL = "global_model"
 CONFIG_KEY_GLOBAL_PROVIDER = "global_provider"
 CONFIG_KEY_GLOBAL_SYSTEM_PROMPT = "global_system_prompt"
 CONFIG_KEY_PRUNE_FREQUENCY_HOURS = "prune_frequency_hours"
-CONFIG_KEY_INTENT_ENABLED = "intent_enabled"
-CONFIG_KEY_INTENT_MODEL = "intent_model"
-CONFIG_KEY_INTENT_THRESHOLD = "intent_threshold"
+CONFIG_KEY_INTENT_ENABLED = "intent_enabled"  # Legacy DB key, now stores the tool-calling toggle
 CONFIG_KEY_SESSION_TIMEOUT = "session_timeout_hours"
 CONFIG_KEY_MEMORY_SUMMARY_ENABLED = "memory_summary_enabled"
 CONFIG_KEY_MAX_MEMORY_SUMMARIES = "max_memory_summaries"
@@ -69,10 +64,7 @@ class BotStateManager:
         # Tool calling settings - load from DB or use .env defaults
         # Uses CONFIG_TOOL_CALLING_ENABLED which combines TOOL_CALLING_ENABLED
         # and INTENT_DISCOVERY for backward compatibility
-        self.intent_enabled = await self._load_or_set_config(CONFIG_KEY_INTENT_ENABLED, CONFIG_TOOL_CALLING_ENABLED, 'bool')
-        self.intent_model = await self._load_or_set_config(CONFIG_KEY_INTENT_MODEL, CONFIG_INTENT_MODEL, 'string')
-        self.intent_threshold = await self._load_or_set_config(CONFIG_KEY_INTENT_THRESHOLD, CONFIG_INTENT_THRESHOLD, 'float')
-        self.tool_calling_enabled = self.intent_enabled  # Alias for new API
+        self.tool_calling_enabled = await self._load_or_set_config(CONFIG_KEY_INTENT_ENABLED, CONFIG_TOOL_CALLING_ENABLED, 'bool')
         self.tool_calling_max_iterations = await self._load_or_set_config(CONFIG_KEY_TOOL_CALLING_MAX_ITERATIONS, CONFIG_TOOL_CALLING_MAX_ITERATIONS, 'int')
 
         # Memory system settings
@@ -148,40 +140,6 @@ class BotStateManager:
             raise ValueError("Pruning frequency must be at least 1 hour.")
         self.prune_frequency_hours = value
         await self._save_config(CONFIG_KEY_PRUNE_FREQUENCY_HOURS, value, 'int')
-
-    # --- Intent Detection Methods (Deprecated) ---
-
-    def get_intent_enabled(self) -> bool:
-        """Deprecated: Use get_tool_calling_enabled() instead."""
-        return self.tool_calling_enabled
-
-    async def set_intent_enabled(self, value: bool):
-        """Deprecated: Use set_tool_calling_enabled() instead."""
-        self.tool_calling_enabled = value
-        await self._save_config(CONFIG_KEY_INTENT_ENABLED, value, 'bool')
-        logger.info(f"Tool calling {'enabled' if value else 'disabled'}")
-
-    def get_intent_model(self) -> str:
-        """Deprecated: No longer used. Returns empty string for backward compatibility."""
-        return ""
-
-    async def set_intent_model(self, model: str):
-        """Deprecated: No longer functional. Raises DeprecationWarning."""
-        import warnings
-        warnings.warn("set_intent_model is deprecated. Tool calling uses the global model.", DeprecationWarning)
-        logger.warning(f"Ignored attempt to set deprecated intent model: {model}")
-
-    def get_intent_threshold(self) -> float:
-        """Deprecated: No longer used. Returns 0.0 for backward compatibility."""
-        return 0.0
-
-    async def set_intent_threshold(self, value: float):
-        """Deprecated: No longer functional. Raises DeprecationWarning."""
-        if value < 0.0 or value > 1.0:
-            raise ValueError("Intent threshold must be between 0.0 and 1.0")
-        import warnings
-        warnings.warn("set_intent_threshold is deprecated.", DeprecationWarning)
-        logger.warning(f"Ignored attempt to set deprecated intent threshold: {value}")
 
     # --- Tool Calling Methods ---
 
@@ -328,28 +286,12 @@ class BotStateManager:
     def get_all_memory_stats(self):
         return self.db_manager.get_all_memory_stats()
 
-    async def reload_intent_from_env(self):
-        """Reloads intent (now tool calling) settings from environment variables."""
-        self.intent_enabled = CONFIG_INTENT_DISCOVERY
-        self.intent_model = CONFIG_INTENT_MODEL
-        self.intent_threshold = CONFIG_INTENT_THRESHOLD
-        # Save to DB
-        await self._save_config(CONFIG_KEY_INTENT_ENABLED, self.intent_enabled, 'bool')
-        await self._save_config(CONFIG_KEY_INTENT_MODEL, self.intent_model, 'string')
-        await self._save_config(CONFIG_KEY_INTENT_THRESHOLD, self.intent_threshold, 'float')
-        # Also load tool_calling_max_iterations from config
-        from ..config import TOOL_CALLING_MAX_ITERATIONS as CFG_TOOL_CALLING_MAX_ITERATIONS
-        self.tool_calling_max_iterations = await self._load_or_set_config(CONFIG_KEY_TOOL_CALLING_MAX_ITERATIONS, CFG_TOOL_CALLING_MAX_ITERATIONS, 'int')
-        logger.info(f"Intent settings reloaded from .env: enabled={self.intent_enabled}, model={self.intent_model}, threshold={self.intent_threshold}")
-
     async def reload_all_from_env(self, system_prompt: str) -> dict:
         """Reloads all settings from environment variables. Returns dict of reloaded values."""
         # Reimport config to get fresh values (in case .env was modified)
         from ..config import (
             DEFAULT_MODEL,
-            INTENT_DISCOVERY,
-            INTENT_DETECTION_MODEL,
-            INTENT_CONFIDENCE_THRESHOLD,
+            CONFIG_TOOL_CALLING_ENABLED,
             TOOL_CALLING_MAX_ITERATIONS,
         )
 
@@ -367,25 +309,19 @@ class BotStateManager:
         await self.set_global_system_prompt(system_prompt)
 
         # Reload tool calling settings
-        self.intent_enabled = INTENT_DISCOVERY
-        self.intent_model = INTENT_DETECTION_MODEL
-        self.intent_threshold = INTENT_CONFIDENCE_THRESHOLD
-        self.tool_calling_enabled = self.intent_enabled
+        self.tool_calling_enabled = CONFIG_TOOL_CALLING_ENABLED
         self.tool_calling_max_iterations = TOOL_CALLING_MAX_ITERATIONS
-        await self._save_config(CONFIG_KEY_INTENT_ENABLED, self.intent_enabled, 'bool')
-        await self._save_config(CONFIG_KEY_INTENT_MODEL, self.intent_model, 'string')
-        await self._save_config(CONFIG_KEY_INTENT_THRESHOLD, self.intent_threshold, 'float')
+        await self._save_config(CONFIG_KEY_INTENT_ENABLED, self.tool_calling_enabled, 'bool')
         await self._save_config(CONFIG_KEY_TOOL_CALLING_MAX_ITERATIONS, self.tool_calling_max_iterations, 'int')
 
-        logger.info(f"All settings reloaded from .env")
+        logger.info("All settings reloaded from .env")
 
         return {
             "global_model": self.global_model,
             "max_channel_history": self.max_channel_history,
             "time_window_hours": self.time_window_hours,
-            "intent_enabled": self.intent_enabled,
-            "intent_model": self.intent_model,
-            "intent_threshold": self.intent_threshold,
+            "tool_calling_enabled": self.tool_calling_enabled,
+            "tool_calling_max_iterations": self.tool_calling_max_iterations,
         }
 
 
@@ -423,8 +359,9 @@ class BotStateManager:
              logger.error(f"Message missing role or content: {message}")
              return # Don't add incomplete messages
 
-        # Database call is synchronous
-        self.db_manager.add_message(
+        # The DB call is synchronous — run it off the event loop
+        await asyncio.to_thread(
+            self.db_manager.add_message,
             role=role,
             content=content,
             timestamp=timestamp,
@@ -434,19 +371,16 @@ class BotStateManager:
 
     def clear_channel_history(self, channel_id: str) -> bool:
         """Clears history for a channel by deleting messages from the database."""
-        # This is potentially dangerous. Maybe implement soft delete or archiving later?
-        # For now, it directly deletes.
-        sql = "DELETE FROM MESSAGES WHERE channel_id = ?;"
-        try:
-            with self.db_manager._conn: # Access connection directly for transaction
-                cursor = self.db_manager._get_cursor()
-                cursor.execute(sql, (str(channel_id),))
-                deleted_count = cursor.rowcount
-            logger.info(f"Cleared {deleted_count} messages for channel {channel_id}")
-            return deleted_count > 0
-        except sqlite3.Error as e:
-            logger.error(f"Error clearing history for channel '{channel_id}': {e}", exc_info=True)
-            return False
+        deleted_count = self.db_manager.delete_channel_messages(str(channel_id))
+        return deleted_count > 0
+
+    def get_channel_message_count(self, channel_id: str) -> int:
+        """Counts stored messages for a channel."""
+        return self.db_manager.messages.get_channel_message_count(str(channel_id))
+
+    def delete_channel_messages_before(self, channel_id: str, before_timestamp) -> int:
+        """Deletes a channel's messages older than the given timestamp."""
+        return self.db_manager.delete_channel_messages(str(channel_id), before_timestamp)
 
     # --- Discord Thread Methods ---
 
@@ -480,12 +414,14 @@ class BotStateManager:
             user_id=user_id
         )
 
-    def get_discord_thread_history(self, thread_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_discord_thread_history(self, thread_id: str, limit: Optional[int] = None,
+                                   hours_limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Gets message history for a Discord thread from the database."""
         # Use configured history limit? Or a different limit for threads?
         # Let's use max_channel_history for now, can be adjusted.
         effective_limit = limit if limit is not None else self.max_channel_history
-        return self.db_manager.get_thread_history(str(thread_id), limit=effective_limit)
+        return self.db_manager.get_thread_history(str(thread_id), limit=effective_limit,
+                                                  hours_limit=hours_limit)
 
     def get_discord_thread(self, thread_id: str) -> Optional[Dict[str, Any]]:
         """Gets thread data by Discord thread ID from the database."""
@@ -768,6 +704,17 @@ class BotStateManager:
         logger.debug(f"[get_effective_model] Final effective model for channel {channel_id}: {model_to_return} (from {source})")
         return model_to_return
 
+    def resolve_model(self, channel_id: str) -> tuple:
+        """Resolves the effective model for a channel into (provider, model_name)."""
+        model_id_full = self.get_effective_model(channel_id)
+        try:
+            provider, model_name = model_id_full.split('/', 1)
+        except ValueError:
+            logger.warning(f"Invalid model format '{model_id_full}' for channel {channel_id}. Using global provider.")
+            provider = self.global_provider
+            model_name = model_id_full
+        return provider, model_name
+
     def get_all_channel_configs(self) -> List[Dict[str, Any]]:
         """Gets detailed configuration for all channels with overrides."""
         return self.db_manager.get_all_channel_configs()
@@ -810,8 +757,13 @@ class BotStateManager:
 
         return persona
 
-    def get_effective_system_prompt(self, channel_id: str) -> Optional[str]:
-        """Gets the effective system prompt: Persona > Channel Config > Global, with memory appended."""
+    def get_effective_system_prompt(self, channel_id: str, query: Optional[str] = None) -> Optional[str]:
+        """Gets the effective system prompt: Persona > Channel Config > Global, with memory appended.
+
+        When `query` (the current user message) is given, memory summaries
+        matching it are retrieved via full-text search and included alongside
+        the most recent summaries.
+        """
         persona = self.get_effective_persona(channel_id)
         if persona and persona.get('system_prompt'):
             base_prompt = persona['system_prompt']
@@ -819,20 +771,35 @@ class BotStateManager:
             channel_prompt = self.get_channel_system_prompt(channel_id)
             base_prompt = channel_prompt if channel_prompt else self.get_global_system_prompt()
 
-        memory_block = self._build_memory_context(channel_id)
+        memory_block = self._build_memory_context(channel_id, query=query)
         if memory_block:
             if base_prompt:
                 return base_prompt + "\n\n" + memory_block
             return memory_block
         return base_prompt
 
-    def _build_memory_context(self, channel_id: str) -> str:
-        """Builds a formatted memory block from stored summaries, or returns empty string."""
+    def search_channel_memories(self, channel_id: str, query: str, limit: int = 3):
+        """Full-text search over a channel's memory summaries."""
+        return self.db_manager.search_channel_memories(str(channel_id), query, limit)
+
+    def _build_memory_context(self, channel_id: str, query: Optional[str] = None) -> str:
+        """Builds a memory block from recent summaries plus FTS matches for the query."""
         try:
-            limit = self.get_effective_max_memory_summaries(channel_id)
-            memories = self.get_channel_memories(channel_id, limit=limit)
+            # Recent summaries always ride along (capped), FTS retrieval pulls
+            # in older-but-relevant ones for the current message.
+            recent_limit = min(self.get_effective_max_memory_summaries(channel_id), 3)
+            memories = self.get_channel_memories(channel_id, limit=recent_limit)
+            seen_ids = {m.get("id") for m in memories}
+
+            if query:
+                for match in self.search_channel_memories(channel_id, query, limit=3):
+                    if match.get("id") not in seen_ids:
+                        memories.append(match)
+                        seen_ids.add(match.get("id"))
+
             if not memories:
                 return ""
+
             lines = ["--- Channel Memory ---",
                      "Here is what I remember from previous conversations in this channel:"]
             for mem in memories:

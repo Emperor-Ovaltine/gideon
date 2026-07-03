@@ -2,6 +2,7 @@
 import discord
 import logging
 from discord.ext import commands
+from ..utils.discord_fmt import chunk_message
 from discord import Option
 from ..utils.state_manager import BotStateManager
 from ..config import DEFAULT_MODEL, SYSTEM_PROMPT
@@ -163,9 +164,8 @@ class ChannelCommands(commands.Cog, name="ChannelCommands"):
         try:
             self.state.set_channel_system_prompt(channel_id, prompt)
 
-            # Handle long prompts by chunking
-            max_length = 1950
-            chunks = [prompt[i:i+max_length] for i in range(0, len(prompt), max_length)]
+            # Handle long prompts by chunking (1950 leaves room for the code fence)
+            chunks = chunk_message(prompt, limit=1950)
 
             await ctx.respond(f"✅ System prompt for #{ctx.channel.name} updated:\n```\n{chunks[0]}\n```")
             for chunk in chunks[1:]:

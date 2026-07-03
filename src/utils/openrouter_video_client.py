@@ -12,6 +12,7 @@ The flow is:
 Reference: https://openrouter.ai/docs/guides/overview/multimodal/video-generation
 """
 import aiohttp
+from .http_session import SharedSessionMixin
 import asyncio
 import json
 import logging
@@ -22,7 +23,7 @@ logger = logging.getLogger('openrouter_video_client')
 TERMINAL_STATUSES = {"completed", "failed", "canceled", "cancelled", "error"}
 
 
-class OpenRouterVideoClient:
+class OpenRouterVideoClient(SharedSessionMixin):
     """Client for generating videos via OpenRouter's unified video API."""
 
     def __init__(self, api_key: str):
@@ -126,11 +127,12 @@ class OpenRouterVideoClient:
 
         try:
             timeout = aiohttp.ClientTimeout(total=60)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with self.shared_session() as session:
                 async with session.post(
                     f"{self.base_url}/videos",
                     headers=self._headers(),
                     json=payload,
+                    timeout=timeout,
                 ) as response:
                     text = await response.text()
                     if response.status not in (200, 201, 202):
@@ -169,10 +171,11 @@ class OpenRouterVideoClient:
 
         try:
             timeout = aiohttp.ClientTimeout(total=30)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with self.shared_session() as session:
                 async with session.get(
                     f"{self.base_url}/videos/{job_id}",
                     headers=self._headers(),
+                    timeout=timeout,
                 ) as response:
                     text = await response.text()
                     if response.status != 200:
@@ -258,8 +261,8 @@ class OpenRouterVideoClient:
         try:
             timeout = aiohttp.ClientTimeout(total=300)
             headers = self._download_headers() if self.is_configured else {}
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, headers=headers) as response:
+            async with self.shared_session() as session:
+                async with session.get(url, headers=headers, timeout=timeout) as response:
                     if response.status != 200:
                         text = await response.text()
                         return {"success": False, "error": f"Download failed ({response.status}): {text[:200]}"}
@@ -282,10 +285,11 @@ class OpenRouterVideoClient:
 
         try:
             timeout = aiohttp.ClientTimeout(total=15)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with self.shared_session() as session:
                 async with session.get(
                     f"{self.base_url}/videos/models",
                     headers=self._headers(),
+                    timeout=timeout,
                 ) as response:
                     if response.status != 200:
                         logger.warning(f"video models endpoint returned {response.status}; using fallback")

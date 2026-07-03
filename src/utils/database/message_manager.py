@@ -98,6 +98,45 @@ class MessageManager:
         """Gets message history for a specific thread."""
         return self._get_history(thread_id, "thread_id", limit, hours_limit)
 
+    def get_channel_message_count(self, channel_id: str) -> int:
+        """Counts stored messages for a channel."""
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM MESSAGES WHERE channel_id = ?;", (channel_id,))
+            return cursor.fetchone()[0]
+        except sqlite3.Error as e:
+            logger.error(f"Error counting messages for channel '{channel_id}': {e}", exc_info=True)
+            return 0
+
+    def get_distinct_channel_ids(self) -> List[str]:
+        """Returns the IDs of all channels that have stored messages."""
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute("SELECT DISTINCT channel_id FROM MESSAGES WHERE channel_id IS NOT NULL;")
+            return [row[0] for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Error getting distinct channel ids: {e}", exc_info=True)
+            return []
+
+    def delete_channel_messages(self, channel_id: str, before_timestamp: Optional[datetime] = None) -> int:
+        """Deletes messages for a channel, optionally only those before a timestamp."""
+        sql = "DELETE FROM MESSAGES WHERE channel_id = ?"
+        params: List[Any] = [channel_id]
+        if before_timestamp is not None:
+            sql += " AND timestamp < ?"
+            params.append(before_timestamp)
+        try:
+            with self._conn:
+                cursor = self._conn.cursor()
+                cursor.execute(sql + ";", tuple(params))
+                deleted = cursor.rowcount
+            logger.info(f"Deleted {deleted} messages for channel {channel_id}"
+                        + (f" before {before_timestamp}" if before_timestamp else ""))
+            return deleted
+        except sqlite3.Error as e:
+            logger.error(f"Error deleting messages for channel '{channel_id}': {e}", exc_info=True)
+            return 0
+
     def prune_old_messages(self, cutoff_timestamp: datetime) -> int:
         """
         Deletes messages older than the specified cutoff timestamp.

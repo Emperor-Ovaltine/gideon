@@ -4,10 +4,7 @@ import logging
 from discord.ext import commands
 from discord import Option
 from ..utils.state_manager import BotStateManager
-from ..config import (
-    DEFAULT_MODEL, SYSTEM_PROMPT,
-    INTENT_DISCOVERY, INTENT_DETECTION_MODEL, INTENT_CONFIDENCE_THRESHOLD
-)
+from ..config import DEFAULT_MODEL, SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +68,9 @@ class SettingsCommands(commands.Cog, name="SettingsCommands"):
         memory_limit = self.state.get_max_channel_history()
         time_window = self.state.get_time_window_hours()
 
-        # Get intent settings
-        intent_enabled = self.state.get_intent_enabled()
-        intent_model = self.state.get_intent_model()
-        intent_threshold = self.state.get_intent_threshold()
+        # Get tool calling settings
+        tool_calling_enabled = self.state.get_tool_calling_enabled()
+        tool_calling_max_iterations = self.state.get_tool_calling_max_iterations()
 
         # Build hierarchical view
         embed = discord.Embed(
@@ -94,14 +90,13 @@ class SettingsCommands(commands.Cog, name="SettingsCommands"):
             inline=False
         )
 
-        # Intent detection field
-        intent_status = "Enabled" if intent_enabled else "Disabled"
+        # Tool calling field
+        tool_status = "Enabled" if tool_calling_enabled else "Disabled"
         embed.add_field(
-            name="Intent Detection",
+            name="Native Tool Calling",
             value=(
-                f"**Status:** {intent_status}\n"
-                f"**Model:** `{intent_model}`\n"
-                f"**Threshold:** `{intent_threshold:.2f}` ({int(intent_threshold * 100)}%)"
+                f"**Status:** {tool_status}\n"
+                f"**Max iterations:** `{tool_calling_max_iterations}`"
             ),
             inline=False
         )
@@ -112,7 +107,7 @@ class SettingsCommands(commands.Cog, name="SettingsCommands"):
             inline=False
         )
 
-        embed.set_footer(text="Use /settings intent show for more intent details")
+        embed.set_footer(text="Use /settings tools show for tool calling details")
 
         await ctx.respond(embed=embed)
 
@@ -234,7 +229,7 @@ class SettingsCommands(commands.Cog, name="SettingsCommands"):
         try:
             reloaded = await self.state.reload_all_from_env(SYSTEM_PROMPT)
 
-            intent_status = "Enabled" if reloaded["intent_enabled"] else "Disabled"
+            tool_status = "Enabled" if reloaded["tool_calling_enabled"] else "Disabled"
             await ctx.respond(
                 f"✅ All settings reloaded from `.env`:\n"
                 f"**Global:**\n"
@@ -242,10 +237,9 @@ class SettingsCommands(commands.Cog, name="SettingsCommands"):
                 f"• Memory: `{reloaded['max_channel_history']}` messages\n"
                 f"• Time window: `{reloaded['time_window_hours']}` hours\n"
                 f"• System prompt: Default\n\n"
-                f"**Intent Detection:**\n"
-                f"• Status: {intent_status}\n"
-                f"• Model: `{reloaded['intent_model']}`\n"
-                f"• Threshold: `{reloaded['intent_threshold']:.2f}`"
+                f"**Native Tool Calling:**\n"
+                f"• Status: {tool_status}\n"
+                f"• Max iterations: `{reloaded['tool_calling_max_iterations']}`"
             )
         except Exception as e:
             logger.error(f"Error reloading settings: {e}", exc_info=True)
@@ -319,208 +313,90 @@ class SettingsCommands(commands.Cog, name="SettingsCommands"):
 
         await ctx.respond(embed=embed)
 
-    # --- Intent Settings Subgroup ---
-    intent = settings.create_subgroup(
-        "intent",
-        "Configure AI-powered intent detection for @mentions"
+    # --- Tool Calling Subgroup ---
+    tools = settings.create_subgroup(
+        "tools",
+        "Configure native LLM tool calling for @mentions"
     )
 
-    async def intent_model_autocomplete(self, ctx):
-        """Dynamic model autocomplete for intent detection model."""
-        current_input = ctx.value.lower() if ctx.value else ""
-
-        # Get models from common fast providers
-        all_models = []
-        for provider in ["openai", "google", "anthropic"]:
-            try:
-                model_ids = await self.bot.model_manager.get_models(provider)
-                for model_id in model_ids:
-                    full_model = f"{provider}/{model_id}"
-                    all_models.append(full_model)
-            except Exception:
-                pass
-
-        # Get current intent model for highlighting
-        current_model = self.state.get_intent_model()
-
-        # Format with current marker
-        formatted = []
-        for model in all_models:
-            if model == current_model:
-                formatted.append(f"* {model} (current)")
-            else:
-                formatted.append(model)
-
-        if not current_input:
-            return formatted[:25]
-
-        matching = [m for m in formatted if current_input in m.lower()]
-        return matching[:25] or formatted[:25]
-
-    @intent.command(
+    @tools.command(
         name="show",
-        description="View current intent detection settings"
+        description="View current tool calling settings"
     )
-    async def intent_show(self, ctx):
-        """Display current intent detection configuration."""
+    async def tools_show(self, ctx):
+        """Display current tool calling configuration."""
         await ctx.defer()
 
-        enabled = self.state.get_intent_enabled()
-        model = self.state.get_intent_model()
-        threshold = self.state.get_intent_threshold()
+        enabled = self.state.get_tool_calling_enabled()
+        max_iterations = self.state.get_tool_calling_max_iterations()
 
-        status_emoji = "**Enabled**" if enabled else "Disabled"
         status_color = discord.Color.green() if enabled else discord.Color.greyple()
-
         embed = discord.Embed(
-            title="Intent Detection Settings",
-            description="AI-powered intent detection for @mentions",
+            title="Native Tool Calling Settings",
+            description="The primary model decides when to call tools (reminders, images, search, etc.)",
             color=status_color
         )
-
+        embed.add_field(name="Status", value="**Enabled**" if enabled else "Disabled", inline=True)
+        embed.add_field(name="Max iterations", value=f"`{max_iterations}`", inline=True)
         embed.add_field(
-            name="Status",
-            value=status_emoji,
-            inline=True
-        )
-
-        embed.add_field(
-            name="Model",
-            value=f"`{model}`",
-            inline=True
-        )
-
-        embed.add_field(
-            name="Confidence Threshold",
-            value=f"`{threshold:.2f}` ({int(threshold * 100)}%)",
-            inline=True
-        )
-
-        embed.add_field(
-            name="What is Intent Detection?",
+            name="What is Tool Calling?",
             value=(
-                "When enabled, @mentions are analyzed to detect user intent "
-                "(reminders, image generation, searches, calculations, etc.) "
-                "and handled automatically.\n\n"
-                "**Cost:** ~$0.00003 per mention\n"
-                "**Latency:** ~300ms additional"
+                "When enabled, @mentions are answered by the primary model with tool "
+                "definitions attached. The model natively decides whether to call a tool "
+                "(set a reminder, generate an image, search the web, calculate, etc.) "
+                "or reply conversationally. Requires a model with function-calling support."
             ),
             inline=False
         )
-
-        embed.set_footer(text="Use /settings intent toggle to enable/disable")
-
+        embed.set_footer(text="Use /settings tools toggle to enable/disable")
         await ctx.respond(embed=embed)
 
-    @intent.command(
+    @tools.command(
         name="toggle",
-        description="Enable or disable intent detection"
+        description="Enable or disable native tool calling"
     )
     @commands.has_permissions(administrator=True)
-    async def intent_toggle(
+    async def tools_toggle(
         self,
         ctx,
         enabled: Option(
             bool,
-            "Enable or disable intent detection",
+            "Enable or disable tool calling",
             choices=[
                 discord.OptionChoice(name="Enable", value=True),
                 discord.OptionChoice(name="Disable", value=False)
             ]
         )
     ):
-        """Toggle intent detection on or off."""
+        """Toggle native tool calling on or off."""
         await ctx.defer()
         try:
-            await self.state.set_intent_enabled(enabled)
+            await self.state.set_tool_calling_enabled(enabled)
             status = "enabled" if enabled else "disabled"
-            await ctx.respond(f"Intent detection {status}")
+            await ctx.respond(f"Native tool calling {status}")
         except Exception as e:
-            logger.error(f"Error toggling intent detection: {e}", exc_info=True)
+            logger.error(f"Error toggling tool calling: {e}", exc_info=True)
             await ctx.respond(f"Error: {e}", ephemeral=True)
 
-    @intent.command(
-        name="model",
-        description="Set the AI model for intent detection (format: provider/model)"
+    @tools.command(
+        name="max_iterations",
+        description="Set the maximum tool-call round-trips before forcing a text response (1-10)"
     )
     @commands.has_permissions(administrator=True)
-    async def intent_model(
+    async def tools_max_iterations(
         self,
         ctx,
-        model_name: Option(str, "Select the AI model for intent detection", autocomplete=intent_model_autocomplete)
+        value: Option(int, "Maximum tool-call iterations", min_value=1, max_value=10)
     ):
-        """Set the intent detection model."""
+        """Set the tool-calling iteration budget."""
         await ctx.defer()
         try:
-            # Clean up autocomplete marker if present
-            if model_name.startswith("* "):
-                model_name = model_name[2:]
-            if model_name.endswith(" (current)"):
-                model_name = model_name[:-10]
-
-            await self.state.set_intent_model(model_name)
-            await ctx.respond(f"Intent detection model set to `{model_name}`")
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg and "/" not in model_name:
-                error_msg += "\n\n**Tip:** Use format `provider/model` (e.g., `openai/gpt-4o-mini`)"
-            await ctx.respond(f"Error: {error_msg}", ephemeral=True)
-        except Exception as e:
-            logger.error(f"Error setting intent model: {e}", exc_info=True)
-            await ctx.respond(f"Error: {e}", ephemeral=True)
-
-    @intent.command(
-        name="threshold",
-        description="Set the confidence threshold for intent detection (0.0-1.0)"
-    )
-    @commands.has_permissions(administrator=True)
-    async def intent_threshold(
-        self,
-        ctx,
-        threshold: Option(
-            float,
-            "Confidence threshold (0.0-1.0). Lower = more triggers, Higher = fewer triggers",
-            min_value=0.0,
-            max_value=1.0
-        )
-    ):
-        """Set the intent confidence threshold."""
-        await ctx.defer()
-        try:
-            await self.state.set_intent_threshold(threshold)
-            level = "aggressive" if threshold < 0.6 else "balanced" if threshold < 0.8 else "conservative"
-            await ctx.respond(
-                f"Intent confidence threshold set to `{threshold:.2f}` ({int(threshold * 100)}%)\n"
-                f"Mode: **{level}**"
-            )
+            await self.state.set_tool_calling_max_iterations(value)
+            await ctx.respond(f"Tool calling max iterations set to `{value}`")
         except ValueError as e:
             await ctx.respond(f"Error: {e}", ephemeral=True)
         except Exception as e:
-            logger.error(f"Error setting intent threshold: {e}", exc_info=True)
-            await ctx.respond(f"Error: {e}", ephemeral=True)
-
-    @intent.command(
-        name="reload",
-        description="Reload intent settings from .env file"
-    )
-    @commands.has_permissions(administrator=True)
-    async def intent_reload(self, ctx):
-        """Reload intent settings from environment variables."""
-        await ctx.defer()
-        try:
-            await self.state.reload_intent_from_env()
-            enabled = self.state.get_intent_enabled()
-            model = self.state.get_intent_model()
-            threshold = self.state.get_intent_threshold()
-
-            await ctx.respond(
-                f"Intent settings reloaded from `.env`:\n"
-                f"- **Enabled:** {enabled}\n"
-                f"- **Model:** `{model}`\n"
-                f"- **Threshold:** `{threshold:.2f}`"
-            )
-        except Exception as e:
-            logger.error(f"Error reloading intent settings: {e}", exc_info=True)
+            logger.error(f"Error setting tool calling max iterations: {e}", exc_info=True)
             await ctx.respond(f"Error: {e}", ephemeral=True)
 
 

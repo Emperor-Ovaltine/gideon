@@ -233,11 +233,44 @@ class SchemaManager:
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "memory_summary_enabled", "INTEGER")
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "max_memory_summaries", "INTEGER")
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_MEMORY", "conversation_start", "DATETIME")
+                SchemaManager._create_memory_fts(cursor)
 
                 logger.info("Database schema migration checks complete.")
         except sqlite3.Error as e:
             logger.error(f"Error initializing/migrating database schema: {e}", exc_info=True)
             raise
+
+    @staticmethod
+    def _create_memory_fts(cursor):
+        """Creates the FTS5 index over CHANNEL_MEMORY summaries (with sync triggers)."""
+        try:
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
+                USING fts5(summary, content='CHANNEL_MEMORY', content_rowid='id');
+            """)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS memory_fts_ai AFTER INSERT ON CHANNEL_MEMORY BEGIN
+                    INSERT INTO memory_fts(rowid, summary) VALUES (new.id, new.summary);
+                END;
+            """)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS memory_fts_ad AFTER DELETE ON CHANNEL_MEMORY BEGIN
+                    INSERT INTO memory_fts(memory_fts, rowid, summary) VALUES ('delete', old.id, old.summary);
+                END;
+            """)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS memory_fts_au AFTER UPDATE ON CHANNEL_MEMORY BEGIN
+                    INSERT INTO memory_fts(memory_fts, rowid, summary) VALUES ('delete', old.id, old.summary);
+                    INSERT INTO memory_fts(rowid, summary) VALUES (new.id, new.summary);
+                END;
+            """)
+            # Index any summaries that predate the FTS table
+            cursor.execute("INSERT INTO memory_fts(memory_fts) VALUES ('rebuild');")
+            logger.debug("memory_fts FTS5 index verified.")
+        except sqlite3.Error as e:
+            # FTS5 may be unavailable in exotic SQLite builds — memory search
+            # degrades gracefully (search_memories returns []).
+            logger.warning(f"Could not create memory_fts FTS5 index: {e}")
 
     @staticmethod
     def _migrate_remove_news_feeds(cursor):

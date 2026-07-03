@@ -1,11 +1,12 @@
 import aiohttp
+from .http_session import SharedSessionMixin
 import asyncio
 import logging
 from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger('ai_horde_client')
 
-class AIHordeClient:
+class AIHordeClient(SharedSessionMixin):
     """Client for interacting with AI Horde API for text and image generation."""
 
     def __init__(self, api_key: str = "", default_text_max_wait: int = 300):
@@ -63,7 +64,7 @@ class AIHordeClient:
                 "r2": True,  # Use R2 storage for images
             }
             
-            async with aiohttp.ClientSession() as session:
+            async with self.shared_session() as session:
                 # Step 1: Submit the generation request
                 async with session.post(
                     f"{self.base_url}/generate/async",
@@ -135,7 +136,7 @@ class AIHordeClient:
     async def get_available_models(self) -> Dict[str, Any]:
         """Get a list of available models on AI Horde."""
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self.shared_session() as session:
                 headers = {}
                 if self.api_key:
                     headers["apikey"] = self.api_key
@@ -230,7 +231,7 @@ class AIHordeClient:
         logger.info(f"Requesting AI Horde text generation with model '{model}'")
 
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self.shared_session() as session:
                 # Step 1: Submit the generation request
                 async with session.post(
                     f"{self.base_url}/generate/text/async",

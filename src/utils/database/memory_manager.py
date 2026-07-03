@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import logging
 from datetime import datetime
@@ -78,6 +79,34 @@ class MemoryManager:
         except sqlite3.Error as e:
             logger.error(f"Error pruning memories for channel '{channel_id}': {e}", exc_info=True)
             raise
+
+    def search_memories(self, channel_id: str, query: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """Full-text search over a channel's memory summaries (FTS5).
+
+        Returns the best-ranked matches, or [] when FTS is unavailable or the
+        query has no usable terms.
+        """
+        # Extract plain word tokens — raw user text is not valid FTS5 query syntax
+        terms = re.findall(r"[A-Za-z0-9_]{3,}", query or "")
+        if not terms:
+            return []
+        match_expr = " OR ".join(terms[:12])
+
+        sql = """
+        SELECT m.id, m.channel_id, m.summary, m.message_count, m.conversation_start, m.created_at
+        FROM memory_fts f
+        JOIN CHANNEL_MEMORY m ON m.id = f.rowid
+        WHERE memory_fts MATCH ? AND m.channel_id = ?
+        ORDER BY rank
+        LIMIT ?;
+        """
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute(sql, (match_expr, channel_id, limit))
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.warning(f"Memory FTS search failed for channel '{channel_id}': {e}")
+            return []
 
     def get_all_memory_stats(self) -> List[Dict[str, Any]]:
         """Returns per-channel memory stats: channel_id, count, latest created_at."""

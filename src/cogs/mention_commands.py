@@ -1,446 +1,129 @@
 """Functionality for responding to @mentions in messages."""
 import discord
-import asyncio # Added for iscoroutinefunction
-import logging # Added
-import re # Added for mention stripping in dedup check
-import io # Added for ComfyUI image data handling
-from discord.ext import commands
-from ..utils.state_manager import BotStateManager
-from ..utils.memory_service import check_and_rotate_session
-# Removed import for conversation, now handled by state_manager
-# Removed OpenRouterClient import as we use clients dict
-from ..config import SYSTEM_PROMPT, DEFAULT_MODEL
-from datetime import datetime, timedelta
-import pytz
-import os
+import asyncio
+import logging
+import re
+import io
 import json
-from typing import Optional, Dict, Any
-from ..utils.tool_registry import get_tool_definitions, execute_tool
+from discord.ext import commands
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
 
-# Set up logging
-logger = logging.getLogger('mention_commands') # Added logger
+from ..utils.memory_service import check_and_rotate_session, maybe_compact_history
+from ..utils.discord_fmt import chunk_message
+from ..utils.timeutil import to_epoch
+from ..utils.tool_registry import get_tool_definitions, execute_tool
+from ..config import DEFAULT_MODEL
+
+logger = logging.getLogger('mention_commands')
+
 
 class MentionCommands(commands.Cog):
     """Handles responses when the bot is @mentioned in messages."""
 
     def __init__(self, bot):
         self.bot = bot
-        # Use the shared state manager from the bot instance
-        self.state = bot.state_manager # Use bot's state_manager
-        # Store references to all provider clients (assuming they are attached to bot)
+        self.state = bot.state_manager
         self.clients = {
             "openrouter": getattr(bot, 'openrouter_client', None),
             "openai": getattr(bot, 'openai_client', None),
             "ai_horde": getattr(bot, 'ai_horde_client', None)
         }
-        # Removed direct openrouter_client attribute initialization
+        # Channels the bot participates in — history is only recorded for
+        # these, so the bot doesn't log every channel it can merely see.
+        self._active_channels: Optional[set] = None
 
     def get_model_for_channel(self, channel_id):
         """Get the appropriate model for this channel"""
-        # Ensure state manager is available
         if not self.state:
-             logger.error("[Mention] State manager not available in MentionCommands.")
-             # Fallback or raise error? Let's return default for now.
-             # This assumes DEFAULT_MODEL includes a provider prefix like 'openrouter/...'
-             # Or handle this upstream in get_effective_model
-             return DEFAULT_MODEL
+            logger.error("[Mention] State manager not available in MentionCommands.")
+            return DEFAULT_MODEL
         return self.state.get_effective_model(channel_id)
 
-    async def detect_user_intent(self, message_content: str, channel_id: str) -> Optional[Dict[str, Any]]:
+    def _strip_mentions(self, content: str) -> str:
+        """Removes the bot's mention tokens from message content."""
+        content = content.replace(f'<@{self.bot.user.id}>', '').replace(f'<@!{self.bot.user.id}>', '')
+        return content.strip()
+
+    # ─── History recording guard ────────────────────────────────────────────
+
+    def _should_record(self, channel_id: str, is_mentioned: bool) -> bool:
+        """Records history only for channels the bot participates in.
+
+        A channel becomes active on the first mention (or if it already has
+        stored history or configuration). This avoids logging every message
+        in every channel the bot can see.
         """
-        Detect user intent using a fast, dedicated model.
+        if self._active_channels is None:
+            self._active_channels = self._load_active_channels()
+        if is_mentioned:
+            self._active_channels.add(channel_id)
+            return True
+        return channel_id in self._active_channels
 
-        Args:
-            message_content: The cleaned message content (without mention)
-            channel_id: Channel ID for logging purposes
-
-        Returns:
-            Dict with keys: {
-                "intent": str ("reminder" | "conversation" | "unknown"),
-                "confidence": float (0.0-1.0),
-                "data": dict (intent-specific extracted data)
-            }
-            Or None if detection fails
-        """
-        # Get intent model from state manager (provider/model format)
-        intent_model = self.state.get_intent_model()
+    def _load_active_channels(self) -> set:
+        """Seeds the active-channel set from channels with history or config."""
+        active = set()
         try:
-            provider, model_name = intent_model.split('/', 1)
-        except ValueError:
-            logger.error(f"[Intent] Invalid intent model format: {intent_model}")
-            return None
-
-        # Get the appropriate client for this provider
-        client = self.clients.get(provider)
-        if not client:
-            logger.error(f"[Intent] Client for provider '{provider}' not available for intent detection")
-            return None
-
-        # System prompt for intent detection
-        system_prompt = """You are an intent classifier for a Discord bot. Analyze user messages and determine the intent.
-
-INTENTS:
-
-1. "reminder" - User wants to set a future reminder/notification
-   Indicators:
-   - Direct: "remind me to...", "set a reminder for...", "remind me in..."
-   - Indirect: "I need to remember to...", "don't let me forget..."
-   - Implicit: "in X hours/minutes, remind me..."
-
-   Extract:
-   - reminder_message: What to remind about
-   - time_expression: When (e.g., "in 2 hours", "tomorrow at 3pm")
-
-   NOT reminders:
-   - "remind me what you said" (asking for information)
-   - "what's my reminder" (querying existing reminders)
-   - "can you remind me of..." (asking for explanation)
-
-2. "image_generation" - User wants to generate an AI image
-   Indicators:
-   - Direct: "draw...", "generate an image...", "create a picture...", "make an image..."
-   - Keywords: "draw", "generate", "create", "paint", "illustrate", "sketch", "render", "show me" (visual)
-   - Implicit: "I want to see...", "can you make..." (when referring to visual content)
-
-   Extract:
-   - prompt: The main description of what to generate (required)
-   - negative_prompt: What to exclude (optional, look for "no", "without", "avoid", "but not")
-   - size: Dimensions if specified (optional, e.g., "512x512", "1024x1024", "landscape", "portrait")
-   - quality: Quality setting (optional, "hd", "high quality", "standard")
-   - style: Style preference (optional, "vivid", "natural", "realistic", "artistic")
-
-   Examples of size extraction:
-   - "512x512" or "512 x 512" → size: "512x512"
-   - "1024 by 1024" → size: "1024x1024"
-   - "landscape" or "wide" → size: "1024x768"
-   - "portrait" or "tall" → size: "768x1024"
-   - Not specified → size: "" (empty string)
-
-   Examples of negative_prompt extraction:
-   - "no clouds" → negative_prompt: "clouds"
-   - "without people" → negative_prompt: "people"
-   - "avoid red colors" → negative_prompt: "red colors"
-   - "but not scary" → negative_prompt: "scary"
-   - Not specified → negative_prompt: "" (empty string)
-
-   NOT image generation:
-   - "show me my images" (querying existing images)
-   - "explain this image" (image analysis, needs attachment)
-   - "what does this picture show" (asking about existing image)
-
-3. "search" - User wants current/real-time information via web search
-   Indicators:
-   - Direct: "search for...", "look up...", "find information about...", "google..."
-   - Time-sensitive: "what's the latest...", "current...", "today's...", "recent...", "now..."
-   - Real-time data: "weather", "news", "stock price", "live scores", "breaking..."
-   - Updates: "what's happening with...", "updates on...", "status of..."
-
-   Extract:
-   - query: The search query/question (required)
-
-   Distinguish from conversation:
-   - SEARCH: Time-sensitive, current events, real-time data
-     Examples: "latest Python release", "current weather in NYC", "today's news"
-   - CONVERSATION: General knowledge, explanations, opinions, timeless topics
-     Examples: "what is Python", "explain photosynthesis", "tell me about history"
-
-   NOT search:
-   - "tell me about..." (general discussion, unless time-sensitive)
-   - "what is..." (definition/explanation)
-   - "how do I..." (instruction/tutorial)
-
-4. "calculation" - User wants to perform mathematical calculations
-   Indicators:
-   - Direct: "calculate...", "what's [math]...", "what is [math]...", "compute...", "how much is..."
-   - Implicit: percentages, arithmetic operations, square roots, powers
-
-   Extract:
-   - expression: The mathematical expression to evaluate (required)
-
-   Examples of valid calculations:
-   - "what's 15% of 250" → expression: "15% of 250"
-   - "calculate the square root of 144" → expression: "square root of 144"
-   - "how much is 45 * 89" → expression: "45 * 89"
-   - "what is 2^8" → expression: "2^8"
-
-   NOT calculation:
-   - "what is Python" (definition, not math)
-   - "calculate my taxes" (too vague, needs context)
-   - "how to calculate..." (asking for method, not result)
-
-5. "translation" - User wants to translate text between languages
-   Indicators:
-   - Direct: "translate...", "how do you say...", "what does X mean in..."
-   - Keywords: language names (French, Spanish, Japanese, etc.)
-
-   Extract:
-   - text: Text to translate (required)
-   - source_language: Source language (optional, can be empty string if not specified)
-   - target_language: Target language (required)
-
-   Examples:
-   - "translate 'hello' to French" → text: "hello", source_language: "English", target_language: "French"
-   - "how do you say 'thank you' in Japanese" → text: "thank you", source_language: "English", target_language: "Japanese"
-   - "what does 'bonjour' mean" → text: "bonjour", source_language: "French", target_language: "English"
-
-   NOT translation:
-   - "translate this document" (no specific text provided)
-   - "learn French" (asking for resources, not translation)
-
-6. "definition" - User wants a factual definition or explanation (timeless knowledge)
-   Indicators:
-   - Direct: "define...", "what is...", "who is...", "explain...", "tell me about..."
-   - Must be: NOT time-sensitive, NOT current events
-
-   Extract:
-   - term: The term/concept to define (required)
-   - depth: "brief" or "detailed" (optional, default: "brief")
-
-   Distinction from search:
-   - DEFINITION: Timeless facts, general knowledge
-     Examples: "what is Python", "who is Alan Turing", "define quantum entanglement"
-   - SEARCH: Current/recent information, time-sensitive
-     Examples: "what's the latest Python version", "current Python trends"
-
-   NOT definition:
-   - If the query implies "current", "latest", "recent", "today", "now" → use search instead
-
-7. "poll_creation" - User wants to create a poll/vote
-   Indicators:
-   - Direct: "create a poll...", "poll:", "start a vote...", "make a poll..."
-   - Format: Question followed by options (often with comma or colon separators)
-
-   Extract:
-   - question: The poll question (required)
-   - options: List of poll options (required, 2-10 options)
-   - duration: Poll duration in hours (optional, default: 24)
-
-   Examples:
-   - "create a poll: Pizza or Tacos?" → question: "Pizza or Tacos?", options: ["Pizza", "Tacos"]
-   - "poll: What's for dinner? Pizza, Tacos, Pasta" → question: "What's for dinner?", options: ["Pizza", "Tacos", "Pasta"]
-
-   NOT poll_creation:
-   - "show me the poll results" (querying existing polls)
-   - "vote for option 1" (voting on existing poll)
-
-8. "timezone_conversion" - User wants to convert time between timezones
-   Indicators:
-   - Direct: "what time is... in...", "convert [time] to [timezone]", "when is... in..."
-   - Keywords: timezone names/abbreviations (EST, PST, UTC, Tokyo, London, etc.)
-
-   Extract:
-   - time: The time to convert (required)
-   - source_timezone: Source timezone (required)
-   - target_timezone: Target timezone (required)
-
-   Examples:
-   - "what time is 3pm EST in Tokyo" → time: "3pm", source_timezone: "EST", target_timezone: "Tokyo"
-   - "convert 14:00 UTC to PST" → time: "14:00", source_timezone: "UTC", target_timezone: "PST"
-
-   NOT timezone_conversion:
-   - "what time is it" (asking for current time, not conversion)
-   - "time zones" (asking for general information)
-
-9. "unit_conversion" - User wants to convert units (distance, temperature, currency, etc.)
-   Indicators:
-   - Direct: "convert [value] [unit] to [unit]", "how many [unit] in [value] [unit]"
-   - Keywords: unit names (miles, km, celsius, fahrenheit, USD, EUR, etc.)
-
-   Extract:
-   - value: Numeric value to convert (required)
-   - source_unit: Source unit (required)
-   - target_unit: Target unit (required)
-   - category: Unit category hint (optional: "distance", "temperature", "currency", etc.)
-
-   Examples:
-   - "convert 5 miles to km" → value: 5, source_unit: "miles", target_unit: "km", category: "distance"
-   - "32F to celsius" → value: 32, source_unit: "F", target_unit: "celsius", category: "temperature"
-   - "100 USD to EUR" → value: 100, source_unit: "USD", target_unit: "EUR", category: "currency"
-
-   NOT unit_conversion:
-   - "convert file format" (not unit conversion)
-   - "what is a kilometer" (asking for definition)
-
-10. "dice_roll" - User wants random number generation, dice rolling, or random selection
-    Indicators:
-    - Direct: "roll...", "flip a coin", "pick one...", "random...", "choose..."
-    - Keywords: dice notation (2d20, 1d6, etc.), "random number"
-
-    Extract:
-    - dice_notation: Standard dice notation (optional, e.g., "2d20", "1d6")
-    - options: List of options to choose from (optional, for "pick one")
-    - range_min: Minimum value for random number (optional)
-    - range_max: Maximum value for random number (optional)
-
-    Examples:
-    - "roll 2d20" → dice_notation: "2d20", options: [], range_min: null, range_max: null
-    - "flip a coin" → dice_notation: "1d2", options: ["Heads", "Tails"], range_min: null, range_max: null
-    - "pick one: pizza, tacos, burgers" → dice_notation: "", options: ["pizza", "tacos", "burgers"], range_min: null, range_max: null
-    - "random number between 1 and 100" → dice_notation: "", options: [], range_min: 1, range_max: 100
-
-    NOT dice_roll:
-    - "roll out a new feature" (not about dice/random)
-    - "choose a plan" (asking for advice, not random selection)
-
-11. "event_scheduling" - User wants to create a scheduled event or calendar entry
-    CRITICAL: If message contains BOTH an activity/event name AND a specific time/date, this is LIKELY event_scheduling!
-
-    Indicators:
-    - Direct: "schedule", "create event", "plan", "set up", "make an event", "make a discord event", "make event"
-    - Indirect: "can you schedule", "can you create event", "can you make an event", "can you make a"
-    - Strong pattern: ANY request to create/make/schedule something WITH a specific time = event_scheduling
-    - Keywords: event names (gaming, meeting, party, hangout, session, etc.) + future times/dates
-    - If user says "make [activity] [time]" → ALWAYS event_scheduling (NOT conversation)
-
-    Extract:
-    - event_name: Name of the event (required, extract the activity/event being scheduled)
-    - date_time: When the event occurs (required, extract ONLY the time/date portion)
-    - duration: Event duration in minutes (optional, default: 60)
-    - description: Event details (optional)
-
-    Examples:
-    - "schedule movie night Friday 8pm" → event_name: "movie night", date_time: "Friday 8pm", duration: 60, description: ""
-    - "create event: Team meeting tomorrow at 2pm" → event_name: "Team meeting", date_time: "tomorrow at 2pm", duration: 60, description: ""
-    - "can you make a discord event for gaming today at 3:30pm" → event_name: "gaming", date_time: "today at 3:30pm", duration: 60, description: ""
-    - "make an event for gaming at 3:33pm today" → event_name: "gaming", date_time: "3:33pm today", duration: 60, description: ""
-    - "plan game night Saturday 7pm for 2 hours" → event_name: "game night", date_time: "Saturday 7pm", duration: 120, description: ""
-
-    NOT event_scheduling:
-    - "when is the event" (querying existing events, use conversation)
-    - "remind me about the event" (that's a reminder intent, not event creation)
-    - "schedule a reminder" (use reminder intent instead)
-    - "make dinner" without a time (just conversation about making something)
-
-12. "conversation" - General chat, questions, casual interaction
-    - Everything that doesn't fit other intents
-
-13. "unknown" - Ambiguous or unclear intent
-    - Use when genuinely uncertain
-
-CONFIDENCE LEVELS:
-- 0.9-1.0: Very clear intent (explicit keywords)
-- 0.7-0.8: Likely intent (strong indicators)
-- 0.5-0.6: Uncertain (ambiguous phrasing)
-- Below 0.5: Use "unknown"
-
-Return ONLY valid JSON:
-{
-  "intent": "reminder|image_generation|search|calculation|translation|definition|poll_creation|timezone_conversion|unit_conversion|dice_roll|event_scheduling|conversation|unknown",
-  "confidence": 0.85,
-  "data": {...}
-}
-
-EXAMPLES:
-
-Input: "remind me in 2 hours to check the oven"
-Output: {"intent": "reminder", "confidence": 0.95, "data": {"reminder_message": "check the oven", "time_expression": "in 2 hours"}}
-
-Input: "what's the weather like?"
-Output: {"intent": "conversation", "confidence": 1.0, "data": {}}
-
-Input: "remind me what you said about Python earlier"
-Output: {"intent": "conversation", "confidence": 0.9, "data": {}}
-
-Input: "remind me later"
-Output: {"intent": "unknown", "confidence": 0.4, "data": {"reminder_message": "", "time_expression": "later"}}
-
-Input: "in 30 minutes tell me to call mom"
-Output: {"intent": "reminder", "confidence": 0.9, "data": {"reminder_message": "call mom", "time_expression": "in 30 minutes"}}
-
-Input: "draw a sunset over mountains"
-Output: {"intent": "image_generation", "confidence": 0.95, "data": {"prompt": "a sunset over mountains", "negative_prompt": "", "size": "", "quality": "", "style": ""}}
-
-Input: "generate a cat 512x512, no dogs"
-Output: {"intent": "image_generation", "confidence": 0.95, "data": {"prompt": "a cat", "negative_prompt": "dogs", "size": "512x512", "quality": "", "style": ""}}
-
-Input: "create a landscape painting, high quality, vivid style, without people"
-Output: {"intent": "image_generation", "confidence": 0.9, "data": {"prompt": "a landscape painting", "negative_prompt": "people", "size": "", "quality": "hd", "style": "vivid"}}
-
-Input: "make me a picture of a robot, portrait size"
-Output: {"intent": "image_generation", "confidence": 0.85, "data": {"prompt": "a robot", "negative_prompt": "", "size": "768x1024", "quality": "", "style": ""}}
-
-Input: "what are the current best games on Xbox Game Pass"
-Output: {"intent": "search", "confidence": 0.9, "data": {"query": "what are the current best games on Xbox Game Pass"}}
-
-Input: "what's the weather in Seattle today"
-Output: {"intent": "search", "confidence": 0.95, "data": {"query": "what's the weather in Seattle today"}}
-
-Input: "latest AI news"
-Output: {"intent": "search", "confidence": 0.9, "data": {"query": "latest AI news"}}
-
-Input: "tell me about Python"
-Output: {"intent": "conversation", "confidence": 0.85, "data": {}}
-
-Input: "what's 15% of 250"
-Output: {"intent": "calculation", "confidence": 0.95, "data": {"expression": "15% of 250"}}
-
-Input: "translate hello to Spanish"
-Output: {"intent": "translation", "confidence": 0.95, "data": {"text": "hello", "source_language": "English", "target_language": "Spanish"}}
-
-Input: "what is quantum computing"
-Output: {"intent": "definition", "confidence": 0.9, "data": {"term": "quantum computing", "depth": "brief"}}
-
-Input: "create a poll: Pizza or Tacos?"
-Output: {"intent": "poll_creation", "confidence": 0.95, "data": {"question": "Pizza or Tacos?", "options": ["Pizza", "Tacos"], "duration": 24}}
-
-Input: "what time is 3pm EST in Tokyo"
-Output: {"intent": "timezone_conversion", "confidence": 0.9, "data": {"time": "3pm", "source_timezone": "EST", "target_timezone": "Tokyo"}}
-
-Input: "convert 5 miles to km"
-Output: {"intent": "unit_conversion", "confidence": 0.95, "data": {"value": 5, "source_unit": "miles", "target_unit": "km", "category": "distance"}}
-
-Input: "roll 2d20"
-Output: {"intent": "dice_roll", "confidence": 0.95, "data": {"dice_notation": "2d20", "options": [], "range_min": null, "range_max": null}}
-
-Input: "schedule movie night Friday 8pm"
-Output: {"intent": "event_scheduling", "confidence": 0.9, "data": {"event_name": "movie night", "date_time": "Friday 8pm", "duration": 60, "description": ""}}
-
-Input: "can you make a discord event for gaming today at 3:30pm"
-Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name": "gaming", "date_time": "today at 3:30pm", "duration": 60, "description": ""}}"""
-
-        try:
-            # Prepare message for AI
-            messages = [
-                {"role": "user", "content": f"Parse this message: {message_content}"}
-            ]
-
-            # Call AI with response_format for structured output
-            response_format = {"type": "json_object"}
-
-            response = await client.send_message_with_history(
-                messages=messages,
-                model=model_name,
-                system_prompt=system_prompt,
-                response_format=response_format
-            )
-
-            # Clean response (remove markdown code blocks if present)
-            cleaned_response = response.strip()
-            if cleaned_response.startswith("```json"):
-                cleaned_response = cleaned_response[7:]
-            if cleaned_response.startswith("```"):
-                cleaned_response = cleaned_response[3:]
-            if cleaned_response.endswith("```"):
-                cleaned_response = cleaned_response[:-3]
-            cleaned_response = cleaned_response.strip()
-
-            # Parse the JSON response
-            result = json.loads(cleaned_response)
-
-            # Validate required fields
-            if "intent" not in result or "confidence" not in result:
-                logger.error(f"[Intent] AI response missing required fields: {result}")
-                return None
-
-            logger.debug(f"[Intent] Raw detection result: {result}")
-            return result
-
-        except json.JSONDecodeError as e:
-            logger.error(f"[Intent] Failed to parse AI JSON response: {e}. Response: {response}")
-            return None
+            db = self.state.db_manager
+            active.update(db.messages.get_distinct_channel_ids())
+            active.update(db.get_all_configured_channel_ids())
+            for persona in db.get_all_channel_personas():
+                if persona.get('channel_id'):
+                    active.add(persona['channel_id'])
         except Exception as e:
-            logger.error(f"[Intent] Error in intent detection: {e}", exc_info=True)
-            return None
+            logger.error(f"[Mention] Failed to load active channels: {e}", exc_info=True)
+        logger.info(f"[Mention] Recording history for {len(active)} active channel(s)")
+        return active
+
+    # ─── Shared conversational reply ────────────────────────────────────────
+
+    async def respond_conversationally(self, message: discord.Message, channel_id: str,
+                                       user_content: Optional[str] = None, prefix: str = ""):
+        """Answers a message with a plain LLM reply, optionally prefixed.
+
+        Used as the fallback path when a tool/search flow fails, so the user
+        still gets a conversational response with the error context.
+        """
+        content = user_content if user_content is not None else (self._strip_mentions(message.content) or "Hello!")
+
+        provider, model_name = self.state.resolve_model(channel_id)
+        client_to_use = self.clients.get(provider)
+        if not client_to_use or not hasattr(client_to_use, 'send_message_with_history'):
+            await message.channel.send(f"{prefix}Additionally, the conversation system is unavailable.")
+            return
+
+        channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=content)
+        conversation_context = self.state.get_channel_history(channel_id)
+        conversation_context.append({
+            "role": "user",
+            "content": f"{message.author.display_name}: {content}"
+        })
+
+        try:
+            async with message.channel.typing():
+                response = await client_to_use.send_message_with_history(
+                    messages=conversation_context,
+                    model=model_name,
+                    system_prompt=channel_system_prompt
+                )
+
+            full_response = f"{prefix}{response}"
+
+            await self.state.add_to_channel_history(channel_id, {
+                "role": "assistant",
+                "content": full_response,
+                "timestamp": datetime.now()
+            })
+
+            for chunk in chunk_message(full_response):
+                await self.bot.webhook_sender.send_response(message.channel, chunk, channel_id)
+
+        except Exception as e:
+            logger.exception(f"[Mention] Error in fallback conversation: {e}")
+            await message.channel.send(f"{prefix}Additionally, failed to generate a conversation response.")
+
+    # ─── Side-effect tool handlers ──────────────────────────────────────────
 
     async def handle_reminder_request(
         self,
@@ -464,7 +147,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 "❌ I detected you want a reminder, but I'm not sure what to remind you about. "
                 "Please try something like: '@Gideon remind me in 2 hours to check the oven'"
             )
-            logger.warning(f"[Intent] Missing reminder message for user {message.author.id}")
+            logger.warning(f"[Tool] Missing reminder message for user {message.author.id}")
             return
 
         if not time_expression or not time_expression.strip():
@@ -472,21 +155,21 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 "❌ I detected you want a reminder, but I'm not sure when. "
                 "Please specify a time like 'in 2 hours', 'tomorrow at 3pm', or 'at 5pm'"
             )
-            logger.warning(f"[Intent] Missing time expression for user {message.author.id}")
+            logger.warning(f"[Tool] Missing time expression for user {message.author.id}")
             return
 
         # Get ReminderCommands cog
         reminder_cog = self.bot.get_cog('ReminderCommands')
         if not reminder_cog:
             await message.channel.send("⚠️ Reminder system not available.")
-            logger.error("[Intent] ReminderCommands cog not found")
+            logger.error("[Tool] ReminderCommands cog not found")
             return
 
         # Parse time using existing method
         try:
             parsed_time = await reminder_cog.parse_time_with_ai(time_expression, channel_id)
         except Exception as e:
-            logger.error(f"[Intent] Error parsing time: {e}", exc_info=True)
+            logger.error(f"[Tool] Error parsing time: {e}", exc_info=True)
             await message.channel.send(
                 f"❌ Failed to parse time expression '{time_expression}'. "
                 f"Please try something like 'in 2 hours', 'tomorrow at 3pm', or 'at 5pm'"
@@ -498,7 +181,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 f"❌ I couldn't understand the time '{time_expression}'. "
                 f"Please try something like 'in 2 hours', 'tomorrow at 3pm', or 'at 5pm'"
             )
-            logger.warning(f"[Intent] Failed to parse time expression: {time_expression}")
+            logger.warning(f"[Tool] Failed to parse time expression: {time_expression}")
             return
 
         # Validate time is not too far in the future (max 1 year)
@@ -507,7 +190,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
             await message.channel.send(
                 "❌ Reminder time is too far in the future (max 1 year)."
             )
-            logger.warning(f"[Intent] Reminder time too far in future: {parsed_time}")
+            logger.warning(f"[Tool] Reminder time too far in future: {parsed_time}")
             return
 
         # Save reminder to database
@@ -520,16 +203,8 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 due_timestamp=parsed_time
             )
 
-            # Create Discord timestamp (shows in user's timezone)
-            tz_str = os.environ.get('TZ', 'America/New_York')
-            try:
-                local_tz = pytz.timezone(tz_str)
-            except pytz.exceptions.UnknownTimeZoneError:
-                local_tz = pytz.timezone('America/New_York')
-
-            # Localize the naive datetime to the local timezone
-            aware_time = local_tz.localize(parsed_time)
-            discord_timestamp = int(aware_time.timestamp())
+            # Discord timestamp (shows in each user's own timezone)
+            discord_timestamp = to_epoch(parsed_time)
 
             # Format confirmation matching /remind command
             confirmation_message = (
@@ -549,10 +224,10 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 "timestamp": datetime.now()
             })
 
-            logger.info(f"[Intent] User {user_id} set reminder {reminder_id} for {parsed_time} via mention")
+            logger.info(f"[Tool] User {user_id} set reminder {reminder_id} for {parsed_time} via mention")
 
         except Exception as e:
-            logger.exception(f"[Intent] Error setting reminder: {e}")
+            logger.exception(f"[Tool] Error setting reminder: {e}")
             await message.channel.send(f"❌ Failed to save reminder: {str(e)}")
 
     async def handle_image_generation_request(
@@ -583,17 +258,17 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 "❌ I detected you want to generate an image, but I'm not sure what to create. "
                 "Please try something like: '@Gideon draw a sunset over mountains'"
             )
-            logger.warning(f"[Intent] Missing image prompt for user {message.author.id}")
+            logger.warning(f"[Tool] Missing image prompt for user {message.author.id}")
             return
 
         # Get UnifiedImageCommands cog
         image_cog = self.bot.get_cog('UnifiedImageCommands')
         if not image_cog:
-            await self._handle_image_generation_fallback(
+            await self.respond_conversationally(
                 message, channel_id,
-                "Image generation failed. The image generation system is not available. "
+                prefix="Image generation failed. The image generation system is not available. "
             )
-            logger.error("[Intent] UnifiedImageCommands cog not found")
+            logger.error("[Tool] UnifiedImageCommands cog not found")
             return
 
         # Get active provider and config from database
@@ -609,17 +284,17 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 try:
                     provider_config = json.loads(config_json)
                 except json.JSONDecodeError:
-                    logger.warning(f"[Intent] Failed to parse config for {active_provider}, using defaults")
+                    logger.warning(f"[Tool] Failed to parse config for {active_provider}, using defaults")
                     provider_config = DEFAULT_CONFIGS.get(active_provider, {})
             else:
                 provider_config = DEFAULT_CONFIGS.get(active_provider, {})
 
         except Exception as e:
-            await self._handle_image_generation_fallback(
+            await self.respond_conversationally(
                 message, channel_id,
-                "Image generation failed. Could not retrieve image provider configuration. "
+                prefix="Image generation failed. Could not retrieve image provider configuration. "
             )
-            logger.error(f"[Intent] Error getting image provider config: {e}")
+            logger.error(f"[Tool] Error getting image provider config: {e}")
             return
 
         # Select and validate client
@@ -639,7 +314,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                     height = round(height / 64) * 64
                 except (ValueError, AttributeError):
                     width, height = 512, 512
-                    logger.warning(f"[Intent] Invalid size '{target_size}', using 512x512")
+                    logger.warning(f"[Tool] Invalid size '{target_size}', using 512x512")
 
                 params.update({
                     "negative_prompt": negative_prompt,
@@ -658,7 +333,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                     width, height = map(int, target_size.split('x'))
                 except (ValueError, AttributeError):
                     width, height = 768, 768
-                    logger.warning(f"[Intent] Invalid size '{target_size}', using 768x768")
+                    logger.warning(f"[Tool] Invalid size '{target_size}', using 768x768")
 
                 params.update({
                     "negative_prompt": negative_prompt,
@@ -673,7 +348,6 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
             provider_display_name = "OpenAI"
             if client:
                 # Map quality variations to OpenAI values
-                openai_quality = None
                 if quality:
                     quality_lower = quality.lower()
                     if "hd" in quality_lower or "high" in quality_lower:
@@ -711,7 +385,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                     width, height = map(int, target_size.split('x'))
                 except (ValueError, AttributeError):
                     width, height = 512, 512
-                    logger.warning(f"[Intent] Invalid size '{target_size}', using 512x512")
+                    logger.warning(f"[Tool] Invalid size '{target_size}', using 512x512")
 
                 params.update({
                     "negative_prompt": negative_prompt or "",
@@ -743,11 +417,11 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                         pass  # Fall back to client default ["image", "text"]
 
         if not client:
-            await self._handle_image_generation_fallback(
+            await self.respond_conversationally(
                 message, channel_id,
-                f"Image generation failed. The {provider_display_name} client is not configured. "
+                prefix=f"Image generation failed. The {provider_display_name} client is not configured. "
             )
-            logger.error(f"[Intent] {provider_display_name} client not available")
+            logger.error(f"[Tool] {provider_display_name} client not available")
             return
 
         # Send "generating" message with typing indicator
@@ -760,11 +434,11 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
         try:
             result = await client.generate_image(**params)
         except Exception as e:
-            logger.exception(f"[Intent] Exception during image generation with {active_provider}: {e}")
+            logger.exception(f"[Tool] Exception during image generation with {active_provider}: {e}")
             await thinking_msg.delete()
-            await self._handle_image_generation_fallback(
+            await self.respond_conversationally(
                 message, channel_id,
-                f"Image generation failed. An unexpected error occurred: {str(e)}. "
+                prefix=f"Image generation failed. An unexpected error occurred: {str(e)}. "
             )
             return
 
@@ -818,9 +492,9 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 await message.channel.send(embed=embed, file=file)
             else:
                 await thinking_msg.delete()
-                await self._handle_image_generation_fallback(
+                await self.respond_conversationally(
                     message, channel_id,
-                    "Image generation failed. No image data returned. "
+                    prefix="Image generation failed. No image data returned. "
                 )
                 return
 
@@ -831,96 +505,17 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 "timestamp": datetime.now()
             })
 
-            logger.info(f"[Intent] User {message.author.id} generated image via mention: '{prompt}' using {provider_display_name}")
+            logger.info(f"[Tool] User {message.author.id} generated image via mention: '{prompt}' using {provider_display_name}")
 
         else:
             # Generation failed
             error_msg = result.get("error", "Unknown error")
             await thinking_msg.delete()
-            await self._handle_image_generation_fallback(
+            await self.respond_conversationally(
                 message, channel_id,
-                f"Image generation failed. {error_msg}. "
+                prefix=f"Image generation failed. {error_msg}. "
             )
-            logger.warning(f"[Intent] Image generation failed for user {message.author.id}: {error_msg}")
-
-    async def _handle_image_generation_fallback(
-        self,
-        message: discord.Message,
-        channel_id: str,
-        error_prefix: str
-    ):
-        """
-        Handle failed image generation by falling back to conversation with error prefix.
-
-        Args:
-            message: Original Discord message object
-            channel_id: Channel ID as string
-            error_prefix: Error message to prefix (e.g., "Image generation failed. API error. ")
-        """
-        # Get the user's original message content
-        content = message.content
-        content = content.replace(f'<@{self.bot.user.id}>', '').replace(f'<@!{self.bot.user.id}>', '')
-        content = content.strip()
-        if not content:
-            content = "Hello!"
-
-        # Get model and client for conversation
-        model_id_full = self.get_model_for_channel(channel_id)
-        try:
-            provider, model_name = model_id_full.split('/', 1)
-        except ValueError:
-            provider = self.state.global_provider if self.state else "openrouter"
-            model_name = model_id_full
-
-        client_to_use = self.clients.get(provider)
-
-        if not client_to_use or not hasattr(client_to_use, 'send_message_with_history'):
-            # Can't even do conversation fallback
-            await message.channel.send(
-                f"{error_prefix}Additionally, the conversation system is unavailable."
-            )
-            return
-
-        # Get conversation context
-        channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
-        conversation_context = self.state.get_channel_history(channel_id)
-
-        # Add current message to context
-        conversation_context.append({
-            "role": "user",
-            "content": f"{message.author.display_name}: {content}"
-        })
-
-        # Get AI response
-        try:
-            async with message.channel.typing():
-                response = await client_to_use.send_message_with_history(
-                    messages=conversation_context,
-                    model=model_name,
-                    system_prompt=channel_system_prompt
-                )
-
-            # Prefix response with error
-            full_response = f"{error_prefix}{response}"
-
-            # Add to history
-            await self.state.add_to_channel_history(channel_id, {
-                "role": "assistant",
-                "content": full_response,
-                "timestamp": datetime.now()
-            })
-
-            # Send in chunks (via persona webhook if configured)
-            max_length = 2000
-            chunks = [full_response[i:i+max_length] for i in range(0, len(full_response), max_length)]
-            for chunk in chunks:
-                await self.bot.webhook_sender.send_response(message.channel, chunk, channel_id)
-
-        except Exception as e:
-            logger.exception(f"[Intent] Error in fallback conversation: {e}")
-            await message.channel.send(
-                f"{error_prefix}Additionally, failed to generate a conversation response."
-            )
+            logger.warning(f"[Tool] Image generation failed for user {message.author.id}: {error_msg}")
 
     async def handle_search_request(
         self,
@@ -942,85 +537,33 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 "❌ I detected you want to search, but I'm not sure what to search for. "
                 "Please try something like: '@Gideon what's the latest AI news'"
             )
-            logger.warning(f"[Intent] Missing search query for user {message.author.id}")
+            logger.warning(f"[Tool] Missing search query for user {message.author.id}")
             return
 
         # Get current provider and model
-        model_id_full = self.get_model_for_channel(channel_id)
-        try:
-            provider, model_name = model_id_full.split('/', 1)
-        except ValueError:
-            provider = self.state.global_provider if self.state else "openrouter"
-            model_name = model_id_full
-            model_id_full = f"{provider}/{model_name}"
+        provider, model_name = self.state.resolve_model(channel_id)
+        model_id_full = f"{provider}/{model_name}"
 
         # Check if provider supports web search (OpenRouter only)
         if provider != "openrouter":
             # Inform user and fall back to conversation
-            fallback_message = (
-                f"ℹ️ Web search requires OpenRouter (currently using {provider}). "
-                f"Answering without web search...\n\n"
+            logger.info(f"[Tool] Search requested but provider {provider} doesn't support it; using conversation fallback")
+            await self.respond_conversationally(
+                message, channel_id, user_content=query,
+                prefix=(f"ℹ️ Web search requires OpenRouter (currently using {provider}). "
+                        f"Answering without web search...\n\n")
             )
-
-            # Get client for conversation fallback
-            client_to_use = self.clients.get(provider)
-            if not client_to_use or not hasattr(client_to_use, 'send_message_with_history'):
-                await message.channel.send(
-                    f"{fallback_message}Additionally, the conversation system is unavailable."
-                )
-                return
-
-            # Get conversation context
-            channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
-            conversation_context = self.state.get_channel_history(channel_id)
-            conversation_context.append({
-                "role": "user",
-                "content": f"{message.author.display_name}: {query}"
-            })
-
-            # Get AI response (without web search)
-            try:
-                async with message.channel.typing():
-                    response = await client_to_use.send_message_with_history(
-                        messages=conversation_context,
-                        model=model_name,
-                        system_prompt=channel_system_prompt
-                    )
-
-                full_response = f"{fallback_message}{response}"
-
-                # Add to history
-                await self.state.add_to_channel_history(channel_id, {
-                    "role": "assistant",
-                    "content": full_response,
-                    "timestamp": datetime.now()
-                })
-
-                # Send response in chunks (via persona webhook if configured)
-                max_length = 2000
-                chunks = [full_response[i:i+max_length] for i in range(0, len(full_response), max_length)]
-                for chunk in chunks:
-                    await self.bot.webhook_sender.send_response(message.channel, chunk, channel_id)
-
-                logger.info(f"[Intent] Search intent detected but provider {provider} doesn't support search, used conversation fallback")
-                return
-
-            except Exception as e:
-                logger.exception(f"[Intent] Error in search fallback conversation: {e}")
-                await message.channel.send(
-                    f"{fallback_message}Additionally, failed to generate a response."
-                )
-                return
+            return
 
         # Provider is OpenRouter, proceed with web search
         client_to_use = self.clients.get("openrouter")
         if not client_to_use:
             await message.channel.send("⚠️ OpenRouter client not available.")
-            logger.error("[Intent] OpenRouter client not found")
+            logger.error("[Tool] OpenRouter client not found")
             return
 
         # Enhance system prompt for search
-        channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
+        channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=query)
         if channel_system_prompt:
             search_system_prompt = channel_system_prompt + "\n\nYou have access to web search. When answering, use the most current information available from searching the web."
         else:
@@ -1048,7 +591,7 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                 web_search=True
             )
         except Exception as e:
-            logger.exception(f"[Intent] Error during web search: {e}")
+            logger.exception(f"[Tool] Error during web search: {e}")
             await search_msg.delete()
             await message.channel.send(f"❌ Web search failed: {str(e)}")
             return
@@ -1056,11 +599,11 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
         # Delete searching message
         await search_msg.delete()
 
-        # Format and send response (following /search command pattern from chat_commands.py:494-518)
+        # Format and send response (following /search command pattern from chat_commands.py)
         chat_cog = self.bot.get_cog('ChatCommands')
         if chat_cog and hasattr(chat_cog, 'should_format_citations') and chat_cog.should_format_citations(model_id_full, response):
             # Use citation-based formatting (models like Sonar, Perplexity, Claude)
-            logger.info(f"[Intent] Formatting search response from {model_id_full} with citations")
+            logger.info(f"[Tool] Formatting search response from {model_id_full} with citations")
             embeds = chat_cog.format_perplexity_response(response)
 
             if embeds:
@@ -1090,7 +633,111 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
             "timestamp": datetime.now()
         })
 
-        logger.info(f"[Intent] User {message.author.id} performed web search via mention: '{query}'")
+        logger.info(f"[Tool] User {message.author.id} performed web search via mention: '{query}'")
+
+    # ─── Native tool-calling loop ───────────────────────────────────────────
+
+    async def _run_tool_loop(
+        self,
+        client,
+        conversation_context: List[Dict[str, Any]],
+        model_name: str,
+        system_prompt: Optional[str],
+        images: Optional[List[Dict[str, Any]]],
+        tool_context: Dict[str, Any]
+    ) -> Optional[str]:
+        """Runs the model with tools, feeding results back until it produces text.
+
+        Iterates up to the configured budget; each round's tool results are
+        appended to the conversation so the model can synthesize an answer,
+        chain tools, or recover from a tool error. Returns the final text
+        response (possibly an error string starting with ⚠️).
+        """
+        tools = get_tool_definitions()
+        max_iterations = self.state.get_tool_calling_max_iterations()
+
+        for iteration in range(max_iterations):
+            response = await client.send_message_with_history(
+                messages=conversation_context,
+                model=model_name,
+                system_prompt=system_prompt,
+                images=images if iteration == 0 else None,
+                tools=tools,
+                tool_choice="auto"
+            )
+
+            # Plain text (normal reply or provider error string)
+            if isinstance(response, str):
+                return response
+
+            if not isinstance(response, dict):
+                logger.error(f"[Tool] Unexpected response type from client: {type(response)}")
+                return None
+
+            tool_calls = response.get("tool_calls")
+            if not tool_calls:
+                return response.get("content") or ""
+
+            logger.info(f"[Tool] Iteration {iteration + 1}/{max_iterations}: model requested {len(tool_calls)} tool call(s)")
+
+            # Record the assistant's tool-call turn
+            conversation_context.append({
+                "role": "assistant",
+                "content": response.get("content") or "",
+                "tool_calls": tool_calls
+            })
+
+            # Execute each tool call and feed the result back
+            for tc in tool_calls:
+                func_name = tc.get("function", {}).get("name", "")
+                func_args_str = tc.get("function", {}).get("arguments", "{}")
+                tool_call_id = tc.get("id", "")
+
+                try:
+                    func_args = json.loads(func_args_str) if func_args_str else {}
+                except json.JSONDecodeError as e:
+                    logger.error(f"[Tool] Failed to parse tool arguments for '{func_name}': {e}")
+                    func_args = {}
+
+                tool_result = await execute_tool(func_name, func_args, tool_context)
+
+                conversation_context.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": tool_result
+                })
+
+        # Iteration budget exhausted — force a text answer (no tools offered)
+        logger.warning(f"[Tool] Iteration budget ({max_iterations}) exhausted; forcing text response")
+        response = await client.send_message_with_history(
+            messages=conversation_context,
+            model=model_name,
+            system_prompt=system_prompt
+        )
+        if isinstance(response, dict):
+            return response.get("content") or ""
+        return response
+
+    # ─── Message listener ───────────────────────────────────────────────────
+
+    def _is_bot_mentioned(self, message: discord.Message) -> bool:
+        """Checks user mentions, raw content, and same-named role mentions."""
+        for mention in message.mentions:
+            if mention.id == self.bot.user.id:
+                return True
+
+        if f'<@{self.bot.user.id}>' in message.content or f'<@!{self.bot.user.id}>' in message.content:
+            return True
+
+        # Role mentions matching the bot's name (common confusion)
+        if message.role_mentions:
+            bot_name_lower = self.bot.user.name.lower() if self.bot.user.name else ""
+            for role in message.role_mentions:
+                if role.name.lower() == bot_name_lower:
+                    logger.info(f"[Mention] Bot triggered via role mention '{role.name}' by {message.author.id}")
+                    return True
+
+        return False
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -1104,16 +751,16 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
             return
 
         channel_id = str(message.channel.id)
+        is_mentioned = self._is_bot_mentioned(message)
 
-        # Check for session expiry and rotate before recording the new message
-        if self.state and not message.content.startswith('/'):
+        # Only record history for channels the bot participates in
+        if self.state and self._should_record(channel_id, is_mentioned):
+            # Check for session expiry and rotate before recording the new message
             try:
                 await check_and_rotate_session(channel_id, self.state, self.clients)
             except Exception as e:
                 logger.error(f"[Mention] Error during session rotation for channel {channel_id}: {e}", exc_info=True)
 
-        # Add all regular user messages to history (if state manager is available)
-        if self.state and not message.content.startswith('/'):  # Ignore slash commands
             try:
                 await self.state.add_to_channel_history(channel_id, {
                     "role": "user",
@@ -1122,267 +769,147 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                     "timestamp": datetime.now()
                 })
             except Exception as e:
-                 logger.error(f"[Mention] Error adding message to history for channel {channel_id}: {e}", exc_info=True)
+                logger.error(f"[Mention] Error adding message to history for channel {channel_id}: {e}", exc_info=True)
 
-
-        # Process mentions - improved detection method
-        is_mentioned = False
-        if message.mentions:
-            for mention in message.mentions:
-                if mention.id == self.bot.user.id:
-                    is_mentioned = True
-                    logger.debug(f"[Mention] Bot mentioned via message.mentions by {message.author.id}")
-                    break
-
-        # Fallback: check raw content for mention string (fixed operator precedence)
-        if not is_mentioned:
-            if f'<@{self.bot.user.id}>' in message.content or f'<@!{self.bot.user.id}>' in message.content:
-                is_mentioned = True
-                logger.debug(f"[Mention] Bot mentioned via raw content by {message.author.id}")
-
-        # Also check for role mentions that match the bot's name (common confusion)
-        # This allows users to mention a role with the same name as the bot
-        if not is_mentioned and message.role_mentions:
-            bot_name_lower = self.bot.user.name.lower() if self.bot.user.name else ""
-            for role in message.role_mentions:
-                if role.name.lower() == bot_name_lower:
-                    is_mentioned = True
-                    logger.info(f"[Mention] Bot triggered via role mention '{role.name}' by {message.author.id}")
-                    break
-
-        # Log when not mentioned (for debugging silent failures)
-        if not is_mentioned:
-            # Only log if message contains any mentions at all (to avoid spam)
-            if message.mentions or message.role_mentions or '@' in message.content:
-                logger.debug(f"[Mention] Message from {message.author.id} has mentions but bot NOT mentioned. user_mentions={[m.id for m in message.mentions]}, role_mentions={[r.name for r in message.role_mentions]}, bot_id={self.bot.user.id}, bot_name={self.bot.user.name}")
-
-        if is_mentioned and not message.mention_everyone:
-            # Ensure state manager is available before proceeding
-            if not self.state:
-                 logger.error("[Mention] State manager not available when processing mention.")
-                 await message.channel.send("⚠️ Internal error: State manager not available.")
-                 return
-
-            logger.info(f"[Mention] Detected mention from {message.author.id} in channel {channel_id}")
-
-            # Determine which provider and model to use for this channel
-            model_id_full = self.get_model_for_channel(channel_id)
-            logger.info(f"[Mention] Effective model ID from state = '{model_id_full}'")
-
-            # Parse provider and model name
+            # Compact oversized histories into a memory summary so long-running
+            # sessions don't silently lose context off the end of the window
             try:
-                provider, model_name = model_id_full.split('/', 1)
-            except ValueError:
-                logger.warning(f"[Mention] Invalid model format '{model_id_full}' for channel {channel_id}. Defaulting to global provider.")
-                # Use global provider from state manager if available
-                provider = self.state.global_provider if self.state else "openrouter"
-                model_name = model_id_full
-                model_id_full = f"{provider}/{model_name}"
-
-            # Select the appropriate client
-            client_to_use = self.clients.get(provider)
-            logger.info(f"[Mention] Parsed Provider='{provider}', Model='{model_name}'. Found client object: {client_to_use is not None}")
-
-            try:
-                # Get the message content without the mention
-                content = message.content
-                content = content.replace(f'<@{self.bot.user.id}>', '').replace(f'<@!{self.bot.user.id}>', '')
-                content = content.strip()
-                if not content:
-                    content = "Hello!"
-
-                # ─── Native Tool Calling Flow ───────────────────────────────
-                # Replaces the old two-phase intent classification system.
-                # The primary LLM model decides which tools to call natively,
-                # eliminating the need for a separate classification LLM call.
-
-                tool_calling_enabled = self.state.get_intent_enabled()  # Reuses the same toggle
-
-                # Process images if any are attached
-                images = []
-                client_supports_vision = False
-                if client_to_use and hasattr(client_to_use, 'model_supports_vision') and message.attachments:
-                    if asyncio.iscoroutinefunction(client_to_use.model_supports_vision):
-                        client_supports_vision = await client_to_use.model_supports_vision(model_name)
-                    else:
-                        client_supports_vision = client_to_use.model_supports_vision(model_name)
-                    logger.info(f"[Mention] Client '{provider}' model '{model_name}' vision support: {client_supports_vision}")
-
-                    if client_supports_vision:
-                         for attachment in message.attachments:
-                             if any(attachment.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
-                                try:
-                                    image_data = await attachment.read()
-                                    images.append({
-                                        'data': image_data,
-                                        'type': attachment.content_type or 'image/jpeg'
-                                    })
-                                except Exception as e:
-                                    await message.channel.send(f"⚠️ Failed to process image {attachment.filename}: {str(e)}")
-
-                # Get effective system prompt (persona > channel config > global)
-                channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
-
-                # Get recent channel context from state manager
-                conversation_context = self.state.get_channel_history(channel_id)
-
-                # Format the final query with the current user's message.
-                # The message was already added to history above as raw content (including the
-                # @mention token).  The formatted version we send to the API has the @mention
-                # stripped, so a naive string comparison always fails and the message ends up
-                # duplicated in conversation_context.  Strip @mention tokens from the stored
-                # content before comparing so the dedup works correctly.
-                last_msg_in_context = conversation_context[-1]['content'] if conversation_context else None
-                current_user_formatted_msg = f"{message.author.display_name}: {content}"
-
-                stored_content_stripped = re.sub(r'<@!?\d+>\s*', '', last_msg_in_context or '').strip()
-                if not conversation_context or stored_content_stripped != content.strip():
-                     conversation_context.append({
-                         "role": "user",
-                         "content": current_user_formatted_msg
-                     })
-
-                # Send "thinking" message with typing indicator
-                async with message.channel.typing():
-                    if not client_to_use or not hasattr(client_to_use, 'send_message_with_history'):
-                        # Client not available
-                        if client_to_use:
-                            logger.error(f"[Mention] ❌ Client for provider '{provider}' exists but does not have 'send_message_with_history' method.")
-                            response = f"⚠️ Error: Client for provider '{provider}' does not support chat ('send_message_with_history' missing)."
-                        else:
-                            logger.error(f"[Mention] ❌ Client for provider '{provider}' not found or not initialized in self.clients.")
-                            response = f"⚠️ Error: Client for provider '{provider}' not available or not initialized."
-                    elif tool_calling_enabled:
-                        # ─── Tool Calling Path ──────────────────────────────
-                        # Single LLM call with tools — the model decides whether
-                        # to call a tool or respond conversationally.
-                        logger.info(f"[Mention] ✅ Calling send_message_with_history with tools on provider '{provider}' ({type(client_to_use).__name__}) model '{model_name}'")
-
-                        tools = get_tool_definitions()
-
-                        response = await client_to_use.send_message_with_history(
-                            messages=conversation_context,
-                            model=model_name,
-                            system_prompt=channel_system_prompt,
-                            images=images,
-                            tools=tools,
-                            tool_choice="auto"
-                        )
-
-                        # Check if the model requested tool calls
-                        if isinstance(response, dict) and response.get("tool_calls"):
-                            tool_calls = response["tool_calls"]
-                            logger.info(f"[Tool] Model requested {len(tool_calls)} tool call(s)")
-
-                            # Build tool context for execution
-                            tool_context = {
-                                "bot": self.bot,
-                                "state": self.state,
-                                "message": message,
-                                "channel_id": channel_id,
-                                "clients": self.clients,
-                                "cog": self  # For inline handlers (reminder, image, search)
-                            }
-
-                            # Add the assistant's tool-call message to conversation
-                            conversation_context.append({
-                                "role": "assistant",
-                                "content": response.get("content") or "",
-                                "tool_calls": tool_calls
-                            })
-
-                            # Execute each tool call
-                            for tc in tool_calls:
-                                func_name = tc.get("function", {}).get("name", "")
-                                func_args_str = tc.get("function", {}).get("arguments", "{}")
-                                tool_call_id = tc.get("id", "")
-
-                                try:
-                                    func_args = json.loads(func_args_str) if func_args_str else {}
-                                except json.JSONDecodeError as e:
-                                    logger.error(f"[Tool] Failed to parse tool arguments for '{func_name}': {e}")
-                                    func_args = {}
-
-                                logger.info(f"[Tool] Executing '{func_name}' with args: {func_args}")
-
-                                try:
-                                    tool_result = await execute_tool(func_name, func_args, tool_context)
-                                except Exception as e:
-                                    logger.exception(f"[Tool] Error executing '{func_name}': {e}")
-                                    tool_result = f"Error: {str(e)}"
-
-                                # Add tool result to conversation
-                                conversation_context.append({
-                                    "role": "tool",
-                                    "tool_call_id": tool_call_id,
-                                    "content": tool_result
-                                })
-
-                            # Tool handlers already sent their response to Discord.
-                            # Skip the follow-up LLM call to avoid duplicate messages.
-                            response = None
-
-                        elif isinstance(response, dict):
-                            # Model returned content without tool calls
-                            response = response.get("content") or ""
-                        # else: response is already a string (normal or error)
-
-                    else:
-                        # ─── Plain Conversation Path (no tools) ─────────────
-                        # Fallback for when tool calling is disabled
-                        logger.info(f"[Mention] ✅ Calling send_message_with_history (no tools) on provider '{provider}' ({type(client_to_use).__name__}) model '{model_name}'")
-                        response = await client_to_use.send_message_with_history(
-                            messages=conversation_context,
-                            model=model_name,
-                            system_prompt=channel_system_prompt,
-                            images=images
-                        )
-
-                # If tool calls were executed, response is None (handlers already sent output)
-                if response is None:
-                    pass  # Already handled by tool execution
-                # Check if response is an error
-                elif isinstance(response, str) and response.startswith("⚠️"):
-                    # If it's an error, don't split chunks and don't add to history
-                    await message.channel.send(response)
-                elif isinstance(response, str):
-                    # Add assistant's response to history
-                    await self.state.add_to_channel_history(channel_id, {
-                        "role": "assistant",
-                        "content": response,
-                        "timestamp": datetime.now()
-                    })
-
-                    # Split response into chunks of 2000 characters or fewer
-                    max_length = 2000
-                    chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
-
-                    # Send each chunk via persona webhook if configured
-                    for chunk in chunks:
-                        await self.bot.webhook_sender.send_response(message.channel, chunk, channel_id)
-                else:
-                    # Unexpected response type
-                    logger.error(f"[Mention] Unexpected response type: {type(response)}")
-                    await message.channel.send("⚠️ An unexpected response format was received.")
-
+                await maybe_compact_history(channel_id, self.state, self.clients)
             except Exception as e:
-                 logger.exception(f"[Mention] Error processing mention in channel {channel_id}: {e}")
-                 try:
-                     await message.channel.send(f"⚠️ An unexpected error occurred while processing your mention: {str(e)}")
-                 except Exception as followup_e:
-                     logger.error(f"[Mention] Failed to send error message to channel {channel_id}: {followup_e}")
+                logger.error(f"[Mention] Error compacting history for channel {channel_id}: {e}", exc_info=True)
 
-            # Removed finally block
+        if not is_mentioned or message.mention_everyone:
+            return
+
+        # Ensure state manager is available before proceeding
+        if not self.state:
+            logger.error("[Mention] State manager not available when processing mention.")
+            await message.channel.send("⚠️ Internal error: State manager not available.")
+            return
+
+        logger.info(f"[Mention] Detected mention from {message.author.id} in channel {channel_id}")
+
+        # Determine which provider and model to use for this channel
+        provider, model_name = self.state.resolve_model(channel_id)
+        client_to_use = self.clients.get(provider)
+        logger.info(f"[Mention] Provider='{provider}', Model='{model_name}'. Client available: {client_to_use is not None}")
+
+        try:
+            # Get the message content without the mention
+            content = self._strip_mentions(message.content) or "Hello!"
+
+            tool_calling_enabled = self.state.get_tool_calling_enabled()
+
+            # Process images if any are attached
+            images = []
+            if client_to_use and hasattr(client_to_use, 'model_supports_vision') and message.attachments:
+                if asyncio.iscoroutinefunction(client_to_use.model_supports_vision):
+                    client_supports_vision = await client_to_use.model_supports_vision(model_name)
+                else:
+                    client_supports_vision = client_to_use.model_supports_vision(model_name)
+                logger.info(f"[Mention] Client '{provider}' model '{model_name}' vision support: {client_supports_vision}")
+
+                if client_supports_vision:
+                    for attachment in message.attachments:
+                        if any(attachment.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
+                            try:
+                                image_data = await attachment.read()
+                                images.append({
+                                    'data': image_data,
+                                    'type': attachment.content_type or 'image/jpeg'
+                                })
+                            except Exception as e:
+                                await message.channel.send(f"⚠️ Failed to process image {attachment.filename}: {str(e)}")
+
+            # Get effective system prompt (persona > channel config > global),
+            # with memory summaries relevant to the current message appended
+            channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=content)
+
+            # Get recent channel context from state manager
+            conversation_context = self.state.get_channel_history(channel_id)
+
+            # The message was already added to history above as raw content
+            # (including the @mention token). The formatted version we send to
+            # the API has the @mention stripped, so strip mention tokens from
+            # the stored content before comparing to avoid duplicating it.
+            last_msg_in_context = conversation_context[-1]['content'] if conversation_context else None
+            stored_content_stripped = re.sub(r'<@!?\d+>\s*', '', last_msg_in_context or '').strip()
+            if not conversation_context or stored_content_stripped != content.strip():
+                conversation_context.append({
+                    "role": "user",
+                    "content": f"{message.author.display_name}: {content}"
+                })
+
+            async with message.channel.typing():
+                if not client_to_use or not hasattr(client_to_use, 'send_message_with_history'):
+                    if client_to_use:
+                        logger.error(f"[Mention] Client for provider '{provider}' does not support chat.")
+                        response = f"⚠️ Error: Client for provider '{provider}' does not support chat ('send_message_with_history' missing)."
+                    else:
+                        logger.error(f"[Mention] Client for provider '{provider}' not available.")
+                        response = f"⚠️ Error: Client for provider '{provider}' not available or not initialized."
+                elif tool_calling_enabled:
+                    # Tool-calling path: the model decides whether to call
+                    # tools; results are fed back until it produces text.
+                    tool_context = {
+                        "bot": self.bot,
+                        "state": self.state,
+                        "message": message,
+                        "channel_id": channel_id,
+                        "clients": self.clients,
+                        "cog": self  # For side-effect handlers (reminder, image, search)
+                    }
+                    response = await self._run_tool_loop(
+                        client_to_use, conversation_context, model_name,
+                        channel_system_prompt, images, tool_context
+                    )
+                else:
+                    # Plain conversation path (tool calling disabled)
+                    response = await client_to_use.send_message_with_history(
+                        messages=conversation_context,
+                        model=model_name,
+                        system_prompt=channel_system_prompt,
+                        images=images
+                    )
+                    if isinstance(response, dict):
+                        response = response.get("content") or ""
+
+            if response is None:
+                logger.error("[Mention] No response produced for mention.")
+                await message.channel.send("⚠️ An unexpected response format was received.")
+            elif isinstance(response, str) and response.startswith("⚠️"):
+                # Error string — don't split into chunks, don't add to history
+                await message.channel.send(response)
+            elif isinstance(response, str):
+                # Add assistant's response to history
+                await self.state.add_to_channel_history(channel_id, {
+                    "role": "assistant",
+                    "content": response,
+                    "timestamp": datetime.now()
+                })
+
+                # Send in Discord-sized chunks via persona webhook if configured
+                for chunk in chunk_message(response):
+                    await self.bot.webhook_sender.send_response(message.channel, chunk, channel_id)
+            else:
+                logger.error(f"[Mention] Unexpected response type: {type(response)}")
+                await message.channel.send("⚠️ An unexpected response format was received.")
+
+        except Exception as e:
+            logger.exception(f"[Mention] Error processing mention in channel {channel_id}: {e}")
+            try:
+                await message.channel.send(f"⚠️ An unexpected error occurred while processing your mention: {str(e)}")
+            except Exception as followup_e:
+                logger.error(f"[Mention] Failed to send error message to channel {channel_id}: {followup_e}")
+
 
 def setup(bot):
     # Ensure state_manager is available on bot before adding cog
     if not hasattr(bot, 'state_manager'):
         logger.error("State manager not found on bot object. Cannot load MentionCommands cog.")
         return
-    # Ensure clients are available (or handle None gracefully in __init__)
     if not getattr(bot, 'openrouter_client', None):
-         logger.warning("OpenRouter client not found on bot object. MentionCommands might have limited functionality.")
-    # Add other client checks if strictly necessary for this cog
+        logger.warning("OpenRouter client not found on bot object. MentionCommands might have limited functionality.")
 
     try:
         bot.add_cog(MentionCommands(bot))

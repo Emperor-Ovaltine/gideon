@@ -71,20 +71,6 @@ try:
 except ValueError:
     TOOL_CALLING_MAX_ITERATIONS = 3
 
-# ─── Deprecated (kept for backward compatibility) ───────────────────────────
-# These are no longer used by the tool-calling system but are preserved so
-# existing configs and state manager DB entries don't break.
-INTENT_DETECTION_MODEL = os.getenv('INTENT_DETECTION_MODEL', 'openai/gpt-4o-mini')
-
-try:
-    INTENT_CONFIDENCE_THRESHOLD = float(os.getenv('INTENT_CONFIDENCE_THRESHOLD', '0.7'))
-    if INTENT_CONFIDENCE_THRESHOLD < 0.0:
-        INTENT_CONFIDENCE_THRESHOLD = 0.0
-    elif INTENT_CONFIDENCE_THRESHOLD > 1.0:
-        INTENT_CONFIDENCE_THRESHOLD = 1.0
-except ValueError:
-    INTENT_CONFIDENCE_THRESHOLD = 0.7
-
 # Dashboard Configuration
 DASHBOARD_ENABLED = os.getenv('DASHBOARD_ENABLED', 'FALSE').upper() == 'TRUE'
 DASHBOARD_PORT = int(os.getenv('DASHBOARD_PORT', '8080'))

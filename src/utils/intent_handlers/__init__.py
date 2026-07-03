@@ -1,21 +1,25 @@
-"""Intent handler modules for natural interaction via @mentions."""
+"""Tool implementation modules for native LLM tool calling.
 
-from .calculation import handle_calculation
-from .translation import handle_translation
-from .definition import handle_definition
+Pure tools expose compute functions that return data for the model;
+side-effect tools (polls, events) expose handlers that post to Discord.
+"""
+
+from .calculation import evaluate_expression
+from .translation import translate_text
+from .definition import define_term
 from .poll import handle_poll_creation
-from .timezone import handle_timezone_conversion
-from .unit_conversion import handle_unit_conversion
-from .dice import handle_dice_roll
+from .timezone import convert_time
+from .unit_conversion import convert_units
+from .dice import roll
 from .event import handle_event_scheduling
 
 __all__ = [
-    'handle_calculation',
-    'handle_translation',
-    'handle_definition',
+    'evaluate_expression',
+    'translate_text',
+    'define_term',
     'handle_poll_creation',
-    'handle_timezone_conversion',
-    'handle_unit_conversion',
-    'handle_dice_roll',
+    'convert_time',
+    'convert_units',
+    'roll',
     'handle_event_scheduling',
 ]

@@ -2,6 +2,7 @@
 import discord
 from discord.ext import commands
 import aiohttp
+from ..utils.http_session import SharedSessionMixin
 from bs4 import BeautifulSoup
 import logging
 from ..utils.state_manager import BotStateManager
@@ -11,7 +12,7 @@ from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL
 # Set up logging
 logger = logging.getLogger('url_commands')
 
-class URLCommands(commands.Cog):
+class URLCommands(commands.Cog, SharedSessionMixin):
     """Commands for analyzing and summarizing web content."""
     
     def __init__(self, bot):
@@ -46,7 +47,7 @@ class URLCommands(commands.Cog):
                 'Accept-Language': 'en-US,en;q=0.5',
                 'Accept-Encoding': 'gzip, deflate'
             }
-            async with aiohttp.ClientSession() as session:
+            async with self.shared_session() as session:
                 try:
                     async with session.get(url, headers=headers, timeout=30) as response:
                         if response.status != 200:
