@@ -195,6 +195,39 @@ def _start_background_tasks() -> None:
             logger.exception("Error starting reminder task")
 
 
+# ─── One-time setup (idempotent, safe from any entry path) ──────────────────
+
+_setup_lock = asyncio.Lock()
+_setup_done = False
+
+
+def _ensure_logging():
+    """Configures logging once, if nothing else has."""
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO,
+                            format='%(asctime)s:%(levelname)s:%(name)s: %(message)s')
+        logging.getLogger('discord').setLevel(logging.WARNING)
+        logging.getLogger('websockets').setLevel(logging.WARNING)
+
+
+async def _ensure_setup():
+    """Runs the one-time setup (state, cogs, background tasks) exactly once.
+
+    Called from main() on the normal path, and again from on_ready as a
+    safety net so a legacy entry point that calls bot.run() directly still
+    gets a fully initialized bot.
+    """
+    global _setup_done
+    async with _setup_lock:
+        if _setup_done:
+            return
+        _ensure_logging()
+        await _setup_state()
+        _load_cogs()
+        _start_background_tasks()
+        _setup_done = True
+
+
 # ─── Gateway events ──────────────────────────────────────────────────────────
 
 _gateway_setup_done = False
@@ -204,6 +237,19 @@ _gateway_setup_done = False
 async def on_ready():
     global _gateway_setup_done
     logger.info(f"Logged in as {bot.user.name} ({bot.user.id})")
+
+    # Safety net: if the bot was started without main() (e.g. a direct
+    # bot.run() entry point), perform the one-time setup now, before
+    # command sync, so cogs and state exist.
+    if not _setup_done:
+        logger.warning("Bot was started without main(); running setup from on_ready. "
+                       "Prefer starting via 'python -m src'.")
+        try:
+            await _ensure_setup()
+        except Exception:
+            logger.exception("FATAL: setup failed during on_ready")
+            await bot.close()
+            return
 
     if _gateway_setup_done:
         logger.info("Reconnected to gateway; skipping one-time setup.")
@@ -297,26 +343,21 @@ async def main():
         logger.critical("DISCORD_TOKEN is not set. Exiting.")
         sys.exit(1)
 
-    state = await _setup_state()
-    _load_cogs()
-    _start_background_tasks()
+    await _ensure_setup()
 
     try:
         await bot.start(DISCORD_TOKEN)
     finally:
         if not bot.is_closed():
             await bot.close()
-        state.close_db()
+        if hasattr(bot, 'state_manager'):
+            bot.state_manager.close_db()
         logger.info("Shutdown complete.")
 
 
 def run():
     """Configures logging and runs the bot (synchronous entry point)."""
-    logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s:%(levelname)s:%(name)s: %(message)s')
-    logging.getLogger('discord').setLevel(logging.WARNING)
-    logging.getLogger('websockets').setLevel(logging.WARNING)
-
+    _ensure_logging()
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

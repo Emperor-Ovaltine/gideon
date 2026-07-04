@@ -1,5 +1,6 @@
 services:
   gideon-bot:
+    build: .
     image: gideon-bot:latest
     container_name: gideon-bot
     env_file:
@@ -7,5 +8,7 @@ services:
     ports:
       - "${DASHBOARD_PORT:-8080}:${DASHBOARD_PORT:-8080}"
     volumes:
+      # The container runs as non-root (UID 1000). Make sure this host
+      # directory is writable by UID 1000:  sudo chown -R 1000:1000 <dir>
       - /change/to/your/data/dir:/app/data
     restart: always # Optional: Add restart policy
