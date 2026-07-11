@@ -13,6 +13,7 @@ from ..utils.memory_service import check_and_rotate_session, maybe_compact_histo
 from ..utils.discord_fmt import chunk_message
 from ..utils.timeutil import to_epoch
 from ..utils.tool_registry import get_tool_definitions, execute_tool, is_no_repeat_tool
+from ..utils.web_search import SEARCHING_STATUS, build_search_system_prompt
 from ..config import DEFAULT_MODEL
 
 logger = logging.getLogger('mention_commands')
@@ -566,10 +567,7 @@ class MentionCommands(commands.Cog):
 
         # Enhance system prompt for search
         channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=query)
-        if channel_system_prompt:
-            search_system_prompt = channel_system_prompt + "\n\nYou have access to web search. When answering, use the most current information available from searching the web."
-        else:
-            search_system_prompt = "You are a helpful AI assistant with access to web search. When answering questions, use the most current information available from searching the web. Always cite your sources."
+        search_system_prompt = build_search_system_prompt(channel_system_prompt)
 
         # Get conversation context
         conversation_context = self.state.get_channel_history(channel_id)
@@ -579,9 +577,7 @@ class MentionCommands(commands.Cog):
         })
 
         # Temporary status message so the channel sees search activity
-        search_msg = await message.channel.send(
-            f"🔍 Searching for information about: **{query}**..."
-        )
+        search_msg = await message.channel.send(SEARCHING_STATUS.format(query=query))
 
         # Perform search
         try:
@@ -600,6 +596,19 @@ class MentionCommands(commands.Cog):
                 await search_msg.delete()
             except discord.HTTPException:
                 pass
+
+        # The client reports provider failures (rate limits, API errors) as
+        # "⚠️ ..." strings rather than raising, and can return None for a
+        # null-content completion — neither must be dressed up as results.
+        if not isinstance(response, str) or not response.strip():
+            logger.warning(f"[Tool] Web search returned no usable results: {response!r}")
+            return (f"Error: the web search returned no results. Do not retry the "
+                    f"same search; apologise briefly and answer from your own knowledge.")
+        if response.startswith("⚠️"):
+            logger.warning(f"[Tool] Web search returned a provider error: {response}")
+            return (f"Error: the web search failed with a provider error: {response}\n"
+                    f"Do not retry the same search; apologise briefly and answer "
+                    f"from your own knowledge.")
 
         logger.info(f"[Tool] User {message.author.id} performed web search via mention: '{query}'")
 
@@ -676,15 +685,19 @@ class MentionCommands(commands.Cog):
                 # must not run twice with identical arguments in one reply —
                 # a repeat means the model ignored the earlier result, so
                 # point it back at that instead of re-posting to Discord.
-                call_key = (func_name, json.dumps(func_args, sort_keys=True))
-                if is_no_repeat_tool(func_name) and call_key in executed_calls:
+                call_key = ((func_name, json.dumps(func_args, sort_keys=True))
+                            if is_no_repeat_tool(func_name) else None)
+                if call_key and call_key in executed_calls:
                     logger.warning(f"[Tool] Skipping duplicate '{func_name}' call with identical arguments")
                     tool_result = (f"Duplicate call skipped: '{func_name}' already ran with these exact "
                                    f"arguments during this reply. Use its earlier result above to answer "
                                    f"the user now — do not call it again.")
                 else:
-                    executed_calls.add(call_key)
                     tool_result = await execute_tool(func_name, func_args, tool_context)
+                    # Record only successful runs so a transient failure can
+                    # still be retried within the same reply
+                    if call_key and not tool_result.startswith("Error"):
+                        executed_calls.add(call_key)
 
                 conversation_context.append({
                     "role": "tool",
