@@ -12,7 +12,7 @@ from typing import Optional, Dict, Any, List
 from ..utils.memory_service import check_and_rotate_session, maybe_compact_history
 from ..utils.discord_fmt import chunk_message
 from ..utils.timeutil import to_epoch
-from ..utils.tool_registry import get_tool_definitions, execute_tool
+from ..utils.tool_registry import get_tool_definitions, execute_tool, is_no_repeat_tool
 from ..config import DEFAULT_MODEL
 
 logger = logging.getLogger('mention_commands')
@@ -522,7 +522,7 @@ class MentionCommands(commands.Cog):
         message: discord.Message,
         channel_id: str,
         query: str
-    ):
+    ) -> str:
         """
         Handle a web search request detected from a mention.
 
@@ -530,6 +530,12 @@ class MentionCommands(commands.Cog):
             message: Original Discord message object
             channel_id: Channel ID as string
             query: The search query
+
+        Returns:
+            The tool-result text to feed back to the model: the actual
+            search results on success (so the model can synthesize its
+            reply without searching again), or an explanation of why the
+            search did not run.
         """
         # Validate query
         if not query or not query.strip():
@@ -538,7 +544,7 @@ class MentionCommands(commands.Cog):
                 "Please try something like: '@Gideon what's the latest AI news'"
             )
             logger.warning(f"[Tool] Missing search query for user {message.author.id}")
-            return
+            return "Error: no search query was provided; a notice was posted in the channel."
 
         # Get current provider and model
         provider, model_name = self.state.resolve_model(channel_id)
@@ -546,21 +552,20 @@ class MentionCommands(commands.Cog):
 
         # Check if provider supports web search (OpenRouter only)
         if provider != "openrouter":
-            # Inform user and fall back to conversation
-            logger.info(f"[Tool] Search requested but provider {provider} doesn't support it; using conversation fallback")
-            await self.respond_conversationally(
-                message, channel_id, user_content=query,
-                prefix=(f"ℹ️ Web search requires OpenRouter (currently using {provider}). "
-                        f"Answering without web search...\n\n")
-            )
-            return
+            # The tool loop's model will produce the reply; just tell it
+            # search is unavailable rather than posting a second answer.
+            logger.info(f"[Tool] Search requested but provider {provider} doesn't support it")
+            return (f"Web search requires OpenRouter (current provider: {provider}), "
+                    f"so no search was performed. Answer from your own knowledge and "
+                    f"mention that live search was unavailable.")
 
         # Provider is OpenRouter, proceed with web search
         client_to_use = self.clients.get("openrouter")
         if not client_to_use:
             await message.channel.send("⚠️ OpenRouter client not available.")
             logger.error("[Tool] OpenRouter client not found")
-            return
+            return ("Error: the OpenRouter client is not available, so the search "
+                    "did not run; a notice was posted in the channel.")
 
         # Enhance system prompt for search
         channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=query)
@@ -594,7 +599,8 @@ class MentionCommands(commands.Cog):
             logger.exception(f"[Tool] Error during web search: {e}")
             await search_msg.delete()
             await message.channel.send(f"❌ Web search failed: {str(e)}")
-            return
+            return (f"Error: the web search failed ({e}); an error notice was posted "
+                    f"in the channel. Do not retry the same search.")
 
         # Delete searching message
         await search_msg.delete()
@@ -635,6 +641,10 @@ class MentionCommands(commands.Cog):
 
         logger.info(f"[Tool] User {message.author.id} performed web search via mention: '{query}'")
 
+        return (f"Web search results for '{query}' were already posted in the channel "
+                f"as an embed — do not repeat them verbatim, only add brief commentary "
+                f"if useful. Full results:\n\n{response}")
+
     # ─── Native tool-calling loop ───────────────────────────────────────────
 
     async def _run_tool_loop(
@@ -655,6 +665,7 @@ class MentionCommands(commands.Cog):
         """
         tools = get_tool_definitions()
         max_iterations = self.state.get_tool_calling_max_iterations()
+        executed_calls: set = set()
 
         for iteration in range(max_iterations):
             response = await client.send_message_with_history(
@@ -699,7 +710,19 @@ class MentionCommands(commands.Cog):
                     logger.error(f"[Tool] Failed to parse tool arguments for '{func_name}': {e}")
                     func_args = {}
 
-                tool_result = await execute_tool(func_name, func_args, tool_context)
+                # Side-effect tools (search, image, reminder, poll, event)
+                # must not run twice with identical arguments in one reply —
+                # a repeat means the model ignored the earlier result, so
+                # point it back at that instead of re-posting to Discord.
+                call_key = (func_name, json.dumps(func_args, sort_keys=True))
+                if is_no_repeat_tool(func_name) and call_key in executed_calls:
+                    logger.warning(f"[Tool] Skipping duplicate '{func_name}' call with identical arguments")
+                    tool_result = (f"Duplicate call skipped: '{func_name}' already ran with these exact "
+                                   f"arguments during this reply. Use its earlier result above to answer "
+                                   f"the user now — do not call it again.")
+                else:
+                    executed_calls.add(call_key)
+                    tool_result = await execute_tool(func_name, func_args, tool_context)
 
                 conversation_context.append({
                     "role": "tool",

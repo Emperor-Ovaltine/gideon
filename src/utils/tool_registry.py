@@ -8,7 +8,10 @@ final reply, chain tools, or recover from errors.
 
 Side-effect tools (image generation, polls, events, reminders, web search)
 also post their own Discord output; their return value tells the model what
-happened so it can acknowledge it without repeating it.
+happened — including the actual data where there is any (e.g. web search
+results), so the model never needs to repeat the call to get at it. They are
+registered with no_repeat=True so the tool loop skips identical repeat calls
+instead of re-posting to Discord.
 """
 
 import logging
@@ -18,15 +21,29 @@ logger = logging.getLogger('tool_registry')
 
 _TOOLS: Dict[str, Callable[..., Awaitable[str]]] = {}
 TOOL_DEFINITIONS: List[Dict[str, Any]] = []
+_NO_REPEAT_TOOLS: set = set()
 
 
-def tool(schema: Dict[str, Any]):
-    """Registers an async executor for the given OpenAI function schema."""
+def tool(schema: Dict[str, Any], no_repeat: bool = False):
+    """Registers an async executor for the given OpenAI function schema.
+
+    no_repeat: mark tools whose side effects (Discord posts, saved
+    reminders, generated images) must not run twice for identical
+    arguments within a single reply. The tool loop uses this to skip
+    duplicate calls instead of re-executing them.
+    """
     def wrap(fn: Callable[..., Awaitable[str]]):
         TOOL_DEFINITIONS.append({"type": "function", "function": schema})
         _TOOLS[schema["name"]] = fn
+        if no_repeat:
+            _NO_REPEAT_TOOLS.add(schema["name"])
         return fn
     return wrap
+
+
+def is_no_repeat_tool(tool_name: str) -> bool:
+    """True if identical repeat calls to this tool should be skipped."""
+    return tool_name in _NO_REPEAT_TOOLS
 
 
 def get_tool_definitions() -> List[Dict[str, Any]]:
@@ -103,7 +120,7 @@ def _resolve_chat_client(ctx: Dict[str, Any]):
         },
         "required": ["reminder_message", "time_expression"]
     }
-})
+}, no_repeat=True)
 async def _set_reminder(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
     cog = ctx.get("cog")
     if not cog or not hasattr(cog, "handle_reminder_request"):
@@ -147,7 +164,7 @@ async def _set_reminder(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
         },
         "required": ["prompt"]
     }
-})
+}, no_repeat=True)
 async def _generate_image(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
     cog = ctx.get("cog")
     if not cog or not hasattr(cog, "handle_image_generation_request"):
@@ -178,15 +195,17 @@ async def _generate_image(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
         },
         "required": ["query"]
     }
-})
+}, no_repeat=True)
 async def _web_search(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
     cog = ctx.get("cog")
     if not cog or not hasattr(cog, "handle_search_request"):
         return "Error: Search handler not available"
 
     query = args.get("query", "")
-    await cog.handle_search_request(ctx["message"], ctx["channel_id"], query)
-    return f"Web search results for '{query}' were posted in the channel."
+    # handle_search_request returns the model-facing tool result: the actual
+    # search results on success, or an explanation of why the search didn't
+    # run. Feeding real results back stops the model from searching again.
+    return await cog.handle_search_request(ctx["message"], ctx["channel_id"], query)
 
 
 @tool({
@@ -211,7 +230,7 @@ async def _web_search(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
         },
         "required": ["question", "options"]
     }
-})
+}, no_repeat=True)
 async def _create_poll(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
     from .intent_handlers.poll import handle_poll_creation
 
@@ -250,7 +269,7 @@ async def _create_poll(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
         },
         "required": ["event_name", "date_time"]
     }
-})
+}, no_repeat=True)
 async def _schedule_event(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
     from .intent_handlers.event import handle_event_scheduling
 
