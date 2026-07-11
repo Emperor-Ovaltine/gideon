@@ -524,7 +524,12 @@ class MentionCommands(commands.Cog):
         query: str
     ) -> str:
         """
-        Handle a web search request detected from a mention.
+        Run a web search for the native tool-calling path.
+
+        Unlike /search (which posts a results embed), this posts nothing
+        except a temporary status message: the results are returned to the
+        tool loop so the model can weave them into its single, normal reply.
+        Errors are likewise returned for the model to relay.
 
         Args:
             message: Original Discord message object
@@ -539,21 +544,14 @@ class MentionCommands(commands.Cog):
         """
         # Validate query
         if not query or not query.strip():
-            await message.channel.send(
-                "❌ I detected you want to search, but I'm not sure what to search for. "
-                "Please try something like: '@Gideon what's the latest AI news'"
-            )
             logger.warning(f"[Tool] Missing search query for user {message.author.id}")
-            return "Error: no search query was provided; a notice was posted in the channel."
+            return "Error: no search query was provided. Ask the user what to search for."
 
         # Get current provider and model
         provider, model_name = self.state.resolve_model(channel_id)
-        model_id_full = f"{provider}/{model_name}"
 
         # Check if provider supports web search (OpenRouter only)
         if provider != "openrouter":
-            # The tool loop's model will produce the reply; just tell it
-            # search is unavailable rather than posting a second answer.
             logger.info(f"[Tool] Search requested but provider {provider} doesn't support it")
             return (f"Web search requires OpenRouter (current provider: {provider}), "
                     f"so no search was performed. Answer from your own knowledge and "
@@ -562,10 +560,9 @@ class MentionCommands(commands.Cog):
         # Provider is OpenRouter, proceed with web search
         client_to_use = self.clients.get("openrouter")
         if not client_to_use:
-            await message.channel.send("⚠️ OpenRouter client not available.")
             logger.error("[Tool] OpenRouter client not found")
             return ("Error: the OpenRouter client is not available, so the search "
-                    "did not run; a notice was posted in the channel.")
+                    "did not run.")
 
         # Enhance system prompt for search
         channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=query)
@@ -581,11 +578,10 @@ class MentionCommands(commands.Cog):
             "content": f"{message.author.display_name}: {query}"
         })
 
-        # Send searching message
-        async with message.channel.typing():
-            search_msg = await message.channel.send(
-                f"🔍 Searching for information about: **{query}**..."
-            )
+        # Temporary status message so the channel sees search activity
+        search_msg = await message.channel.send(
+            f"🔍 Searching for information about: **{query}**..."
+        )
 
         # Perform search
         try:
@@ -597,53 +593,19 @@ class MentionCommands(commands.Cog):
             )
         except Exception as e:
             logger.exception(f"[Tool] Error during web search: {e}")
-            await search_msg.delete()
-            await message.channel.send(f"❌ Web search failed: {str(e)}")
-            return (f"Error: the web search failed ({e}); an error notice was posted "
-                    f"in the channel. Do not retry the same search.")
-
-        # Delete searching message
-        await search_msg.delete()
-
-        # Format and send response (following /search command pattern from chat_commands.py)
-        chat_cog = self.bot.get_cog('ChatCommands')
-        if chat_cog and hasattr(chat_cog, 'should_format_citations') and chat_cog.should_format_citations(model_id_full, response):
-            # Use citation-based formatting (models like Sonar, Perplexity, Claude)
-            logger.info(f"[Tool] Formatting search response from {model_id_full} with citations")
-            embeds = chat_cog.format_perplexity_response(response)
-
-            if embeds:
-                # Customize first embed
-                embeds[0].title = f"🔍 Search Results: {query}"
-                embeds[0].set_footer(text=f"Using {model_id_full} • Web search enabled")
-                await message.channel.send(embed=embeds[0])
-
-                # Send additional embeds if any
-                for embed in embeds[1:]:
-                    embed.set_footer(text=f"Using {model_id_full} • Web search enabled")
-                    await message.channel.send(embed=embed)
-        else:
-            # Use simple embed format for non-citation models
-            embed = discord.Embed(
-                title=f"🔍 Search Results: {query}",
-                description=response,
-                color=discord.Color.blue()
-            )
-            embed.set_footer(text=f"Using {model_id_full} • Web search enabled")
-            await message.channel.send(embed=embed)
-
-        # Add to conversation history
-        await self.state.add_to_channel_history(channel_id, {
-            "role": "assistant",
-            "content": response,
-            "timestamp": datetime.now()
-        })
+            return (f"Error: the web search failed ({e}). Do not retry the same "
+                    f"search; apologise briefly and answer from your own knowledge.")
+        finally:
+            try:
+                await search_msg.delete()
+            except discord.HTTPException:
+                pass
 
         logger.info(f"[Tool] User {message.author.id} performed web search via mention: '{query}'")
 
-        return (f"Web search results for '{query}' were already posted in the channel "
-                f"as an embed — do not repeat them verbatim, only add brief commentary "
-                f"if useful. Full results:\n\n{response}")
+        return (f"Web search results for '{query}'. The user has NOT seen these — "
+                f"use them to write your reply, keeping any source citations that "
+                f"matter:\n\n{response}")
 
     # ─── Native tool-calling loop ───────────────────────────────────────────
 

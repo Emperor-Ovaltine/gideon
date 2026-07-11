@@ -6,12 +6,13 @@ function schema with its executor. Executors return a *data* string that is
 fed back to the model as the tool result, so the model can synthesize a
 final reply, chain tools, or recover from errors.
 
-Side-effect tools (image generation, polls, events, reminders, web search)
-also post their own Discord output; their return value tells the model what
-happened — including the actual data where there is any (e.g. web search
-results), so the model never needs to repeat the call to get at it. They are
+Side-effect tools (image generation, polls, events, reminders) also post
+their own Discord output; their return value tells the model what happened so
+it can acknowledge it without repeating it. Web search posts nothing — its
+results are returned to the model, which weaves them into its normal reply
+(only the /search command renders results as an embed). These tools are
 registered with no_repeat=True so the tool loop skips identical repeat calls
-instead of re-posting to Discord.
+instead of re-running expensive or channel-visible actions.
 """
 
 import logging
@@ -202,9 +203,8 @@ async def _web_search(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
         return "Error: Search handler not available"
 
     query = args.get("query", "")
-    # handle_search_request returns the model-facing tool result: the actual
-    # search results on success, or an explanation of why the search didn't
-    # run. Feeding real results back stops the model from searching again.
+    # Returns the actual search results (or why the search didn't run) for
+    # the model to weave into its reply; nothing is posted to the channel.
     return await cog.handle_search_request(ctx["message"], ctx["channel_id"], query)
 
 
