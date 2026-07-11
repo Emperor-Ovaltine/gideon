@@ -12,7 +12,8 @@ from typing import Optional, Dict, Any, List
 from ..utils.memory_service import check_and_rotate_session, maybe_compact_history
 from ..utils.discord_fmt import chunk_message
 from ..utils.timeutil import to_epoch
-from ..utils.tool_registry import get_tool_definitions, execute_tool
+from ..utils.tool_registry import get_tool_definitions, execute_tool, is_no_repeat_tool
+from ..utils.web_search import SEARCHING_STATUS, build_search_system_prompt
 from ..config import DEFAULT_MODEL
 
 logger = logging.getLogger('mention_commands')
@@ -522,52 +523,51 @@ class MentionCommands(commands.Cog):
         message: discord.Message,
         channel_id: str,
         query: str
-    ):
+    ) -> str:
         """
-        Handle a web search request detected from a mention.
+        Run a web search for the native tool-calling path.
+
+        Unlike /search (which posts a results embed), this posts nothing
+        except a temporary status message: the results are returned to the
+        tool loop so the model can weave them into its single, normal reply.
+        Errors are likewise returned for the model to relay.
 
         Args:
             message: Original Discord message object
             channel_id: Channel ID as string
             query: The search query
+
+        Returns:
+            The tool-result text to feed back to the model: the actual
+            search results on success (so the model can synthesize its
+            reply without searching again), or an explanation of why the
+            search did not run.
         """
         # Validate query
         if not query or not query.strip():
-            await message.channel.send(
-                "❌ I detected you want to search, but I'm not sure what to search for. "
-                "Please try something like: '@Gideon what's the latest AI news'"
-            )
             logger.warning(f"[Tool] Missing search query for user {message.author.id}")
-            return
+            return "Error: no search query was provided. Ask the user what to search for."
 
         # Get current provider and model
         provider, model_name = self.state.resolve_model(channel_id)
-        model_id_full = f"{provider}/{model_name}"
 
         # Check if provider supports web search (OpenRouter only)
         if provider != "openrouter":
-            # Inform user and fall back to conversation
-            logger.info(f"[Tool] Search requested but provider {provider} doesn't support it; using conversation fallback")
-            await self.respond_conversationally(
-                message, channel_id, user_content=query,
-                prefix=(f"ℹ️ Web search requires OpenRouter (currently using {provider}). "
-                        f"Answering without web search...\n\n")
-            )
-            return
+            logger.info(f"[Tool] Search requested but provider {provider} doesn't support it")
+            return (f"Web search requires OpenRouter (current provider: {provider}), "
+                    f"so no search was performed. Answer from your own knowledge and "
+                    f"mention that live search was unavailable.")
 
         # Provider is OpenRouter, proceed with web search
         client_to_use = self.clients.get("openrouter")
         if not client_to_use:
-            await message.channel.send("⚠️ OpenRouter client not available.")
             logger.error("[Tool] OpenRouter client not found")
-            return
+            return ("Error: the OpenRouter client is not available, so the search "
+                    "did not run.")
 
         # Enhance system prompt for search
         channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=query)
-        if channel_system_prompt:
-            search_system_prompt = channel_system_prompt + "\n\nYou have access to web search. When answering, use the most current information available from searching the web."
-        else:
-            search_system_prompt = "You are a helpful AI assistant with access to web search. When answering questions, use the most current information available from searching the web. Always cite your sources."
+        search_system_prompt = build_search_system_prompt(channel_system_prompt)
 
         # Get conversation context
         conversation_context = self.state.get_channel_history(channel_id)
@@ -576,11 +576,8 @@ class MentionCommands(commands.Cog):
             "content": f"{message.author.display_name}: {query}"
         })
 
-        # Send searching message
-        async with message.channel.typing():
-            search_msg = await message.channel.send(
-                f"🔍 Searching for information about: **{query}**..."
-            )
+        # Temporary status message so the channel sees search activity
+        search_msg = await message.channel.send(SEARCHING_STATUS.format(query=query))
 
         # Perform search
         try:
@@ -592,48 +589,32 @@ class MentionCommands(commands.Cog):
             )
         except Exception as e:
             logger.exception(f"[Tool] Error during web search: {e}")
-            await search_msg.delete()
-            await message.channel.send(f"❌ Web search failed: {str(e)}")
-            return
+            return (f"Error: the web search failed ({e}). Do not retry the same "
+                    f"search; apologise briefly and answer from your own knowledge.")
+        finally:
+            try:
+                await search_msg.delete()
+            except discord.HTTPException:
+                pass
 
-        # Delete searching message
-        await search_msg.delete()
-
-        # Format and send response (following /search command pattern from chat_commands.py)
-        chat_cog = self.bot.get_cog('ChatCommands')
-        if chat_cog and hasattr(chat_cog, 'should_format_citations') and chat_cog.should_format_citations(model_id_full, response):
-            # Use citation-based formatting (models like Sonar, Perplexity, Claude)
-            logger.info(f"[Tool] Formatting search response from {model_id_full} with citations")
-            embeds = chat_cog.format_perplexity_response(response)
-
-            if embeds:
-                # Customize first embed
-                embeds[0].title = f"🔍 Search Results: {query}"
-                embeds[0].set_footer(text=f"Using {model_id_full} • Web search enabled")
-                await message.channel.send(embed=embeds[0])
-
-                # Send additional embeds if any
-                for embed in embeds[1:]:
-                    embed.set_footer(text=f"Using {model_id_full} • Web search enabled")
-                    await message.channel.send(embed=embed)
-        else:
-            # Use simple embed format for non-citation models
-            embed = discord.Embed(
-                title=f"🔍 Search Results: {query}",
-                description=response,
-                color=discord.Color.blue()
-            )
-            embed.set_footer(text=f"Using {model_id_full} • Web search enabled")
-            await message.channel.send(embed=embed)
-
-        # Add to conversation history
-        await self.state.add_to_channel_history(channel_id, {
-            "role": "assistant",
-            "content": response,
-            "timestamp": datetime.now()
-        })
+        # The client reports provider failures (rate limits, API errors) as
+        # "⚠️ ..." strings rather than raising, and can return None for a
+        # null-content completion — neither must be dressed up as results.
+        if not isinstance(response, str) or not response.strip():
+            logger.warning(f"[Tool] Web search returned no usable results: {response!r}")
+            return (f"Error: the web search returned no results. Do not retry the "
+                    f"same search; apologise briefly and answer from your own knowledge.")
+        if response.startswith("⚠️"):
+            logger.warning(f"[Tool] Web search returned a provider error: {response}")
+            return (f"Error: the web search failed with a provider error: {response}\n"
+                    f"Do not retry the same search; apologise briefly and answer "
+                    f"from your own knowledge.")
 
         logger.info(f"[Tool] User {message.author.id} performed web search via mention: '{query}'")
+
+        return (f"Web search results for '{query}'. The user has NOT seen these — "
+                f"use them to write your reply, keeping any source citations that "
+                f"matter:\n\n{response}")
 
     # ─── Native tool-calling loop ───────────────────────────────────────────
 
@@ -655,6 +636,7 @@ class MentionCommands(commands.Cog):
         """
         tools = get_tool_definitions()
         max_iterations = self.state.get_tool_calling_max_iterations()
+        executed_calls: set = set()
 
         for iteration in range(max_iterations):
             response = await client.send_message_with_history(
@@ -699,7 +681,23 @@ class MentionCommands(commands.Cog):
                     logger.error(f"[Tool] Failed to parse tool arguments for '{func_name}': {e}")
                     func_args = {}
 
-                tool_result = await execute_tool(func_name, func_args, tool_context)
+                # Side-effect tools (search, image, reminder, poll, event)
+                # must not run twice with identical arguments in one reply —
+                # a repeat means the model ignored the earlier result, so
+                # point it back at that instead of re-posting to Discord.
+                call_key = ((func_name, json.dumps(func_args, sort_keys=True))
+                            if is_no_repeat_tool(func_name) else None)
+                if call_key and call_key in executed_calls:
+                    logger.warning(f"[Tool] Skipping duplicate '{func_name}' call with identical arguments")
+                    tool_result = (f"Duplicate call skipped: '{func_name}' already ran with these exact "
+                                   f"arguments during this reply. Use its earlier result above to answer "
+                                   f"the user now — do not call it again.")
+                else:
+                    tool_result = await execute_tool(func_name, func_args, tool_context)
+                    # Record only successful runs so a transient failure can
+                    # still be retried within the same reply
+                    if call_key and not tool_result.startswith("Error"):
+                        executed_calls.add(call_key)
 
                 conversation_context.append({
                     "role": "tool",

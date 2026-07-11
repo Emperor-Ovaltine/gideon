@@ -11,6 +11,7 @@ from ..utils.discord_fmt import chunk_message
 # Changed to absolute import: from ..utils.conversation import get_channel_context
 # Removed import for conversation, now handled by state_manager
 from ..utils.openrouter_client import OpenRouterClient
+from ..utils.web_search import SEARCHING_STATUS, build_search_system_prompt
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 from datetime import datetime
 
@@ -498,7 +499,7 @@ class ChatCommands(commands.Cog):
 
         try:
             # Create a thinking message
-            processing_msg = await ctx.respond(f"🔍 Searching for information about: **{query}**...")
+            processing_msg = await ctx.respond(SEARCHING_STATUS.format(query=query))
 
             # Prepare the user message
             user_message = {
@@ -510,11 +511,7 @@ class ChatCommands(commands.Cog):
             channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=query)
 
             # Add a search-focused wrapper to the system prompt
-            search_system_prompt = channel_system_prompt
-            if search_system_prompt:
-                search_system_prompt += "\n\nYou have access to web search. When answering, use the most current information available from searching the web."
-            else:
-                search_system_prompt = "You are a helpful AI assistant with access to web search. When answering questions, use the most current information available from searching the web. Always cite your sources."
+            search_system_prompt = build_search_system_prompt(channel_system_prompt)
 
             # Send to the OpenRouter client (as only it supports web_search flag currently)
             response = await client_to_use.send_message_with_history(
