@@ -1297,11 +1297,16 @@ Output: {"intent": "event_scheduling", "confidence": 0.85, "data": {"event_name"
                                 func_args_str = tc.get("function", {}).get("arguments", "{}")
                                 tool_call_id = tc.get("id", "")
 
-                                try:
-                                    func_args = json.loads(func_args_str) if func_args_str else {}
-                                except json.JSONDecodeError as e:
-                                    logger.error(f"[Tool] Failed to parse tool arguments for '{func_name}': {e}")
-                                    func_args = {}
+                                # Some providers return arguments as an already-parsed
+                                # dict instead of a JSON string; handle both.
+                                if isinstance(func_args_str, dict):
+                                    func_args = func_args_str
+                                else:
+                                    try:
+                                        func_args = json.loads(func_args_str) if func_args_str else {}
+                                    except (json.JSONDecodeError, TypeError) as e:
+                                        logger.error(f"[Tool] Failed to parse tool arguments for '{func_name}': {e}")
+                                        func_args = {}
 
                                 logger.info(f"[Tool] Executing '{func_name}' with args: {func_args}")
 

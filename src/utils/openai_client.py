@@ -1,3 +1,4 @@
+import base64
 import logging
 import asyncio
 from openai import AsyncOpenAI, OpenAIError

@@ -29,9 +29,10 @@ class OpenRouterClient:
             "llava", # Add Llava models
         ]
         
-    def model_supports_vision(self) -> bool:
-        """Check if the current model supports vision/images."""
-        return any(vision_model in self.model.lower() for vision_model in self.vision_models)
+    def model_supports_vision(self, model_name: Optional[str] = None) -> bool:
+        """Check if the given model (or the default model) supports vision/images."""
+        target_model = (model_name or self.model).lower()
+        return any(vision_model in target_model for vision_model in self.vision_models)
     
     async def verify_dns_resolution(self, domain: str) -> bool:
         """Verify that we can resolve the DNS for the given domain."""
@@ -66,12 +67,16 @@ class OpenRouterClient:
         
         # Prepare the full conversation context with system prompt
         conversation = [{"role": "system", "content": prompt_to_use}]
-        
-        # Add the message history
-        conversation.extend(messages)
-        
+
+        # Add the message history, keeping only fields the API accepts.
+        # History rows loaded from the database carry extra keys (timestamp,
+        # user_id) that strict upstream providers reject with a 400 error.
+        allowed_keys = {"role", "content", "name", "tool_calls", "tool_call_id"}
+        for msg in messages:
+            conversation.append({k: v for k, v in msg.items() if k in allowed_keys})
+
         # If we have images and the model supports them, format them correctly
-        if images and self.model_supports_vision():
+        if images and self.model_supports_vision(model_to_use):
             # Find the last user message to add images to
             for i in range(len(conversation) - 1, -1, -1):
                 if conversation[i]["role"] == "user":
@@ -79,7 +84,7 @@ class OpenRouterClient:
                     user_message = conversation[i]["content"]
                     
                     # Format differs between models
-                    if "claude" in self.model.lower():
+                    if "claude" in model_to_use.lower():
                         # Claude format - XML tags
                         image_tags = []
                         for img in images:

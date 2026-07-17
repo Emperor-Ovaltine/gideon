@@ -237,13 +237,17 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "roll_dice",
-            "description": "Roll dice, flip coins, pick random options, or generate random numbers. Use for any random selection or dice rolling request.",
+            "description": "Roll dice, flip coins, pick random options, or generate random numbers. Use for any random selection or dice rolling request. Always provide at least one of: dice_notation, coin_flip, options, or range_min/range_max. For a generic 'roll the dice' request use dice_notation '1d6'.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "dice_notation": {
                         "type": "string",
-                        "description": "Standard dice notation (e.g., '2d20', '1d6'). Empty string if not applicable."
+                        "description": "Standard dice notation (e.g., '2d20', '1d6', '3d10+5'). Empty string if not applicable."
+                    },
+                    "coin_flip": {
+                        "type": "boolean",
+                        "description": "Set to true to flip a coin (heads or tails). False if not applicable."
                     },
                     "options": {
                         "type": "array",
@@ -525,11 +529,12 @@ async def _execute_roll_dice(args: Dict[str, Any], ctx: Dict[str, Any]) -> str:
     message = ctx["message"]
     channel_id = ctx["channel_id"]
     dice_notation = args.get("dice_notation", "")
+    coin_flip = args.get("coin_flip", False)
     options = args.get("options", [])
     range_min = args.get("range_min")
     range_max = args.get("range_max")
-    
-    await handle_dice_roll(adapter, message, channel_id, dice_notation, options, range_min, range_max)
+
+    await handle_dice_roll(adapter, message, channel_id, dice_notation, options, range_min, range_max, coin_flip)
     return f"Dice roll completed: {dice_notation or 'random selection'}"
 
 

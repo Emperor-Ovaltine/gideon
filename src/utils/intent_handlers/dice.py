@@ -9,7 +9,7 @@ import discord
 logger = logging.getLogger('dice_handler')
 
 
-async def handle_dice_roll(cog, message, channel_id, dice_notation, options, range_min, range_max):
+async def handle_dice_roll(cog, message, channel_id, dice_notation, options, range_min, range_max, coin_flip=False):
     """
     Handle dice rolling, coin flips, and random selection requests.
 
@@ -21,8 +21,24 @@ async def handle_dice_roll(cog, message, channel_id, dice_notation, options, ran
         options: List of options to choose from (for "pick one")
         range_min: Minimum value for random number
         range_max: Maximum value for random number
+        coin_flip: True to flip a coin (heads or tails)
     """
     try:
+        # Handle coin flips
+        if coin_flip:
+            result = random.choice(["Heads", "Tails"])
+            response = f"🪙 Coin flip: **{result}**"
+            await message.channel.send(response)
+
+            await cog.state.add_to_channel_history(channel_id, {
+                "role": "assistant",
+                "content": f"Flipped a coin: {result}",
+                "timestamp": datetime.now()
+            })
+
+            logger.info(f"[Dice] User {message.author.id} flipped a coin: {result}")
+            return
+
         # Handle "pick one" from options
         if options and len(options) > 0:
             chosen = random.choice(options)
@@ -67,10 +83,10 @@ async def handle_dice_roll(cog, message, channel_id, dice_notation, options, ran
                 await message.channel.send("❌ Invalid range values. Please use integers.")
                 return
 
-        # Handle dice notation (e.g., "2d20", "1d6+5")
+        # Handle dice notation (e.g., "2d20", "1d6+5", "d20")
         if dice_notation and dice_notation.strip():
-            # Parse dice notation: XdY+Z or XdY-Z
-            dice_pattern = r'(\d+)d(\d+)(([+\-])(\d+))?'
+            # Parse dice notation: XdY+Z or XdY-Z (X defaults to 1 if omitted)
+            dice_pattern = r'(\d*)d(\d+)(([+\-])(\d+))?'
             match = re.match(dice_pattern, dice_notation.lower().replace(' ', ''))
 
             if not match:
@@ -79,7 +95,7 @@ async def handle_dice_roll(cog, message, channel_id, dice_notation, options, ran
                 )
                 return
 
-            num_dice = int(match.group(1))
+            num_dice = int(match.group(1)) if match.group(1) else 1
             num_sides = int(match.group(2))
             modifier_sign = match.group(4)  # '+' or '-' or None
             modifier_value = int(match.group(5)) if match.group(5) else 0
