@@ -1,10 +1,10 @@
 """Handler for event scheduling intent."""
 
 import logging
-import os
 from datetime import datetime, timedelta
 import discord
-import pytz
+
+from ..timeutil import to_aware, to_epoch
 
 logger = logging.getLogger('event_handler')
 
@@ -64,16 +64,9 @@ async def handle_event_scheduling(cog, message, channel_id, event_name, date_tim
         discord_event_created = False
         if hasattr(message.guild, 'create_scheduled_event'):
             try:
-                # Get timezone from environment (same as reminder system uses)
-                tz_str = os.environ.get('TZ', 'America/New_York')
-                try:
-                    local_tz = pytz.timezone(tz_str)
-                except pytz.exceptions.UnknownTimeZoneError:
-                    local_tz = pytz.timezone('America/New_York')
-
                 # Make parsed_time timezone-aware for Discord API
-                # The parsed_time is naive but represents local time
-                aware_start_time = local_tz.localize(parsed_time)
+                # (parsed_time is naive but represents server-local time)
+                aware_start_time = to_aware(parsed_time)
                 aware_end_time = aware_start_time + timedelta(minutes=duration)
 
                 logger.info(f"[Event] Creating Discord event: start={aware_start_time.isoformat()}, end={aware_end_time.isoformat()}")
@@ -141,16 +134,8 @@ async def handle_event_scheduling(cog, message, channel_id, event_name, date_tim
             due_timestamp=parsed_time
         )
 
-        # Get timezone for correct timestamp display
-        tz_str = os.environ.get('TZ', 'America/New_York')
-        try:
-            local_tz = pytz.timezone(tz_str)
-        except pytz.exceptions.UnknownTimeZoneError:
-            local_tz = pytz.timezone('America/New_York')
-
-        # Make parsed_time timezone-aware for correct timestamp
-        aware_time = local_tz.localize(parsed_time)
-        event_timestamp = int(aware_time.timestamp())
+        # Make parsed_time timezone-aware for correct timestamp display
+        event_timestamp = to_epoch(parsed_time)
 
         # Format confirmation
         confirmation = (

@@ -6,10 +6,12 @@ import re  # Add this import here
 import logging
 from discord.ext import commands
 from ..utils.state_manager import BotStateManager
-from ..utils.memory_service import check_and_rotate_session
+from ..utils.memory_service import check_and_rotate_session, maybe_compact_history
+from ..utils.discord_fmt import chunk_message
 # Changed to absolute import: from ..utils.conversation import get_channel_context
 # Removed import for conversation, now handled by state_manager
 from ..utils.openrouter_client import OpenRouterClient
+from ..utils.web_search import SEARCHING_STATUS, build_search_system_prompt
 from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 from datetime import datetime
 
@@ -205,14 +207,8 @@ class ChatCommands(commands.Cog):
         logger.info(f"[Chat Start] Channel {channel_id}: Effective model ID from state = '{model_id_full}'") # Enhanced log
 
         # Parse provider and model name
-        try:
-            provider, model_name = model_id_full.split('/', 1)
-        except ValueError:
-            logger.warning(f"Invalid model format '{model_id_full}' for channel {channel_id}. Defaulting to OpenRouter.")
-            # Fallback logic: Use global provider or default to openrouter
-            provider = self.state.global_provider # Fetch the configured global provider
-            model_name = model_id_full # Use the full string as model name for the default provider
-            model_id_full = f"{provider}/{model_name}" # Reconstruct full ID for logging
+        provider, model_name = self.state.resolve_model(channel_id)
+        model_id_full = f"{provider}/{model_name}"
 
         # Select the appropriate client
         client_to_use = self.clients.get(provider)
@@ -263,8 +259,9 @@ class ChatCommands(commands.Cog):
         # Check for session expiry and rotate if needed (before fetching history)
         await check_and_rotate_session(channel_id, self.state, self.clients)
 
-        # Get effective system prompt (persona > channel config > global, with memory injected)
-        channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
+        # Get effective system prompt (persona > channel config > global, with
+        # memory summaries relevant to the current message injected)
+        channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=message)
 
         try:
             # Get recent channel context from state manager
@@ -277,6 +274,12 @@ class ChatCommands(commands.Cog):
                 "content": message,
                 "timestamp": datetime.now()
             })
+
+            # Compact oversized histories into a memory summary
+            try:
+                await maybe_compact_history(channel_id, self.state, self.clients)
+            except Exception as e:
+                logger.error(f"Error compacting history for channel {channel_id}: {e}", exc_info=True)
 
             # Format the final query with the current user's question
             conversation_context.append({
@@ -353,8 +356,7 @@ class ChatCommands(commands.Cog):
                                 await ctx.channel.send(embed=embed)
                 else:
                     logger.info(f"Using standard formatting for model {model_id_full}")
-                    max_length = 2000
-                    chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+                    chunks = chunk_message(response)
 
                     if persona_active:
                         # Delete processing message, send all chunks via webhook
@@ -480,7 +482,7 @@ class ChatCommands(commands.Cog):
         try:
             provider, model_name = model_id_full.split('/', 1)
         except ValueError:
-            logger.warning(f"Invalid model format '{model_id_full}' for search command. Defaulting to OpenRouter.")
+            logger.warning(f"Invalid model format '{model_id_full}' for search command. Using global provider.")
             provider = self.state.global_provider
             model_name = model_id_full
             model_id_full = f"{provider}/{model_name}"
@@ -497,7 +499,7 @@ class ChatCommands(commands.Cog):
 
         try:
             # Create a thinking message
-            processing_msg = await ctx.respond(f"🔍 Searching for information about: **{query}**...")
+            processing_msg = await ctx.respond(SEARCHING_STATUS.format(query=query))
 
             # Prepare the user message
             user_message = {
@@ -506,14 +508,10 @@ class ChatCommands(commands.Cog):
             }
 
             # Get effective system prompt (persona > channel config > global)
-            channel_system_prompt = self.state.get_effective_system_prompt(channel_id)
+            channel_system_prompt = self.state.get_effective_system_prompt(channel_id, query=query)
 
             # Add a search-focused wrapper to the system prompt
-            search_system_prompt = channel_system_prompt
-            if search_system_prompt:
-                search_system_prompt += "\n\nYou have access to web search. When answering, use the most current information available from searching the web."
-            else:
-                search_system_prompt = "You are a helpful AI assistant with access to web search. When answering questions, use the most current information available from searching the web. Always cite your sources."
+            search_system_prompt = build_search_system_prompt(channel_system_prompt)
 
             # Send to the OpenRouter client (as only it supports web_search flag currently)
             response = await client_to_use.send_message_with_history(

@@ -2,9 +2,8 @@
 import discord
 import logging
 from discord.ext import commands
-from ..utils.state_manager import BotStateManager
-from ..utils.openrouter_client import OpenRouterClient
-from ..config import OPENROUTER_API_KEY, SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
+from ..utils.discord_fmt import chunk_message
+from ..config import SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
@@ -16,10 +15,10 @@ class ThreadCommands(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.state = BotStateManager() # Get the singleton instance
-        self.openrouter_client = OpenRouterClient(OPENROUTER_API_KEY, SYSTEM_PROMPT, DEFAULT_MODEL)
-
-        # Removed: self.state.discord_threads initialization - now handled by DB
+        # Use the shared state manager and client from the bot instance so
+        # dashboard key rotation and config changes apply here too.
+        self.state = bot.state_manager
+        self.openrouter_client = bot.openrouter_client
 
     # Create the thread command group as a class attribute
     thread = discord.SlashCommandGroup(
@@ -184,8 +183,7 @@ class ThreadCommands(commands.Cog):
                     })
 
                     # Split response into chunks
-                    max_length = 2000
-                    chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+                    chunks = chunk_message(response)
 
                     # Update thinking message with first chunk
                     await thinking_msg.edit(content=chunks[0])
@@ -315,8 +313,7 @@ class ThreadCommands(commands.Cog):
             })
 
             # Send response in chunks like other commands
-            max_length = 2000
-            chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+            chunks = chunk_message(response)
 
             # Check if a persona is active for webhook-based sending
             parent_id = str(ctx.channel.parent_id) if isinstance(ctx.channel, discord.Thread) else str(ctx.channel.id)
@@ -533,9 +530,8 @@ class ThreadCommands(commands.Cog):
             # Use the state manager's method
             self.state.set_discord_thread_system_prompt(thread_id, new_prompt)
 
-            # Handle long prompts by chunking
-            max_length = 1950
-            chunks = [new_prompt[i:i+max_length] for i in range(0, len(new_prompt), max_length)]
+            # Handle long prompts by chunking (1950 leaves room for the code fence)
+            chunks = chunk_message(new_prompt, limit=1950)
 
             await ctx.respond(f"✅ System prompt for this thread updated:\n```\n{chunks[0]}\n```")
             for chunk in chunks[1:]:
@@ -591,12 +587,9 @@ class ThreadCommands(commands.Cog):
                 # timestamp and user_id are added in add_discord_thread_message
             })
 
-            # Get conversation context from the database history for this thread
-            # Use the getter method with the configured time window
-            # Pass the limit argument, not hours_limit. Note: This uses the time window value as a message count limit,
-            # which might not be the intended logic, but fixes the TypeError.
-            # Consider revising if time-based filtering is needed here.
-            conversation_context = self.state.get_discord_thread_history(thread_id, limit=self.state.get_time_window_hours())
+            # Get conversation context from the database history for this thread,
+            # bounded by the configured time window
+            conversation_context = self.state.get_discord_thread_history(thread_id, hours_limit=self.state.get_time_window_hours())
 
             # Get thread-specific model and system prompt from DB
             thread_config = self.state.get_discord_thread_config(thread_id)
@@ -651,8 +644,7 @@ class ThreadCommands(commands.Cog):
                 })
 
                 # Split response into chunks
-                max_length = 2000
-                chunks = [response[i:i+max_length] for i in range(0, len(response), max_length)]
+                chunks = chunk_message(response)
 
                 # Check if persona is active for the parent channel
                 auto_parent_id = str(message.channel.parent_id) if isinstance(message.channel, discord.Thread) else str(message.channel.id)

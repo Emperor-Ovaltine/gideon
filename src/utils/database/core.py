@@ -39,23 +39,43 @@ class DatabaseManager:
             self._conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES, check_same_thread=False)
             # Use Row factory for dictionary-like access to rows
             self._conn.row_factory = sqlite3.Row
+            # WAL keeps readers from blocking behind writers; NORMAL sync is
+            # safe with WAL and avoids an fsync per transaction.
+            self._conn.execute("PRAGMA journal_mode=WAL;")
+            self._conn.execute("PRAGMA synchronous=NORMAL;")
             logger.info(f"Connected to database: {self.db_path}")
 
             # Initialize schema
             SchemaManager.initialize(self._conn)
 
-            # Initialize managers with shared connection
-            self._config = ConfigManager(self._conn)
-            self._channels = ChannelManager(self._conn)
-            self._threads = ThreadManager(self._conn)
-            self._messages = MessageManager(self._conn)
-            self._users = UserManager(self._conn)
-            self._reminders = ReminderManager(self._conn)
-            self._trivia = TriviaManager(self._conn)
-            self._api_keys = APIKeyManager(self._conn)
-            self._personas = PersonaManager(self._conn)
-            self._backup = BackupManager(self._conn, self.db_path)
-            self._memory = MemoryManager(self._conn)
+            # Initialize managers with shared connection.
+            # These are public — prefer db.messages.add_message(...) over the
+            # legacy flat delegate methods below, which are kept for
+            # existing call sites.
+            self.config = ConfigManager(self._conn)
+            self.channels = ChannelManager(self._conn)
+            self.threads = ThreadManager(self._conn)
+            self.messages = MessageManager(self._conn)
+            self.users = UserManager(self._conn)
+            self.reminders = ReminderManager(self._conn)
+            self.trivia = TriviaManager(self._conn)
+            self.api_keys = APIKeyManager(self._conn)
+            self.personas = PersonaManager(self._conn)
+            self.backup = BackupManager(self._conn, self.db_path)
+            self.memory = MemoryManager(self._conn)
+
+            # Legacy private aliases (older call sites reference these)
+            self._config = self.config
+            self._channels = self.channels
+            self._threads = self.threads
+            self._messages = self.messages
+            self._users = self.users
+            self._reminders = self.reminders
+            self._trivia = self.trivia
+            self._api_keys = self.api_keys
+            self._personas = self.personas
+            self._backup = self.backup
+            self._memory = self.memory
 
         except sqlite3.Error as e:
             logger.error(f"Database connection error to {self.db_path}: {e}", exc_info=True)
@@ -214,6 +234,10 @@ class DatabaseManager:
     def prune_old_messages(self, cutoff_timestamp: datetime) -> int:
         """Deletes messages older than the specified cutoff timestamp."""
         return self._messages.prune_old_messages(cutoff_timestamp)
+
+    def delete_channel_messages(self, channel_id: str, before_timestamp: Optional[datetime] = None) -> int:
+        """Deletes messages for a channel, optionally only those before a timestamp."""
+        return self._messages.delete_channel_messages(channel_id, before_timestamp)
 
     # --- User Methods (delegate to UserManager) ---
 
@@ -451,6 +475,10 @@ class DatabaseManager:
     def prune_channel_memories(self, channel_id: str, max_count: int) -> int:
         """Keeps only the most recent `max_count` summaries for a channel."""
         return self._memory.prune_memories(channel_id, max_count)
+
+    def search_channel_memories(self, channel_id: str, query: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """Full-text search over a channel's memory summaries."""
+        return self._memory.search_memories(channel_id, query, limit)
 
     def get_all_memory_stats(self) -> List[Dict[str, Any]]:
         """Returns per-channel memory stats (channel_id, count, latest timestamp)."""

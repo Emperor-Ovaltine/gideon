@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import json
 import os
-import pytz
+from ..utils.timeutil import local_tz, now_local, to_epoch
 
 logger = logging.getLogger('reminder_commands')
 
@@ -33,18 +33,10 @@ class ReminderCommands(commands.Cog):
         Returns:
             datetime object or None if parsing fails
         """
-        # Get current datetime info to provide context
-        # NOTE: Using America/New_York timezone. Discord timestamps will display in user's timezone.
-        # Get timezone from environment variable or default to America/New_York (EST/EDT)
-        tz_str = os.environ.get('TZ', 'America/New_York')
-        try:
-            local_tz = pytz.timezone(tz_str)
-        except pytz.exceptions.UnknownTimeZoneError:
-            logger.warning(f"Unknown timezone '{tz_str}', defaulting to America/New_York")
-            local_tz = pytz.timezone('America/New_York')
-
-        # Get current time in the local timezone
-        now = datetime.now(local_tz)
+        # Get current datetime info to provide context.
+        # Reminders are stored as naive datetimes in the server-local timezone;
+        # Discord <t:...> tags display them in each user's own timezone.
+        now = now_local()
         # Convert to naive datetime for consistency with database storage
         now_naive = now.replace(tzinfo=None)
         current_time_str = now_naive.strftime("%Y-%m-%d %H:%M:%S")
@@ -224,16 +216,7 @@ Return ONLY the JSON, no other text."""
             )
 
             # Create Discord timestamp (shows in user's timezone)
-            # Need to localize the naive datetime to EST before converting to timestamp
-            tz_str = os.environ.get('TZ', 'America/New_York')
-            try:
-                local_tz = pytz.timezone(tz_str)
-            except pytz.exceptions.UnknownTimeZoneError:
-                local_tz = pytz.timezone('America/New_York')
-
-            # Localize the naive datetime to the local timezone
-            aware_time = local_tz.localize(parsed_time)
-            discord_timestamp = int(aware_time.timestamp())
+            discord_timestamp = to_epoch(parsed_time)
 
             # Success message with Discord timestamp formatting
             await ctx.followup.send(
@@ -272,13 +255,6 @@ Return ONLY the JSON, no other text."""
                 description="Here are your pending reminders:"
             )
 
-            # Get timezone for proper timestamp conversion
-            tz_str = os.environ.get('TZ', 'America/New_York')
-            try:
-                local_tz = pytz.timezone(tz_str)
-            except pytz.exceptions.UnknownTimeZoneError:
-                local_tz = pytz.timezone('America/New_York')
-
             for reminder in reminders[:25]:  # Discord embed field limit
                 reminder_id = reminder['reminder_id']
                 message = reminder['message']
@@ -292,8 +268,7 @@ Return ONLY the JSON, no other text."""
                         due_timestamp = datetime.strptime(due_timestamp, '%Y-%m-%d %H:%M:%S')
 
                 # Localize naive datetime to local timezone before converting to timestamp
-                aware_time = local_tz.localize(due_timestamp)
-                discord_timestamp = int(aware_time.timestamp())
+                discord_timestamp = to_epoch(due_timestamp)
 
                 # Truncate long messages
                 display_message = message if len(message) <= 50 else message[:47] + "..."

@@ -155,7 +155,11 @@ class OpenAIClient:
         for msg in messages:
             role = msg.get("role")
             content = msg.get("content")
-            if not role or not content:
+            tool_calls = msg.get("tool_calls")
+            # Assistant tool-call turns legitimately have empty content;
+            # dropping them would orphan the following role="tool" messages
+            # and the API would reject the request.
+            if not role or (not content and not tool_calls):
                 logger.warning(f"Skipping message with missing role or content: {msg}")
                 continue
 
@@ -165,6 +169,12 @@ class OpenAIClient:
                  user_content_list = [{"type": "text", "text": content}]
                  user_content_list.extend(images_to_include)
                  api_messages.append({"role": "user", "content": user_content_list})
+            elif role == "assistant" and tool_calls:
+                 # Tool-call turn: tool_calls must round-trip for the API to
+                 # accept the tool results that follow
+                 api_messages.append({"role": role, "content": content or "", "tool_calls": tool_calls})
+            elif role == "tool":
+                 api_messages.append({"role": role, "content": content, "tool_call_id": msg.get("tool_call_id", "")})
             else:
                  # Standard text message
                  api_messages.append({"role": role, "content": content})

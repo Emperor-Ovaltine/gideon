@@ -1,5 +1,6 @@
 """Client for interacting with Cloudflare Worker image generation API."""
 import aiohttp
+from .http_session import SharedSessionMixin
 import logging
 import json
 import os
@@ -28,7 +29,7 @@ class CloudflareWorkerClient:
             if self.api_key:
                 headers["Authorization"] = f"Bearer {self.api_key}"
                 
-            async with aiohttp.ClientSession() as session:
+            async with self.shared_session() as session:
                 async with session.post(
                     self.api_url,
                     headers=headers,
@@ -110,7 +111,7 @@ class CloudflareWorkerClient:
             logger.info(f"Sending image generation request to {self.api_url}")
             logger.debug(f"Payload: {payload}")
             
-            async with aiohttp.ClientSession() as session:
+            async with self.shared_session() as session:
                 async with session.post(
                     self.api_url,
                     headers=headers,

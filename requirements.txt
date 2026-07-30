@@ -1,11 +1,8 @@
-py-cord>=2.4.0  # Updated for better slash command support
-aiohttp
-python-dotenv
-dnspython
-pytz  # For timezone handling in reminders
-sympy>=1.12  # For safe mathematical expression evaluation
-Pillow>=9.0.0  # For potential image processing
-beautifulsoup4>=4.12.0  # For HTML parsing in URL summarization
-feedparser>=6.0.0  # For parsing RSS feeds
-openai>=1.0.0  # For OpenAI API access (Dall-E)
-cryptography>=41.0.0  # For Fernet encryption of API keys
+py-cord==2.6.1          # Discord API framework (cogs + slash commands)
+aiohttp==3.11.*          # Async HTTP for LLM/image provider clients + dashboard
+python-dotenv==1.0.*     # .env loading
+sympy==1.13.*            # Safe mathematical expression evaluation (calculate tool)
+beautifulsoup4==4.12.*   # HTML parsing for URL summarization
+openai==1.*              # OpenAI API access (chat + DALL-E)
+cryptography==44.*       # Fernet encryption of API keys — keep current, gets CVEs
+tzdata==2024.*         # IANA tz database for zoneinfo (slim images may lack system tzdata)

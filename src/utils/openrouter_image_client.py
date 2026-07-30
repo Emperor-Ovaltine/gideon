@@ -1,5 +1,6 @@
 """Client for interacting with OpenRouter API for image generation."""
 import aiohttp
+from .http_session import SharedSessionMixin
 import base64
 import json
 import logging
@@ -8,7 +9,7 @@ from typing import Dict, Any, Optional
 logger = logging.getLogger('openrouter_image_client')
 
 
-class OpenRouterImageClient:
+class OpenRouterImageClient(SharedSessionMixin):
     """Client for generating images using OpenRouter API.
 
     OpenRouter provides access to various image generation models through a unified API.
@@ -128,12 +129,14 @@ class OpenRouterImageClient:
             logger.debug(f"Payload: {json.dumps(payload, default=str)}")
 
             # Make the API request
-            timeout = aiohttp.ClientTimeout(total=120)  # 2 minutes timeout for image generation
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            # 2 minutes timeout for image generation
+            timeout = aiohttp.ClientTimeout(total=120)
+            async with self.shared_session() as session:
                 async with session.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,
-                    json=payload
+                    json=payload,
+                    timeout=timeout
                 ) as response:
                     if response.status != 200:
                         error_text = await response.text()
@@ -272,10 +275,11 @@ class OpenRouterImageClient:
             }
 
             timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with self.shared_session() as session:
                 async with session.get(
                     f"{self.base_url}/models",
-                    headers=headers
+                    headers=headers,
+                    timeout=timeout
                 ) as response:
                     if response.status != 200:
                         return {"success": False, "error": "Failed to fetch model list"}

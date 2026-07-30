@@ -69,6 +69,49 @@ async def check_and_rotate_session(channel_id: str, state, clients: dict) -> boo
     return True
 
 
+async def maybe_compact_history(channel_id: str, state, clients: dict,
+                                keep_tail: int = 15) -> bool:
+    """Compacts oversized channel histories into a memory summary.
+
+    Session rotation only fires on inactivity, so a continuously active
+    channel would otherwise never rotate — older messages silently fall off
+    the history window without ever being summarized. When the stored
+    history exceeds the configured window, this summarizes everything except
+    the most recent ``keep_tail`` messages and deletes the summarized rows.
+
+    Returns True if a compaction occurred.
+    """
+    max_messages = state.get_max_channel_history()
+    count = state.get_channel_message_count(channel_id)
+    if count <= max_messages:
+        return False
+
+    # Fetch the full stored history (oldest first) and split head/tail
+    history = state.get_channel_history(channel_id, limit=count)
+    if len(history) <= keep_tail:
+        return False
+    head, tail = history[:-keep_tail], history[-keep_tail:]
+
+    tail_start = _parse_timestamp(tail[0].get("timestamp"))
+    if tail_start is None:
+        logger.warning(f"[Memory] Cannot compact channel {channel_id}: unparseable tail timestamp.")
+        return False
+
+    summary_enabled = state.get_effective_memory_summary_enabled(channel_id)
+    if summary_enabled and len(head) >= _MIN_MESSAGES_TO_SUMMARIZE:
+        conversation_start = _parse_timestamp(head[0].get("timestamp"))
+        summary = await _summarize_history(head, channel_id, state, clients)
+        if summary:
+            state.add_channel_memory(channel_id, summary, len(head),
+                                     conversation_start=conversation_start)
+            max_summaries = state.get_effective_max_memory_summaries(channel_id)
+            state.prune_channel_memories(channel_id, max_summaries)
+            logger.info(f"[Memory] Compacted {len(head)} messages into a summary for channel {channel_id}.")
+
+    state.delete_channel_messages_before(channel_id, tail_start)
+    return True
+
+
 async def _summarize_history(
     history: List[Dict[str, Any]],
     channel_id: str,

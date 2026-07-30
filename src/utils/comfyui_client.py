@@ -1,5 +1,6 @@
 """Client for interacting with ComfyUI API for image generation."""
 import aiohttp
+from .http_session import SharedSessionMixin
 import asyncio
 import copy
 import json
@@ -12,7 +13,7 @@ from typing import Dict, Any, Optional, List
 logger = logging.getLogger('comfyui_client')
 
 
-class ComfyUIClient:
+class ComfyUIClient(SharedSessionMixin):
     """Client for generating images using ComfyUI API."""
 
     # Default workflow for txt2img generation
@@ -89,7 +90,7 @@ class ComfyUIClient:
     async def test_connection(self) -> Dict[str, Any]:
         """Test connection to ComfyUI server."""
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self.shared_session() as session:
                 async with session.get(
                     f"{self.api_url}/system_stats",
                     timeout=10
@@ -208,7 +209,7 @@ class ComfyUIClient:
             Dict with "success" and "models" list, or "error"
         """
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self.shared_session() as session:
                 # Try the /models endpoint first
                 async with session.get(
                     f"{self.api_url}/models/{model_type}",
@@ -272,7 +273,7 @@ class ComfyUIClient:
             "client_id": self.client_id
         }
 
-        async with aiohttp.ClientSession() as session:
+        async with self.shared_session() as session:
             async with session.post(
                 f"{self.api_url}/prompt",
                 json=payload,
@@ -292,7 +293,7 @@ class ComfyUIClient:
         """Poll /history endpoint until execution completes (default 10 min timeout)."""
         start_time = asyncio.get_event_loop().time()
 
-        async with aiohttp.ClientSession() as session:
+        async with self.shared_session() as session:
             while asyncio.get_event_loop().time() - start_time < timeout:
                 try:
                     async with session.get(
@@ -344,7 +345,7 @@ class ComfyUIClient:
         if subfolder:
             params["subfolder"] = subfolder
 
-        async with aiohttp.ClientSession() as session:
+        async with self.shared_session() as session:
             async with session.get(
                 f"{self.api_url}/view",
                 params=params,

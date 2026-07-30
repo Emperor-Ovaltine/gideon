@@ -7,9 +7,6 @@ import base64
 from io import BytesIO
 from typing import List, Dict, Any, Optional
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('openrouter_client')
 
 class OpenRouterClient:
@@ -20,6 +17,7 @@ class OpenRouterClient:
         self.system_prompt = system_prompt
         self.model = default_model
         self.base_url = "https://openrouter.ai/api/v1"
+        self._session: Optional[aiohttp.ClientSession] = None
         
         # List of model name fragments that support vision
         self.vision_models = [
@@ -29,9 +27,27 @@ class OpenRouterClient:
             "llava", # Add Llava models
         ]
         
-    def model_supports_vision(self) -> bool:
-        """Check if the current model supports vision/images."""
-        return any(vision_model in self.model.lower() for vision_model in self.vision_models)
+    def model_supports_vision(self, model_name: Optional[str] = None) -> bool:
+        """Check if the given model (or the default) supports vision/images."""
+        model_to_check = (model_name or self.model or "").lower()
+        return any(vision_model in model_to_check for vision_model in self.vision_models)
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        """Returns the shared HTTP session, creating it lazily.
+
+        One session per client keeps the connection pool warm across
+        requests and applies a sane default timeout.
+        """
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=120)
+            )
+        return self._session
+
+    async def close(self):
+        """Closes the shared HTTP session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
     
     async def verify_dns_resolution(self, domain: str) -> bool:
         """Verify that we can resolve the DNS for the given domain."""
@@ -70,41 +86,22 @@ class OpenRouterClient:
         # Add the message history
         conversation.extend(messages)
         
-        # If we have images and the model supports them, format them correctly
-        if images and self.model_supports_vision():
-            # Find the last user message to add images to
+        # If we have images and the model supports them, attach to the last
+        # user message using the OpenAI-style content array — OpenRouter
+        # normalizes this for every underlying provider (including Claude).
+        if images and self.model_supports_vision(model_to_use):
             for i in range(len(conversation) - 1, -1, -1):
                 if conversation[i]["role"] == "user":
-                    # We need to convert the message to the proper format for images
-                    user_message = conversation[i]["content"]
-                    
-                    # Format differs between models
-                    if "claude" in self.model.lower():
-                        # Claude format - XML tags
-                        image_tags = []
-                        for img in images:
-                            base64_image = base64.b64encode(img['data']).decode('utf-8')
-                            mime_type = img['type']
-                            image_tags.append(f'<image format="{mime_type}" base64="{base64_image}" />')
-                        
-                        # Combine text and images
-                        conversation[i]["content"] = "\n".join(image_tags) + "\n\n" + user_message
-                    else:
-                        # GPT-4 Vision and similar formats - content array
-                        content_array = [{"type": "text", "text": user_message}]
-                        
-                        for img in images:
-                            base64_image = base64.b64encode(img['data']).decode('utf-8')
-                            content_array.append({
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{img['type']};base64,{base64_image}"
-                                }
-                            })
-                        
-                        # Replace content string with content array
-                        conversation[i]["content"] = content_array
-                    
+                    content_array = [{"type": "text", "text": conversation[i]["content"]}]
+                    for img in images:
+                        base64_image = base64.b64encode(img['data']).decode('utf-8')
+                        content_array.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{img['type']};base64,{base64_image}"
+                            }
+                        })
+                    conversation[i]["content"] = content_array
                     break
                     
         # Prepare the request body
@@ -139,65 +136,64 @@ class OpenRouterClient:
 
         # Send the request
         try:
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com/eoko-dev/gideon",
-                    "X-Title": "Gideon Discord Bot",
-                    "X-Client": "openrouter-python"
-                }
-                
-                async with session.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"API Error ({response.status}): {error_text}")
-                        return f"⚠️ API Error ({response.status}): {error_text}"
+            session = self._get_session()
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/eoko-dev/gideon",
+                "X-Title": "Gideon Discord Bot",
+                "X-Client": "openrouter-python"
+            }
+            async with session.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"API Error ({response.status}): {error_text}")
+                    return f"⚠️ API Error ({response.status}): {error_text}"
                     
-                    result = await response.json()
-                    logger.info(f"Response keys: {result.keys()}")
+                result = await response.json()
+                logger.info(f"Response keys: {result.keys()}")
                     
-                    try:
-                        if "choices" in result and len(result["choices"]) > 0:
-                            choice = result["choices"][0]
-                            if "message" in choice:
-                                message = choice["message"]
-                                # Check for tool calls first
-                                if message.get("tool_calls"):
-                                    logger.info(f"Model requested {len(message['tool_calls'])} tool call(s)")
-                                    return {
-                                        "content": message.get("content"),
-                                        "tool_calls": message["tool_calls"]
-                                    }
-                                elif "content" in message:
-                                    return message["content"]
-                                else:
-                                    logger.error(f"Unexpected choice format: {choice}")
-                                    return "⚠️ Choice missing message or content field"
+                try:
+                    if "choices" in result and len(result["choices"]) > 0:
+                        choice = result["choices"][0]
+                        if "message" in choice:
+                            message = choice["message"]
+                            # Check for tool calls first
+                            if message.get("tool_calls"):
+                                logger.info(f"Model requested {len(message['tool_calls'])} tool call(s)")
+                                return {
+                                    "content": message.get("content"),
+                                    "tool_calls": message["tool_calls"]
+                                }
+                            elif "content" in message:
+                                return message["content"]
                             else:
                                 logger.error(f"Unexpected choice format: {choice}")
                                 return "⚠️ Choice missing message or content field"
-                        elif "error" in result:
-                            error_msg = result.get("error", {}).get("message", "Unknown error")
-                            error_type = result.get("error", {}).get("type", "")
-                            
-                            logger.error(f"API returned error: {error_msg}, type: {error_type}")
-                            
-                            # Handle rate limit errors with more user-friendly message
-                            if "rate limit" in error_msg.lower() or "ratelimit" in error_msg.lower():
-                                return f"⚠️ Rate limit exceeded for model `{self.model}`.\nPlease try:\n- Waiting a few minutes\n- Selecting a different model with `/setmodel`\n- Using a paid plan on OpenRouter"
-                            
-                            return f"⚠️ API Error: {error_msg}"
                         else:
-                            logger.error(f"Unexpected API response format: {result}")
-                            return "⚠️ Unexpected API response format. Try using `/setmodel` to switch to a different model."
-                    except Exception as e:
-                        logger.error(f"Error parsing API response: {str(e)}")
-                        return f"⚠️ Error parsing response: {str(e)}"
+                            logger.error(f"Unexpected choice format: {choice}")
+                            return "⚠️ Choice missing message or content field"
+                    elif "error" in result:
+                        error_msg = result.get("error", {}).get("message", "Unknown error")
+                        error_type = result.get("error", {}).get("type", "")
+                            
+                        logger.error(f"API returned error: {error_msg}, type: {error_type}")
+                            
+                        # Handle rate limit errors with more user-friendly message
+                        if "rate limit" in error_msg.lower() or "ratelimit" in error_msg.lower():
+                            return f"⚠️ Rate limit exceeded for model `{self.model}`.\nPlease try:\n- Waiting a few minutes\n- Selecting a different model with `/setmodel`\n- Using a paid plan on OpenRouter"
+                            
+                        return f"⚠️ API Error: {error_msg}"
+                    else:
+                        logger.error(f"Unexpected API response format: {result}")
+                        return "⚠️ Unexpected API response format. Try using `/setmodel` to switch to a different model."
+                except Exception as e:
+                    logger.error(f"Error parsing API response: {str(e)}")
+                    return f"⚠️ Error parsing response: {str(e)}"
         except Exception as e:
             logger.error(f"Error sending message: {str(e)}")
             return f"⚠️ Error: {str(e)}"
@@ -205,67 +201,66 @@ class OpenRouterClient:
     async def get_available_models(self) -> Dict[str, Any]:
         """Fetch available models from OpenRouter API."""
         try:
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "HTTP-Referer": "https://github.com/eoko-dev/gideon",
-                    "X-Title": "Gideon Discord Bot"
-                }
-                
-                async with session.get(
-                    f"{self.base_url}/models",
-                    headers=headers
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Failed to get models: ({response.status}) {error_text}")
-                        return {"success": False, "error": f"API Error ({response.status}): {error_text}"}
+            session = self._get_session()
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "HTTP-Referer": "https://github.com/eoko-dev/gideon",
+                "X-Title": "Gideon Discord Bot"
+            }
+            async with session.get(
+                f"{self.base_url}/models",
+                headers=headers
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Failed to get models: ({response.status}) {error_text}")
+                    return {"success": False, "error": f"API Error ({response.status}): {error_text}"}
                     
-                    models_data = await response.json()
+                models_data = await response.json()
                     
-                    # Process data to extract useful info and identify vision-capable models
-                    processed_models = []
-                    vision_models = []
+                # Process data to extract useful info and identify vision-capable models
+                processed_models = []
+                vision_models = []
                     
-                    for model in models_data.get("data", []):
-                        model_id = model.get("id")
-                        context_length = model.get("context_length", 0)
-                        pricing = model.get("pricing", {})
+                for model in models_data.get("data", []):
+                    model_id = model.get("id")
+                    context_length = model.get("context_length", 0)
+                    pricing = model.get("pricing", {})
                         
-                        # Check if model supports vision based on capabilities
-                        # Check if model supports vision based on capabilities OR known identifiers
-                        supports_vision = False
-                        # 1. Check the capabilities field from API (if present)
-                        if model.get("capabilities", {}).get("vision", False):
-                            supports_vision = True
-                        # 2. Check if model ID matches known vision model patterns (fallback)
-                        elif model_id and any(vision_pattern in model_id.lower() for vision_pattern in self.vision_models):
-                             supports_vision = True
-                             # Log if we used the fallback
-                             logger.debug(f"Identified vision support for '{model_id}' using fallback pattern matching.")
+                    # Check if model supports vision based on capabilities
+                    # Check if model supports vision based on capabilities OR known identifiers
+                    supports_vision = False
+                    # 1. Check the capabilities field from API (if present)
+                    if model.get("capabilities", {}).get("vision", False):
+                        supports_vision = True
+                    # 2. Check if model ID matches known vision model patterns (fallback)
+                    elif model_id and any(vision_pattern in model_id.lower() for vision_pattern in self.vision_models):
+                         supports_vision = True
+                         # Log if we used the fallback
+                         logger.debug(f"Identified vision support for '{model_id}' using fallback pattern matching.")
 
-                        # Keep track of models identified as vision-capable by the API check (for logging/debugging if needed)
-                        if supports_vision:
-                             vision_models.append(model_id) # Note: This local list is not used further after this loop
+                    # Keep track of models identified as vision-capable by the API check (for logging/debugging if needed)
+                    if supports_vision:
+                         vision_models.append(model_id) # Note: This local list is not used further after this loop
 
-                        processed_models.append({
-                            "id": model_id,
-                            "name": model.get("name", "Unknown"),
-                            "description": model.get("description", ""),
-                            "context_length": context_length,
-                            "supports_vision": supports_vision, # This is the flag used by ModelManager
-                            "pricing": pricing
-                        })
+                    processed_models.append({
+                        "id": model_id,
+                        "name": model.get("name", "Unknown"),
+                        "description": model.get("description", ""),
+                        "context_length": context_length,
+                        "supports_vision": supports_vision, # This is the flag used by ModelManager
+                        "pricing": pricing
+                    })
                     
-                    # DO NOT dynamically update self.vision_models here.
-                    # Keep the original hardcoded list for the client's internal checks.
-                    # self.vision_models = vision_models
+                # DO NOT dynamically update self.vision_models here.
+                # Keep the original hardcoded list for the client's internal checks.
+                # self.vision_models = vision_models
                     
-                    return {
-                        "success": True,
-                        "models": processed_models,
-                        "raw_data": models_data
-                    }
+                return {
+                    "success": True,
+                    "models": processed_models,
+                    "raw_data": models_data
+                }
         except Exception as e:
             logger.error(f"Error getting models: {str(e)}")
             return {"success": False, "error": f"Error getting models: {str(e)}"}
