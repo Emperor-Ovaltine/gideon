@@ -127,8 +127,13 @@ class ThreadCommands(commands.Cog):
                     "user_id": str(ctx.author.id) # Store user ID
                 })
 
+                # Get thread-specific model (or channel/global default)
+                thread_config = self.state.get_discord_thread_config(thread_id)
+                thread_model = thread_config.get("model") if thread_config else None
+                model_to_use = thread_model if thread_model else self.get_model_for_channel(channel_id)
+
                 # Process image if provided
-                model_supports_images = self.openrouter_client.model_supports_vision()
+                model_supports_images = await self.openrouter_client.model_supports_vision(model_to_use)
                 images = []
 
                 if image and model_supports_images:
@@ -151,7 +156,6 @@ class ThreadCommands(commands.Cog):
                 conversation_context = self.state.get_discord_thread_history(thread_id)
 
                 # Get thread-specific system prompt (or channel default)
-                thread_config = self.state.get_discord_thread_config(thread_id)
                 thread_system_prompt = thread_config.get("system_prompt") if thread_config else None
 
                 if not thread_system_prompt:
@@ -159,10 +163,6 @@ class ThreadCommands(commands.Cog):
                     if not thread_system_prompt:
                          # Fallback to global system prompt if no channel or thread specific prompt
                          thread_system_prompt = self.openrouter_client.system_prompt # Use the default from client init
-
-                # Get thread-specific model (or channel/global default)
-                thread_model = thread_config.get("model") if thread_config else None
-                model_to_use = thread_model if thread_model else self.get_model_for_channel(channel_id)
 
                 # Temporarily set the model for this request
                 current_model = self.openrouter_client.model
@@ -243,7 +243,7 @@ class ThreadCommands(commands.Cog):
         self.openrouter_client.model = model_to_use
 
         # Handle image processing
-        model_supports_images = self.openrouter_client.model_supports_vision()
+        model_supports_images = await self.openrouter_client.model_supports_vision(model_to_use)
         images = []
         image_embed = None
 
@@ -642,7 +642,8 @@ class ThreadCommands(commands.Cog):
 
                 # Process images if any are attached to the user message
                 images = []
-                if self.openrouter_client.model_supports_vision() and message.attachments:
+                model_supports_images = await self.openrouter_client.model_supports_vision(model_to_use)
+                if model_supports_images and message.attachments:
                     for attachment in message.attachments:
                         if any(attachment.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']):
                             try:
@@ -658,7 +659,7 @@ class ThreadCommands(commands.Cog):
                 # Get response from AI
                 response = await self.openrouter_client.send_message_with_history(
                     conversation_context,
-                    images=images if self.openrouter_client.model_supports_vision() else [], # Only pass images if model supports vision
+                    images=images, # Already empty unless the resolved model supports vision
                     system_prompt=system_prompt_to_use
                 )
 

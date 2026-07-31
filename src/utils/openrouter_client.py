@@ -4,6 +4,7 @@ import asyncio
 import socket
 import logging
 import base64
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import List, Dict, Any, Optional
 
@@ -20,19 +21,76 @@ class OpenRouterClient:
         self.model = default_model
         self.base_url = "https://openrouter.ai/api/v1"
         self._session: Optional[aiohttp.ClientSession] = None
-        
-        # List of model name fragments that support vision
-        self.vision_models = [
-            "claude-3",
-            "gpt-4", # Make more general to catch gpt-4o, etc.
-            "gemini",
-            "llava", # Add Llava models
-        ]
-        
-    def model_supports_vision(self, model_name: Optional[str] = None) -> bool:
-        """Check if the given model (or the default) supports vision/images."""
-        model_to_check = (model_name or self.model or "").lower()
-        return any(vision_model in model_to_check for vision_model in self.vision_models)
+
+        # Vision capability is read from the /models API rather than a
+        # maintained list. Populated as a side effect of get_available_models().
+        self._vision_capabilities: Dict[str, bool] = {}
+        self._capabilities_updated: Optional[datetime] = None
+        self._capabilities_ttl = timedelta(hours=12)
+        self._capabilities_lock = asyncio.Lock()
+
+    @staticmethod
+    def _detect_vision_support(model_info: Dict[str, Any]) -> Optional[bool]:
+        """Read image-input support from a /models entry.
+
+        Returns None when the entry carries no modality metadata at all, so
+        callers can tell "known to be text-only" apart from "don't know".
+        """
+        architecture = model_info.get("architecture") or {}
+
+        input_modalities = architecture.get("input_modalities")
+        if isinstance(input_modalities, list) and input_modalities:
+            return "image" in [str(m).lower() for m in input_modalities]
+
+        # Older entries only carry a combined string like "text+image->text".
+        modality_str = architecture.get("modality") or ""
+        if "->" in modality_str:
+            return "image" in modality_str.split("->")[0].lower()
+
+        return None
+
+    def _normalize_model_id(self, model_name: Optional[str] = None) -> str:
+        """Resolve a model name to the ID used by the OpenRouter API."""
+        model_id = model_name or self.model or ""
+        if model_id.startswith("openrouter/"):
+            model_id = model_id.split("/", 1)[1]
+        return model_id
+
+    async def _ensure_capabilities(self) -> None:
+        """Populate the capability map, refreshing it once the TTL expires."""
+        def is_stale() -> bool:
+            return (
+                self._capabilities_updated is None
+                or datetime.now() - self._capabilities_updated > self._capabilities_ttl
+            )
+
+        if self._vision_capabilities and not is_stale():
+            return
+
+        async with self._capabilities_lock:
+            # Another waiter may have refreshed while we queued on the lock.
+            if self._vision_capabilities and not is_stale():
+                return
+            # Errors are logged by get_available_models; a failed refresh
+            # leaves any previously fetched map in place.
+            await self.get_available_models()
+
+    async def model_supports_vision(self, model_name: Optional[str] = None) -> bool:
+        """Check if the given model (or the default) accepts image input."""
+        model_to_check = self._normalize_model_id(model_name)
+
+        await self._ensure_capabilities()
+
+        if model_to_check in self._vision_capabilities:
+            return self._vision_capabilities[model_to_check]
+
+        # Unknown model, or the models API is unreachable. Assume vision is
+        # supported so the request goes out and any rejection is visible,
+        # rather than silently dropping the image the user attached.
+        logger.warning(
+            f"No capability metadata for '{model_to_check}'; assuming image input is supported"
+        )
+        return True
 
     def _get_session(self) -> aiohttp.ClientSession:
         """Returns the shared HTTP session, creating it lazily.
@@ -92,7 +150,7 @@ class OpenRouterClient:
         # If we have images and the model supports them, attach to the last
         # user message using the OpenAI-style content array — OpenRouter
         # normalizes this for every underlying provider (including Claude).
-        if images and self.model_supports_vision(model_to_use):
+        if images and await self.model_supports_vision(model_to_use):
             for i in range(len(conversation) - 1, -1, -1):
                 if conversation[i]["role"] == "user":
                     content_array = [{"type": "text", "text": conversation[i]["content"]}]
@@ -223,42 +281,37 @@ class OpenRouterClient:
                     
                 # Process data to extract useful info and identify vision-capable models
                 processed_models = []
-                vision_models = []
-                    
+
                 for model in models_data.get("data", []):
                     model_id = model.get("id")
                     context_length = model.get("context_length", 0)
                     pricing = model.get("pricing", {})
-                        
-                    # Check if model supports vision based on capabilities
-                    # Check if model supports vision based on capabilities OR known identifiers
-                    supports_vision = False
-                    # 1. Check the capabilities field from API (if present)
-                    if model.get("capabilities", {}).get("vision", False):
-                        supports_vision = True
-                    # 2. Check if model ID matches known vision model patterns (fallback)
-                    elif model_id and any(vision_pattern in model_id.lower() for vision_pattern in self.vision_models):
-                         supports_vision = True
-                         # Log if we used the fallback
-                         logger.debug(f"Identified vision support for '{model_id}' using fallback pattern matching.")
+                    architecture = model.get("architecture") or {}
 
-                    # Keep track of models identified as vision-capable by the API check (for logging/debugging if needed)
-                    if supports_vision:
-                         vision_models.append(model_id) # Note: This local list is not used further after this loop
+                    # Models advertised as vision-capable are only those the API
+                    # confirms; unknown metadata is treated as "no" here, while
+                    # the per-model runtime check errs the other way.
+                    supports_vision = self._detect_vision_support(model) is True
 
                     processed_models.append({
                         "id": model_id,
                         "name": model.get("name", "Unknown"),
                         "description": model.get("description", ""),
                         "context_length": context_length,
-                        "supports_vision": supports_vision, # This is the flag used by ModelManager
+                        "supports_vision": supports_vision, # This is the flag used by ProviderManager
+                        "input_modalities": architecture.get("input_modalities", []),
                         "pricing": pricing
                     })
-                    
-                # DO NOT dynamically update self.vision_models here.
-                # Keep the original hardcoded list for the client's internal checks.
-                # self.vision_models = vision_models
-                    
+
+                self._vision_capabilities = {
+                    m["id"]: m["supports_vision"] for m in processed_models if m["id"]
+                }
+                self._capabilities_updated = datetime.now()
+                logger.info(
+                    f"Loaded capabilities for {len(self._vision_capabilities)} models "
+                    f"({sum(self._vision_capabilities.values())} accept image input)"
+                )
+
                 return {
                     "success": True,
                     "models": processed_models,

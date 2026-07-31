@@ -1,3 +1,4 @@
+import base64
 import logging
 import asyncio
 from openai import AsyncOpenAI, OpenAIError
@@ -10,8 +11,14 @@ logger = logging.getLogger('openai_client')
 class OpenAIClient:
     """Client for interacting with the OpenAI API for chat completions and image generation."""
 
-    # Known OpenAI models that support vision
-    VISION_MODELS = {"gpt-4o", "gpt-4-turbo", "gpt-4-turbo-2024-04-09"}
+    # OpenAI's models endpoint exposes no capability metadata, so vision
+    # support is matched by family prefix rather than looked up.
+    VISION_MODEL_PREFIXES = (
+        "gpt-4o", "gpt-4-turbo", "gpt-4.1", "gpt-4.5", "gpt-5",
+        "chatgpt-4o", "o1", "o3", "o4",
+    )
+    # Reasoning models that are text-only despite matching a prefix above.
+    NON_VISION_MODELS = ("o1-mini", "o1-preview", "o3-mini")
 
     def __init__(self, api_key: str):
         """
@@ -105,9 +112,10 @@ class OpenAIClient:
 
     def model_supports_vision(self, model_name: str) -> bool:
         """Checks if the specified OpenAI model name supports vision."""
-        # Normalize model name if needed (e.g., remove preview suffixes if base model supports vision)
-        base_model = model_name.split('-preview')[0] # Basic normalization
-        return base_model in self.VISION_MODELS
+        name = (model_name or "").lower()
+        if name.startswith(self.NON_VISION_MODELS):
+            return False
+        return name.startswith(self.VISION_MODEL_PREFIXES)
 
     async def send_message_with_history(self, messages: List[Dict[str, str]], model: str, system_prompt: Optional[str] = None, **kwargs) -> str:
         """
