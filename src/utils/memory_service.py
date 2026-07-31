@@ -9,6 +9,9 @@ _SUMMARIZE_PROMPT = (
     "Summarize the following Discord conversation in 2-3 sentences. "
     "Focus on the main topics discussed, any decisions made, and the general tone. "
     "Be concise and factual.\n\n"
+    "Multiple users may be speaking; each line is prefixed with the speaker's name. "
+    "Attribute statements, questions, and decisions to the specific named user — "
+    "never merge different users into a generic 'the user'.\n\n"
     "{conversation}"
 )
 
@@ -171,10 +174,16 @@ async def _summarize_history(
 def _format_history_for_summary(history: List[Dict[str, Any]]) -> str:
     lines = []
     for msg in history:
-        role = msg.get("role", "unknown").capitalize()
+        role = msg.get("role", "unknown")
         content = msg.get("content", "")
+        # Label user turns with the speaker so the summary can attribute what
+        # each person said, rather than merging everyone into one "User"
+        if role == "user":
+            speaker = msg.get("name") or "User"
+        else:
+            speaker = role.capitalize()
         if content:
-            lines.append(f"{role}: {content}")
+            lines.append(f"{speaker}: {content}")
     return "\n".join(lines)
 
 

@@ -3,6 +3,7 @@ import discord
 import logging
 from discord.ext import commands
 from ..utils.discord_fmt import chunk_message
+from ..utils.llm_formatting import resolve_discord_mentions
 from ..config import SYSTEM_PROMPT, ALLOWED_MODELS, DEFAULT_MODEL
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
@@ -542,6 +543,24 @@ class ThreadCommands(commands.Cog):
             await ctx.respond(f"❌ Error: {e}", ephemeral=True)
 
 
+    def _is_own_persona_webhook(self, message: discord.Message, channel_id: str) -> bool:
+        """True if this message is one the bot sent through its persona webhook.
+
+        Persona replies aren't authored by bot.user, so without this check the
+        bot's own words get recorded again as a user turn. Deliberately narrow:
+        other webhook integrations are still treated as ordinary messages.
+        """
+        if not message.webhook_id or not self.state:
+            return False
+
+        try:
+            persona = self.state.get_effective_persona(channel_id)
+        except Exception as e:
+            logger.error(f"Error checking persona webhook for channel {channel_id}: {e}", exc_info=True)
+            return False
+
+        return bool(persona) and str(message.webhook_id) == str(persona.get('webhook_id') or '')
+
     @commands.Cog.listener()
     async def on_message(self, message):
         """Listen for messages in threads to build context memory and respond."""
@@ -553,6 +572,12 @@ class ThreadCommands(commands.Cog):
         if isinstance(message.channel, discord.Thread):
             thread_id = str(message.channel.id)
             channel_id = str(message.channel.parent_id) # Get parent channel ID
+
+            # Persona replies are sent through the parent channel's webhook, so
+            # they aren't authored by bot.user and would otherwise be recorded
+            # as if a human had said them
+            if self._is_own_persona_webhook(message, channel_id):
+                return
 
             # Check if this is an active trivia thread - if so, skip it
             # The trivia cog will handle all messages in trivia threads
@@ -583,8 +608,9 @@ class ThreadCommands(commands.Cog):
             await self.state.add_discord_thread_message(thread_id, {
                 "role": "user",
                 "name": message.author.display_name,
-                "content": message.content,
-                # timestamp and user_id are added in add_discord_thread_message
+                "user_id": str(message.author.id),
+                "content": resolve_discord_mentions(message),
+                # timestamp is added in add_discord_thread_message
             })
 
             # Get conversation context from the database history for this thread,

@@ -158,6 +158,7 @@ class VideoCommands(commands.Cog):
         prompt: str,
         result: Dict[str, Any],
         params: Dict[str, Any],
+        user_name: Optional[str] = None,
     ):
         """Store /video interaction in channel history for dashboard visibility."""
         try:
@@ -172,6 +173,7 @@ class VideoCommands(commands.Cog):
                 timestamp=datetime.now(),
                 channel_id=channel_id,
                 user_id=user_id,
+                user_name=user_name,
             )
 
             if result.get("success"):
@@ -326,6 +328,7 @@ class VideoCommands(commands.Cog):
             self._store_video_messages(
                 channel_id=str(ctx.channel_id),
                 user_id=str(ctx.author.id),
+                user_name=ctx.author.display_name,
                 prompt=prompt,
                 result={"success": False, "error": err},
                 params=params,
@@ -384,6 +387,7 @@ class VideoCommands(commands.Cog):
             self._store_video_messages(
                 channel_id=str(ctx.channel_id),
                 user_id=str(ctx.author.id),
+                user_name=ctx.author.display_name,
                 prompt=prompt,
                 result={"success": False, "error": err},
                 params=params,
@@ -397,6 +401,7 @@ class VideoCommands(commands.Cog):
             self._store_video_messages(
                 channel_id=str(ctx.channel_id),
                 user_id=str(ctx.author.id),
+                user_name=ctx.author.display_name,
                 prompt=prompt,
                 result={"success": False, "error": str(err_detail)},
                 params=params,
@@ -409,6 +414,7 @@ class VideoCommands(commands.Cog):
             self._store_video_messages(
                 channel_id=str(ctx.channel_id),
                 user_id=str(ctx.author.id),
+                user_name=ctx.author.display_name,
                 prompt=prompt,
                 result={"success": False, "error": "No URLs returned"},
                 params=params,
@@ -492,6 +498,7 @@ class VideoCommands(commands.Cog):
         self._store_video_messages(
             channel_id=str(ctx.channel_id),
             user_id=str(ctx.author.id),
+            user_name=ctx.author.display_name,
             prompt=prompt,
             result={"success": True, "video_url": video_url},
             params=params,

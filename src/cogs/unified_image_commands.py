@@ -175,7 +175,7 @@ class UnifiedImageCommands(commands.Cog):
 
     def _store_dream_messages(self, channel_id: str, user_id: str, prompt: str,
                                negative_prompt: Optional[str], result: dict,
-                               provider_name: str):
+                               provider_name: str, user_name: Optional[str] = None):
         """Store /dream interaction in channel history for dashboard visibility."""
         try:
             state = getattr(self.bot, 'state_manager', None)
@@ -193,6 +193,7 @@ class UnifiedImageCommands(commands.Cog):
                 timestamp=datetime.now(),
                 channel_id=channel_id,
                 user_id=user_id,
+                user_name=user_name,
             )
 
             # Store assistant response with image reference
@@ -407,6 +408,7 @@ class UnifiedImageCommands(commands.Cog):
             self._store_dream_messages(
                 channel_id=str(ctx.channel_id),
                 user_id=str(ctx.author.id),
+                user_name=ctx.author.display_name,
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 result=result,
