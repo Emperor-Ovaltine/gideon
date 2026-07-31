@@ -271,6 +271,7 @@ class ChatCommands(commands.Cog):
             await self.state.add_to_channel_history(channel_id, {
                 "role": "user",
                 "name": ctx.author.display_name,
+                "user_id": str(ctx.author.id),
                 "content": message,
                 "timestamp": datetime.now()
             })
@@ -284,7 +285,8 @@ class ChatCommands(commands.Cog):
             # Format the final query with the current user's question
             conversation_context.append({
                 "role": "user",
-                "content": f"{ctx.author.display_name}: {message}"
+                "name": ctx.author.display_name,
+                "content": message
             })
 
             # First response - show the user's message

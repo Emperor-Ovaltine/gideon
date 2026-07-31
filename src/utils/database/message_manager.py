@@ -14,7 +14,8 @@ class MessageManager:
     def add_message(self, role: str, content: str, timestamp: datetime,
                     channel_id: Optional[str] = None,
                     thread_id: Optional[str] = None,
-                    user_id: Optional[str] = None) -> int:
+                    user_id: Optional[str] = None,
+                    user_name: Optional[str] = None) -> int:
         """
         Adds a message to the database, associated with either a channel or a thread.
 
@@ -25,6 +26,7 @@ class MessageManager:
             channel_id (Optional[str]): The ID of the channel if it's a channel message.
             thread_id (Optional[str]): The ID of the thread if it's a thread message.
             user_id (Optional[str]): The ID of the user who sent the message.
+            user_name (Optional[str]): The display name of the user who sent the message.
 
         Returns:
             int: The primary key (message_pk) of the inserted message.
@@ -39,13 +41,13 @@ class MessageManager:
             channel_id = None  # Prioritize thread_id if both given
 
         sql = """
-        INSERT INTO MESSAGES (channel_id, thread_id, user_id, role, content, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?);
+        INSERT INTO MESSAGES (channel_id, thread_id, user_id, user_name, role, content, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
         """
         try:
             with self._conn:
                 cursor = self._conn.cursor()
-                cursor.execute(sql, (channel_id, thread_id, user_id, role, content, timestamp))
+                cursor.execute(sql, (channel_id, thread_id, user_id, user_name, role, content, timestamp))
                 last_id = cursor.lastrowid
             logger.debug(f"Added message (PK: {last_id}) for {'channel ' + channel_id if channel_id else 'thread ' + thread_id}")
             return last_id
@@ -55,7 +57,7 @@ class MessageManager:
 
     def _get_history(self, entity_id: str, id_column: str, limit: Optional[int] = None, hours_limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Internal helper to get message history for a channel or thread."""
-        base_sql = f"SELECT role, content, timestamp, user_id FROM MESSAGES WHERE {id_column} = ?"
+        base_sql = f"SELECT role, content, timestamp, user_id, user_name AS name FROM MESSAGES WHERE {id_column} = ?"
         params: List[Any] = [entity_id]
 
         if hours_limit is not None:

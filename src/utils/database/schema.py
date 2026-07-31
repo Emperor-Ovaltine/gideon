@@ -47,6 +47,7 @@ class SchemaManager:
             channel_id TEXT,
             thread_id TEXT,
             user_id TEXT,
+            user_name TEXT,
             role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
             content TEXT NOT NULL,
             timestamp DATETIME NOT NULL,
@@ -233,6 +234,7 @@ class SchemaManager:
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "memory_summary_enabled", "INTEGER")
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_CONFIG", "max_memory_summaries", "INTEGER")
                 SchemaManager._add_column_if_not_exists(cursor, "CHANNEL_MEMORY", "conversation_start", "DATETIME")
+                SchemaManager._add_column_if_not_exists(cursor, "MESSAGES", "user_name", "TEXT")
                 SchemaManager._create_memory_fts(cursor)
 
                 logger.info("Database schema migration checks complete.")

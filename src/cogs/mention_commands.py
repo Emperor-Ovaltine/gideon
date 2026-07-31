@@ -2,7 +2,6 @@
 import discord
 import asyncio
 import logging
-import re
 import io
 import json
 from discord.ext import commands
@@ -14,6 +13,7 @@ from ..utils.discord_fmt import chunk_message
 from ..utils.timeutil import to_epoch
 from ..utils.tool_registry import get_tool_definitions, execute_tool, is_no_repeat_tool
 from ..utils.web_search import SEARCHING_STATUS, build_search_system_prompt
+from ..utils.llm_formatting import resolve_discord_mentions
 from ..config import DEFAULT_MODEL
 
 logger = logging.getLogger('mention_commands')
@@ -98,7 +98,8 @@ class MentionCommands(commands.Cog):
         conversation_context = self.state.get_channel_history(channel_id)
         conversation_context.append({
             "role": "user",
-            "content": f"{message.author.display_name}: {content}"
+            "name": message.author.display_name,
+            "content": content
         })
 
         try:
@@ -573,7 +574,8 @@ class MentionCommands(commands.Cog):
         conversation_context = self.state.get_channel_history(channel_id)
         conversation_context.append({
             "role": "user",
-            "content": f"{message.author.display_name}: {query}"
+            "name": message.author.display_name,
+            "content": query
         })
 
         # Temporary status message so the channel sees search activity
@@ -737,6 +739,24 @@ class MentionCommands(commands.Cog):
 
         return False
 
+    def _is_own_persona_webhook(self, message: discord.Message, channel_id: str) -> bool:
+        """True if this message is one the bot sent through its persona webhook.
+
+        Persona replies aren't authored by bot.user, so without this check the
+        bot's own words get recorded again as a user turn. Deliberately narrow:
+        other webhook integrations are still treated as ordinary messages.
+        """
+        if not message.webhook_id or not self.state:
+            return False
+
+        try:
+            persona = self.state.get_effective_persona(channel_id)
+        except Exception as e:
+            logger.error(f"[Mention] Error checking persona webhook for channel {channel_id}: {e}", exc_info=True)
+            return False
+
+        return bool(persona) and str(message.webhook_id) == str(persona.get('webhook_id') or '')
+
     @commands.Cog.listener()
     async def on_message(self, message):
         """Listen for messages in channels and respond to @mentions."""
@@ -749,7 +769,14 @@ class MentionCommands(commands.Cog):
             return
 
         channel_id = str(message.channel.id)
+
+        # Persona replies go out through a webhook, so they aren't authored by
+        # bot.user and would otherwise be recorded as if a human had said them
+        if self._is_own_persona_webhook(message, channel_id):
+            return
+
         is_mentioned = self._is_bot_mentioned(message)
+        recorded = False
 
         # Only record history for channels the bot participates in
         if self.state and self._should_record(channel_id, is_mentioned):
@@ -763,9 +790,11 @@ class MentionCommands(commands.Cog):
                 await self.state.add_to_channel_history(channel_id, {
                     "role": "user",
                     "name": message.author.display_name,
-                    "content": message.content,
+                    "user_id": str(message.author.id),
+                    "content": resolve_discord_mentions(message),
                     "timestamp": datetime.now()
                 })
+                recorded = True
             except Exception as e:
                 logger.error(f"[Mention] Error adding message to history for channel {channel_id}: {e}", exc_info=True)
 
@@ -826,16 +855,14 @@ class MentionCommands(commands.Cog):
             # Get recent channel context from state manager
             conversation_context = self.state.get_channel_history(channel_id)
 
-            # The message was already added to history above as raw content
-            # (including the @mention token). The formatted version we send to
-            # the API has the @mention stripped, so strip mention tokens from
-            # the stored content before comparing to avoid duplicating it.
-            last_msg_in_context = conversation_context[-1]['content'] if conversation_context else None
-            stored_content_stripped = re.sub(r'<@!?\d+>\s*', '', last_msg_in_context or '').strip()
-            if not conversation_context or stored_content_stripped != content.strip():
+            # Mentions are always recorded above, so history already ends with
+            # this turn, labelled with the speaker's name by the client. Only
+            # append it here if that write failed, so the model still sees it.
+            if not recorded:
                 conversation_context.append({
                     "role": "user",
-                    "content": f"{message.author.display_name}: {content}"
+                    "name": message.author.display_name,
+                    "content": content
                 })
 
             async with message.channel.typing():

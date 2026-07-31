@@ -3,6 +3,8 @@ import asyncio
 from openai import AsyncOpenAI, OpenAIError
 from typing import Dict, Any, Optional, List # Added List import
 
+from .llm_formatting import prepare_llm_messages
+
 logger = logging.getLogger('openai_client')
 
 class OpenAIClient:
@@ -150,6 +152,9 @@ class OpenAIClient:
                     except Exception as e:
                         logger.error(f"Failed to encode image for OpenAI: {e}")
                         return f"⚠️ OpenAI Error: Failed to process image data - {e}"
+
+        # Label user turns with their speaker and drop bookkeeping keys
+        messages = prepare_llm_messages(messages)
 
         # Format conversation history
         for msg in messages:

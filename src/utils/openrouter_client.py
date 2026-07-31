@@ -7,6 +7,8 @@ import base64
 from io import BytesIO
 from typing import List, Dict, Any, Optional
 
+from .llm_formatting import prepare_llm_messages
+
 logger = logging.getLogger('openrouter_client')
 
 class OpenRouterClient:
@@ -83,8 +85,9 @@ class OpenRouterClient:
         # Prepare the full conversation context with system prompt
         conversation = [{"role": "system", "content": prompt_to_use}]
         
-        # Add the message history
-        conversation.extend(messages)
+        # Add the message history, labelling each user turn with its speaker
+        # and dropping bookkeeping keys the API doesn't accept
+        conversation.extend(prepare_llm_messages(messages))
         
         # If we have images and the model supports them, attach to the last
         # user message using the OpenAI-style content array — OpenRouter

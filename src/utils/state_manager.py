@@ -11,9 +11,23 @@ from ..config import (
     DEFAULT_MODEL as CONFIG_DEFAULT_MODEL,
     CONFIG_TOOL_CALLING_ENABLED,
     TOOL_CALLING_MAX_ITERATIONS as CONFIG_TOOL_CALLING_MAX_ITERATIONS,
+    SYSTEM_PROMPT as CONFIG_SYSTEM_PROMPT,
 )
 
 logger = logging.getLogger('state_manager')
+
+# Appended to every system prompt (persona, channel, or global) so the model
+# knows it is in a multi-user room and that user turns are name-labelled.
+MULTI_USER_FRAMING = """--- Conversation Format ---
+You are chatting in a multi-user Discord channel. Each user message is prefixed
+with the sender's display name, like "Alice: hello". Different names are
+different people:
+- Reply to the person who sent the most recent message, addressing them by name
+  when it feels natural.
+- Never merge or confuse different users, even when they discuss the same topic.
+  Keep track of who said what.
+- Text like @Name refers to a user being mentioned.
+- Do NOT prefix your own replies with any name or "Name:" label — just respond."""
 
 # --- Constants for DB keys ---
 # These help avoid typos when accessing global config in the DB
@@ -353,6 +367,7 @@ class BotStateManager:
         role = message.get("role")
         content = message.get("content")
         user_id = message.get("user_id") # Assuming user_id might be in the message dict
+        user_name = message.get("name") # Speaker's display name, used to label turns for the LLM
         timestamp = datetime.now() # Use current time for DB timestamp
 
         if not role or not content:
@@ -366,7 +381,8 @@ class BotStateManager:
             content=content,
             timestamp=timestamp,
             channel_id=str(channel_id),
-            user_id=user_id
+            user_id=user_id,
+            user_name=user_name
         )
 
     def clear_channel_history(self, channel_id: str) -> bool:
@@ -399,6 +415,7 @@ class BotStateManager:
         role = message.get("role")
         content = message.get("content")
         user_id = message.get("user_id")
+        user_name = message.get("name")
         timestamp = datetime.now()
 
         if not role or not content:
@@ -411,7 +428,8 @@ class BotStateManager:
             content=content,
             timestamp=timestamp,
             thread_id=str(thread_id),
-            user_id=user_id
+            user_id=user_id,
+            user_name=user_name
         )
 
     def get_discord_thread_history(self, thread_id: str, limit: Optional[int] = None,
@@ -757,12 +775,14 @@ class BotStateManager:
 
         return persona
 
-    def get_effective_system_prompt(self, channel_id: str, query: Optional[str] = None) -> Optional[str]:
-        """Gets the effective system prompt: Persona > Channel Config > Global, with memory appended.
+    def get_effective_system_prompt(self, channel_id: str, query: Optional[str] = None) -> str:
+        """Gets the effective system prompt: Persona > Channel Config > Global.
 
-        When `query` (the current user message) is given, memory summaries
-        matching it are retrieved via full-text search and included alongside
-        the most recent summaries.
+        The multi-user framing is always appended so the model knows how user
+        turns are labelled, followed by any channel memory. When `query` (the
+        current user message) is given, memory summaries matching it are
+        retrieved via full-text search and included alongside the most recent
+        summaries.
         """
         persona = self.get_effective_persona(channel_id)
         if persona and persona.get('system_prompt'):
@@ -771,12 +791,18 @@ class BotStateManager:
             channel_prompt = self.get_channel_system_prompt(channel_id)
             base_prompt = channel_prompt if channel_prompt else self.get_global_system_prompt()
 
+        # No global prompt is configured by default; fall back explicitly so the
+        # identity prompt is never replaced by the memory block alone
+        if not base_prompt:
+            base_prompt = CONFIG_SYSTEM_PROMPT
+
+        sections = [base_prompt, MULTI_USER_FRAMING]
+
         memory_block = self._build_memory_context(channel_id, query=query)
         if memory_block:
-            if base_prompt:
-                return base_prompt + "\n\n" + memory_block
-            return memory_block
-        return base_prompt
+            sections.append(memory_block)
+
+        return "\n\n".join(sections)
 
     def search_channel_memories(self, channel_id: str, query: str, limit: int = 3):
         """Full-text search over a channel's memory summaries."""
