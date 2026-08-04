@@ -181,7 +181,7 @@ Each cog is a self-contained feature module loaded dynamically at startup:
    - `/dream_manage set_provider`, `/dream_manage view_config`, `/dream_manage configure`, `/dream_manage comfyui_*`
 
 9. **`video_commands.py`** - AI video generation via OpenRouter
-   - `/video` - Generate a video from a text prompt; per-invocation overrides for `model` (autocompleted), `duration`, `aspect_ratio`, `resolution`, `audio`, `seed`, and `image_url` (image-to-video)
+   - `/video` - Generate a video from a text prompt; per-invocation overrides for `model` (autocompleted), `duration`, `aspect_ratio`, `resolution` (480p, 720p, 1080p, 2K, or 4K), `audio`, `seed`, and `image_url` (image-to-video)
    - `/video_manage view_config`, `/video_manage models`, `/video_manage configure` (Admin; hidden when dashboard is enabled)
    - Submits to OpenRouter's async `/api/v1/videos` API, polls every 15s with status updates, then attaches the result (≤25 MB) or links the unsigned URL
    - Persists results as `[video:url]` markers in message history for dashboard playback

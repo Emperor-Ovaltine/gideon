@@ -85,7 +85,7 @@ class OpenRouterVideoClient(SharedSessionMixin):
             model: OpenRouter video model id (e.g. "google/veo-3.1").
             aspect_ratio: e.g. "16:9", "9:16", "1:1".
             duration: Duration in seconds.
-            resolution: e.g. "480p", "720p", "1080p", "4K".
+            resolution: e.g. "480p", "720p", "1080p", "2K", "4K".
             seed: Optional seed for reproducibility.
             audio: Whether to generate audio (model dependent).
             image: Optional URL or base64 data URL of a reference/start frame.

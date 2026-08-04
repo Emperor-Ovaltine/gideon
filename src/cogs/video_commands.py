@@ -50,6 +50,7 @@ RESOLUTION_CHOICES = [
     discord.OptionChoice(name="480p", value="480p"),
     discord.OptionChoice(name="720p (HD)", value="720p"),
     discord.OptionChoice(name="1080p (Full HD)", value="1080p"),
+    discord.OptionChoice(name="2K", value="2K"),
     discord.OptionChoice(name="4K", value="4K"),
 ]
 DURATION_CHOICES = [
