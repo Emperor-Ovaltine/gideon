@@ -39,7 +39,7 @@ class VideoResolutionTests(unittest.TestCase):
 
         self.assertIn('<option value="2K">2K</option>', resolution_selector)
 
-    def test_model_autocomplete_starts_live_refresh_without_awaiting_network(self):
+    def test_model_autocomplete_uses_existing_openrouter_cache_without_network(self):
         source = (REPO_ROOT / "src/cogs/video_commands.py").read_text(encoding="utf-8")
         module = ast.parse(source)
         video_commands = next(
@@ -50,39 +50,14 @@ class VideoResolutionTests(unittest.TestCase):
             for node in video_commands.body
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "_get_models"
         )
-
-        awaited_calls = [node for node in ast.walk(get_models) if isinstance(node, ast.Await)]
-        self.assertEqual([], awaited_calls)
-
-        refresh_calls = [
-            node
-            for node in ast.walk(get_models)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "_start_models_refresh"
-        ]
-        self.assertEqual(1, len(refresh_calls))
-
+        get_models_source = ast.get_source_segment(source, get_models)
         video_source = ast.get_source_segment(source, video_commands)
+
+        self.assertEqual([], [node for node in ast.walk(get_models) if isinstance(node, ast.Await)])
+        self.assertNotIn("list_video_models", get_models_source)
+        self.assertNotIn("create_task", video_source)
+        self.assertNotIn("on_ready", video_source)
         self.assertNotIn("_fallback_models", video_source)
-
-    def test_model_refresh_task_is_created_on_current_loop(self):
-        source = (REPO_ROOT / "src/cogs/video_commands.py").read_text(encoding="utf-8")
-        module = ast.parse(source)
-        video_commands = next(
-            node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "VideoCommands"
-        )
-        start_refresh = next(
-            node
-            for node in video_commands.body
-            if isinstance(node, ast.FunctionDef) and node.name == "_start_models_refresh"
-        )
-        setup = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "setup")
-        setup_source = ast.get_source_segment(source, setup)
-
-        self.assertIn("get_running_loop", ast.get_source_segment(source, start_refresh))
-        self.assertIn("loop.create_task", ast.get_source_segment(source, start_refresh))
-        self.assertNotIn("_start_models_refresh", setup_source)
 
     def test_unconfigured_model_listing_does_not_invent_models(self):
         client = OpenRouterVideoClient("")
@@ -91,6 +66,22 @@ class VideoResolutionTests(unittest.TestCase):
 
         self.assertFalse(result["success"])
         self.assertNotIn("models", result)
+
+    def test_openrouter_video_models_are_filtered_from_canonical_models(self):
+        raw_models = [
+            {"id": "text/model", "architecture": {"output_modalities": ["text"]}},
+            {
+                "id": "video/model",
+                "name": "Video Model",
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["video"]},
+            },
+        ]
+
+        formatted = [OpenRouterVideoClient.format_video_model(model) for model in raw_models]
+        models = [model for model in formatted if model]
+
+        self.assertEqual(["video/model"], [model["id"] for model in models])
+        self.assertEqual(["video"], models[0]["output_modalities"])
 
 
 if __name__ == "__main__":

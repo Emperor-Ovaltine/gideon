@@ -485,7 +485,7 @@ Configure unique bot identities per channel using Discord webhooks.
 * **ByteDance**: Seedance 2.0, Seedance 1.5
 * **Alibaba**: Wan 2.7, Wan 2.6
 * **Kuaishou**: Kling Video O1
-* **And more** as OpenRouter adds providers — the model picker queries `/api/v1/videos/models` at runtime.
+* **And more** as OpenRouter adds providers — the model picker filters the existing OpenRouter `/api/v1/models` metadata for video-output models.
 
 ## 📁 Project Structure
 

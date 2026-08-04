@@ -274,8 +274,38 @@ class OpenRouterVideoClient(SharedSessionMixin):
         except Exception as e:
             return {"success": False, "error": f"Unexpected error: {e}"}
 
+    @staticmethod
+    def _is_video_model(model: Dict[str, Any]) -> bool:
+        """Return True when OpenRouter /models metadata advertises video output."""
+        architecture = model.get("architecture") or {}
+        output_modalities = architecture.get("output_modalities") or model.get("output_modalities") or []
+        return any(str(modality).lower() == "video" for modality in output_modalities)
+
+    @classmethod
+    def format_video_model(cls, model: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Normalize one OpenRouter /models entry for video UI consumers."""
+        if not isinstance(model, dict) or not cls._is_video_model(model):
+            return None
+        model_id = model.get("id") or model.get("model")
+        if not model_id:
+            return None
+        architecture = model.get("architecture") or {}
+        return {
+            "id": model_id,
+            "name": model.get("name") or model_id,
+            "description": model.get("description", ""),
+            "input_modalities": architecture.get("input_modalities") or model.get("input_modalities") or [],
+            "output_modalities": architecture.get("output_modalities") or model.get("output_modalities") or [],
+            "supported_resolutions": model.get("supported_resolutions") or model.get("resolutions") or [],
+            "supported_aspect_ratios": model.get("supported_aspect_ratios") or model.get("aspect_ratios") or [],
+            "supported_durations": model.get("supported_durations") or model.get("durations") or [],
+            "supports_audio": model.get("supports_audio"),
+            "supports_image_input": model.get("supports_image_input"),
+            "pricing": model.get("pricing"),
+        }
+
     async def list_video_models(self) -> Dict[str, Any]:
-        """Fetch the live list of available video generation models."""
+        """Fetch video generation models from OpenRouter's canonical /models API."""
         if not self.is_configured:
             return {"success": False, "error": "OpenRouter client is not configured."}
 
@@ -283,7 +313,7 @@ class OpenRouterVideoClient(SharedSessionMixin):
             timeout = aiohttp.ClientTimeout(total=15)
             async with self.shared_session() as session:
                 async with session.get(
-                    f"{self.base_url}/videos/models",
+                    f"{self.base_url}/models",
                     headers=self._headers(),
                     timeout=timeout,
                 ) as response:
@@ -292,24 +322,10 @@ class OpenRouterVideoClient(SharedSessionMixin):
                     data = await response.json()
                     raw = data.get("data") if isinstance(data, dict) else data
                     if not isinstance(raw, list):
-                        return {"success": False, "error": "OpenRouter returned an invalid video model list."}
-                    models: List[Dict[str, Any]] = []
-                    for m in raw:
-                        if not isinstance(m, dict):
-                            continue
-                        model_id = m.get("id") or m.get("model")
-                        if not model_id:
-                            continue
-                        models.append({
-                            "id": model_id,
-                            "name": m.get("name") or model_id,
-                            "supported_resolutions": m.get("supported_resolutions") or m.get("resolutions") or [],
-                            "supported_aspect_ratios": m.get("supported_aspect_ratios") or m.get("aspect_ratios") or [],
-                            "supported_durations": m.get("supported_durations") or m.get("durations") or [],
-                            "supports_audio": m.get("supports_audio"),
-                            "supports_image_input": m.get("supports_image_input"),
-                            "pricing": m.get("pricing"),
-                        })
+                        return {"success": False, "error": "OpenRouter returned an invalid model list."}
+                    models = [
+                        formatted for formatted in (self.format_video_model(m) for m in raw) if formatted
+                    ]
                     if not models:
                         return {"success": False, "error": "OpenRouter returned no video generation models."}
                     return {"success": True, "models": models, "source": "api"}

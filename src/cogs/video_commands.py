@@ -90,10 +90,6 @@ class VideoCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.db = DatabaseManager()
-        self._models_cache: List[Dict[str, Any]] = []
-        self._models_cache_at: float = 0.0
-        self._models_refresh_task: Optional[asyncio.Task] = None
-
         api_key = OPENROUTER_API_KEY
         if hasattr(bot, 'api_key_service') and bot.api_key_service:
             db_key = bot.api_key_service.get_key_for_provider('openrouter')
@@ -120,49 +116,28 @@ class VideoCommands(commands.Cog):
         merged = {**DEFAULT_OPENROUTER_CONFIG, **cfg}
         return merged
 
-    def cog_unload(self):
-        """Cancel an outstanding model refresh when the cog is unloaded."""
-        if self._models_refresh_task and not self._models_refresh_task.done():
-            self._models_refresh_task.cancel()
+    def _get_cached_openrouter_models(self) -> List[Dict[str, Any]]:
+        """Return already-populated OpenRouter model metadata without network I/O."""
+        model_manager = getattr(self.bot, "model_manager", None)
+        if not model_manager:
+            return []
 
-    def _start_models_refresh(self) -> None:
-        """Start one non-blocking refresh of the live OpenRouter model list."""
-        if not self.video_client:
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        if self._models_refresh_task and not self._models_refresh_task.done():
-            if self._models_refresh_task.get_loop() is loop:
-                return
-            self._models_refresh_task.cancel()
-        self._models_refresh_task = loop.create_task(self._refresh_models())
+        if hasattr(model_manager, "_load_from_cache"):
+            model_manager._load_from_cache("openrouter")
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        """Warm the live model cache once Discord is running on its event loop."""
-        self._start_models_refresh()
-
-    async def _refresh_models(self) -> None:
-        """Update the autocomplete cache from OpenRouter when available."""
-        try:
-            result = await self.video_client.list_video_models()
-            models = result.get("models", []) if result.get("success") else []
-            if models:
-                self._models_cache = models
-                self._models_cache_at = asyncio.get_running_loop().time()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("Failed to refresh video models for autocomplete: %s", exc)
+        models_data = getattr(model_manager, "models_by_provider", {}).get("openrouter") or {}
+        if not models_data.get("success"):
+            return []
+        return models_data.get("models", []) or []
 
     async def _get_models(self) -> List[Dict[str, Any]]:
-        """Return cached live models without awaiting network in autocomplete."""
-        now = asyncio.get_running_loop().time()
-        if (now - self._models_cache_at) >= 300:
-            self._start_models_refresh()
-        return self._models_cache
+        """Return video models from the bot's existing OpenRouter model cache."""
+        models = []
+        for model in self._get_cached_openrouter_models():
+            formatted = OpenRouterVideoClient.format_video_model(model)
+            if formatted:
+                models.append(formatted)
+        return models
 
     async def model_autocomplete(self, ctx: discord.AutocompleteContext):
         """Autocomplete for video model picker."""
@@ -660,7 +635,4 @@ def setup(bot):
         logger.info("Dashboard enabled - /video_manage commands hidden from Discord.")
 
     bot.add_cog(cog)
-    # The live model cache is warmed in on_ready so the refresh task is bound
-    # to Discord's active event loop. Starting it during extension setup can
-    # attach futures to a different loop in some Pycord startup paths.
     logger.info("VideoCommands cog loaded.")
