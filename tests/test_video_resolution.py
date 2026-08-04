@@ -36,6 +36,25 @@ class VideoResolutionTests(unittest.TestCase):
 
         self.assertIn('<option value="2K">2K</option>', resolution_selector)
 
+    def test_model_autocomplete_does_not_wait_for_network_refresh(self):
+        source = (REPO_ROOT / "src/cogs/video_commands.py").read_text(encoding="utf-8")
+        module = ast.parse(source)
+        video_commands = next(
+            node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "VideoCommands"
+        )
+        get_models = next(
+            node
+            for node in video_commands.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_get_models"
+        )
+
+        awaited_calls = [
+            node
+            for node in ast.walk(get_models)
+            if isinstance(node, ast.Await) and isinstance(node.value, ast.Call)
+        ]
+        self.assertEqual([], awaited_calls)
+
 
 if __name__ == "__main__":
     unittest.main()
