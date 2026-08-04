@@ -85,7 +85,7 @@ class OpenRouterVideoClient(SharedSessionMixin):
             model: OpenRouter video model id (e.g. "google/veo-3.1").
             aspect_ratio: e.g. "16:9", "9:16", "1:1".
             duration: Duration in seconds.
-            resolution: e.g. "480p", "720p", "1080p", "4K".
+            resolution: e.g. "480p", "720p", "1080p", "2K", "4K".
             seed: Optional seed for reproducibility.
             audio: Whether to generate audio (model dependent).
             image: Optional URL or base64 data URL of a reference/start frame.
@@ -275,13 +275,9 @@ class OpenRouterVideoClient(SharedSessionMixin):
             return {"success": False, "error": f"Unexpected error: {e}"}
 
     async def list_video_models(self) -> Dict[str, Any]:
-        """Fetch the list of available video generation models.
-
-        Falls back to a curated list if the live endpoint is unreachable.
-        """
-        fallback = self._fallback_models()
+        """Fetch the live list of available video generation models."""
         if not self.is_configured:
-            return {"success": True, "models": fallback, "source": "fallback"}
+            return {"success": False, "error": "OpenRouter client is not configured."}
 
         try:
             timeout = aiohttp.ClientTimeout(total=15)
@@ -292,12 +288,11 @@ class OpenRouterVideoClient(SharedSessionMixin):
                     timeout=timeout,
                 ) as response:
                     if response.status != 200:
-                        logger.warning(f"video models endpoint returned {response.status}; using fallback")
-                        return {"success": True, "models": fallback, "source": "fallback"}
+                        return self._parse_error(response.status, await response.text())
                     data = await response.json()
                     raw = data.get("data") if isinstance(data, dict) else data
                     if not isinstance(raw, list):
-                        return {"success": True, "models": fallback, "source": "fallback"}
+                        return {"success": False, "error": "OpenRouter returned an invalid video model list."}
                     models: List[Dict[str, Any]] = []
                     for m in raw:
                         if not isinstance(m, dict):
@@ -316,92 +311,8 @@ class OpenRouterVideoClient(SharedSessionMixin):
                             "pricing": m.get("pricing"),
                         })
                     if not models:
-                        return {"success": True, "models": fallback, "source": "fallback"}
+                        return {"success": False, "error": "OpenRouter returned no video generation models."}
                     return {"success": True, "models": models, "source": "api"}
         except Exception as e:
-            logger.warning(f"Failed to fetch video models from OpenRouter: {e}; using fallback list")
-            return {"success": True, "models": fallback, "source": "fallback"}
-
-    @staticmethod
-    def _fallback_models() -> List[Dict[str, Any]]:
-        """Curated fallback list of OpenRouter video generation models.
-
-        OpenRouter advertises (per the announcement post): Seedance 2.0 / 1.5,
-        Veo 3.1, Wan 2.7 / 2.6, and Sora 2 Pro. The /api/v1/videos/models
-        endpoint is the source of truth at runtime; this list keeps the UI
-        usable when the endpoint is unreachable.
-        """
-        return [
-            {
-                "id": "google/veo-3.1",
-                "name": "Veo 3.1 (Google)",
-                "supported_resolutions": ["720p", "1080p"],
-                "supported_aspect_ratios": ["16:9", "9:16"],
-                "supported_durations": [4, 6, 8],
-                "supports_audio": True,
-                "supports_image_input": True,
-            },
-            {
-                "id": "google/veo-3",
-                "name": "Veo 3 (Google)",
-                "supported_resolutions": ["720p", "1080p"],
-                "supported_aspect_ratios": ["16:9", "9:16"],
-                "supported_durations": [4, 6, 8],
-                "supports_audio": True,
-                "supports_image_input": True,
-            },
-            {
-                "id": "openai/sora-2-pro",
-                "name": "Sora 2 Pro (OpenAI)",
-                "supported_resolutions": ["720p", "1080p"],
-                "supported_aspect_ratios": ["16:9", "9:16", "1:1"],
-                "supported_durations": [5, 10],
-                "supports_audio": True,
-                "supports_image_input": True,
-            },
-            {
-                "id": "bytedance/seedance-2.0",
-                "name": "Seedance 2.0 (ByteDance)",
-                "supported_resolutions": ["480p", "720p", "1080p"],
-                "supported_aspect_ratios": ["16:9", "9:16", "1:1"],
-                "supported_durations": [5, 10],
-                "supports_audio": False,
-                "supports_image_input": True,
-            },
-            {
-                "id": "bytedance/seedance-1.5",
-                "name": "Seedance 1.5 (ByteDance)",
-                "supported_resolutions": ["480p", "720p"],
-                "supported_aspect_ratios": ["16:9", "9:16", "1:1"],
-                "supported_durations": [5, 10],
-                "supports_audio": False,
-                "supports_image_input": True,
-            },
-            {
-                "id": "alibaba/wan-2.7",
-                "name": "Wan 2.7 (Alibaba)",
-                "supported_resolutions": ["480p", "720p"],
-                "supported_aspect_ratios": ["16:9", "9:16", "1:1"],
-                "supported_durations": [4, 5, 6, 8],
-                "supports_audio": False,
-                "supports_image_input": True,
-            },
-            {
-                "id": "alibaba/wan-2.6",
-                "name": "Wan 2.6 (Alibaba)",
-                "supported_resolutions": ["480p", "720p"],
-                "supported_aspect_ratios": ["16:9", "9:16", "1:1"],
-                "supported_durations": [4, 5, 6, 8],
-                "supports_audio": False,
-                "supports_image_input": True,
-            },
-            {
-                "id": "kwaivgi/kling-video-o1",
-                "name": "Kling Video O1 (Kuaishou)",
-                "supported_resolutions": ["720p", "1080p"],
-                "supported_aspect_ratios": ["16:9", "9:16", "1:1"],
-                "supported_durations": [5, 10],
-                "supports_audio": False,
-                "supports_image_input": True,
-            },
-        ]
+            logger.warning(f"Failed to fetch video models from OpenRouter: {e}")
+            return {"success": False, "error": f"Failed to fetch video models from OpenRouter: {e}"}

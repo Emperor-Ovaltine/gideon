@@ -980,9 +980,7 @@ class DashboardServer:
         try:
             video_cog = self.bot.get_cog("VideoCommands")
             if not video_cog or not video_cog.video_client:
-                from ...utils.openrouter_video_client import OpenRouterVideoClient
-                models = OpenRouterVideoClient._fallback_models()
-                return web.json_response({'models': models, 'source': 'fallback'})
+                return web.json_response({'error': 'Video generation is not configured'}, status=503)
 
             result = await video_cog.video_client.list_video_models()
             if not result.get('success'):

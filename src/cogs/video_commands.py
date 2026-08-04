@@ -50,6 +50,7 @@ RESOLUTION_CHOICES = [
     discord.OptionChoice(name="480p", value="480p"),
     discord.OptionChoice(name="720p (HD)", value="720p"),
     discord.OptionChoice(name="1080p (Full HD)", value="1080p"),
+    discord.OptionChoice(name="2K", value="2K"),
     discord.OptionChoice(name="4K", value="4K"),
 ]
 DURATION_CHOICES = [
@@ -89,8 +90,9 @@ class VideoCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.db = DatabaseManager()
-        self._models_cache: Optional[List[Dict[str, Any]]] = None
+        self._models_cache: List[Dict[str, Any]] = []
         self._models_cache_at: float = 0.0
+        self._models_refresh_task: Optional[asyncio.Task] = None
 
         api_key = OPENROUTER_API_KEY
         if hasattr(bot, 'api_key_service') and bot.api_key_service:
@@ -118,25 +120,50 @@ class VideoCommands(commands.Cog):
         merged = {**DEFAULT_OPENROUTER_CONFIG, **cfg}
         return merged
 
-    async def _get_models(self) -> List[Dict[str, Any]]:
-        """Cached model list (5 min) for autocomplete."""
-        now = asyncio.get_event_loop().time()
-        if self._models_cache and (now - self._models_cache_at) < 300:
-            return self._models_cache
+    def cog_unload(self):
+        """Cancel an outstanding model refresh when the cog is unloaded."""
+        if self._models_refresh_task and not self._models_refresh_task.done():
+            self._models_refresh_task.cancel()
+
+    def _start_models_refresh(self) -> None:
+        """Start one non-blocking refresh of the live OpenRouter model list."""
         if not self.video_client:
-            return []
-        result = await self.video_client.list_video_models()
-        if result.get("success"):
-            self._models_cache = result.get("models", [])
-            self._models_cache_at = now
-            return self._models_cache
-        return []
+            return
+        if self._models_refresh_task and not self._models_refresh_task.done():
+            return
+        self._models_refresh_task = asyncio.create_task(self._refresh_models())
+
+    async def _refresh_models(self) -> None:
+        """Update the autocomplete cache from OpenRouter when available."""
+        try:
+            result = await self.video_client.list_video_models()
+            models = result.get("models", []) if result.get("success") else []
+            if models:
+                self._models_cache = models
+                self._models_cache_at = asyncio.get_running_loop().time()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Failed to refresh video models for autocomplete: %s", exc)
+
+    async def _get_models(self) -> List[Dict[str, Any]]:
+        """Return live models, bounding the initial wait to Discord's deadline."""
+        now = asyncio.get_event_loop().time()
+        if (now - self._models_cache_at) >= 300:
+            self._start_models_refresh()
+        if not self._models_cache and self._models_refresh_task:
+            try:
+                await asyncio.wait_for(asyncio.shield(self._models_refresh_task), timeout=2.0)
+            except asyncio.TimeoutError:
+                logger.info("Video model refresh is still running; returning no autocomplete choices yet")
+        return self._models_cache
 
     async def model_autocomplete(self, ctx: discord.AutocompleteContext):
         """Autocomplete for video model picker."""
         try:
             models = await self._get_models()
-        except Exception:
+        except Exception as exc:
+            logger.warning("Video model autocomplete failed: %s", exc)
             models = []
         current = (ctx.value or "").lower()
         results = []
@@ -627,4 +654,12 @@ def setup(bot):
         logger.info("Dashboard enabled - /video_manage commands hidden from Discord.")
 
     bot.add_cog(cog)
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # Legacy synchronous startup has no loop yet; the first autocomplete
+        # interaction will start a bounded live refresh.
+        pass
+    else:
+        cog._start_models_refresh()
     logger.info("VideoCommands cog loaded.")
