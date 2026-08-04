@@ -147,15 +147,10 @@ class VideoCommands(commands.Cog):
             logger.warning("Failed to refresh video models for autocomplete: %s", exc)
 
     async def _get_models(self) -> List[Dict[str, Any]]:
-        """Return live models, bounding the initial wait to Discord's deadline."""
-        now = asyncio.get_event_loop().time()
+        """Return cached live models without awaiting network in autocomplete."""
+        now = asyncio.get_running_loop().time()
         if (now - self._models_cache_at) >= 300:
             self._start_models_refresh()
-        if not self._models_cache and self._models_refresh_task:
-            try:
-                await asyncio.wait_for(asyncio.shield(self._models_refresh_task), timeout=2.0)
-            except asyncio.TimeoutError:
-                logger.info("Video model refresh is still running; returning no autocomplete choices yet")
         return self._models_cache
 
     async def model_autocomplete(self, ctx: discord.AutocompleteContext):
@@ -658,7 +653,7 @@ def setup(bot):
         asyncio.get_running_loop()
     except RuntimeError:
         # Legacy synchronous startup has no loop yet; the first autocomplete
-        # interaction will start a bounded live refresh.
+        # interaction will start a background-only live refresh.
         pass
     else:
         cog._start_models_refresh()

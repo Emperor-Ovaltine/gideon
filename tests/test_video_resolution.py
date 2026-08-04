@@ -39,7 +39,7 @@ class VideoResolutionTests(unittest.TestCase):
 
         self.assertIn('<option value="2K">2K</option>', resolution_selector)
 
-    def test_model_autocomplete_uses_a_bounded_live_refresh_without_fallbacks(self):
+    def test_model_autocomplete_starts_live_refresh_without_awaiting_network(self):
         source = (REPO_ROOT / "src/cogs/video_commands.py").read_text(encoding="utf-8")
         module = ast.parse(source)
         video_commands = next(
@@ -51,14 +51,17 @@ class VideoResolutionTests(unittest.TestCase):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "_get_models"
         )
 
-        wait_for_calls = [
+        awaited_calls = [node for node in ast.walk(get_models) if isinstance(node, ast.Await)]
+        self.assertEqual([], awaited_calls)
+
+        refresh_calls = [
             node
             for node in ast.walk(get_models)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "wait_for"
+            and node.func.attr == "_start_models_refresh"
         ]
-        self.assertEqual(1, len(wait_for_calls))
+        self.assertEqual(1, len(refresh_calls))
 
         video_source = ast.get_source_segment(source, video_commands)
         self.assertNotIn("_fallback_models", video_source)
