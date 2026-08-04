@@ -129,9 +129,20 @@ class VideoCommands(commands.Cog):
         """Start one non-blocking refresh of the live OpenRouter model list."""
         if not self.video_client:
             return
-        if self._models_refresh_task and not self._models_refresh_task.done():
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
             return
-        self._models_refresh_task = asyncio.create_task(self._refresh_models())
+        if self._models_refresh_task and not self._models_refresh_task.done():
+            if self._models_refresh_task.get_loop() is loop:
+                return
+            self._models_refresh_task.cancel()
+        self._models_refresh_task = loop.create_task(self._refresh_models())
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Warm the live model cache once Discord is running on its event loop."""
+        self._start_models_refresh()
 
     async def _refresh_models(self) -> None:
         """Update the autocomplete cache from OpenRouter when available."""
@@ -649,12 +660,7 @@ def setup(bot):
         logger.info("Dashboard enabled - /video_manage commands hidden from Discord.")
 
     bot.add_cog(cog)
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        # Legacy synchronous startup has no loop yet; the first autocomplete
-        # interaction will start a background-only live refresh.
-        pass
-    else:
-        cog._start_models_refresh()
+    # The live model cache is warmed in on_ready so the refresh task is bound
+    # to Discord's active event loop. Starting it during extension setup can
+    # attach futures to a different loop in some Pycord startup paths.
     logger.info("VideoCommands cog loaded.")

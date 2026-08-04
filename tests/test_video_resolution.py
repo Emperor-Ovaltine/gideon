@@ -66,6 +66,24 @@ class VideoResolutionTests(unittest.TestCase):
         video_source = ast.get_source_segment(source, video_commands)
         self.assertNotIn("_fallback_models", video_source)
 
+    def test_model_refresh_task_is_created_on_current_loop(self):
+        source = (REPO_ROOT / "src/cogs/video_commands.py").read_text(encoding="utf-8")
+        module = ast.parse(source)
+        video_commands = next(
+            node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "VideoCommands"
+        )
+        start_refresh = next(
+            node
+            for node in video_commands.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_start_models_refresh"
+        )
+        setup = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "setup")
+        setup_source = ast.get_source_segment(source, setup)
+
+        self.assertIn("get_running_loop", ast.get_source_segment(source, start_refresh))
+        self.assertIn("loop.create_task", ast.get_source_segment(source, start_refresh))
+        self.assertNotIn("_start_models_refresh", setup_source)
+
     def test_unconfigured_model_listing_does_not_invent_models(self):
         client = OpenRouterVideoClient("")
 
