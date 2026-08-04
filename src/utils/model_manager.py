@@ -11,9 +11,8 @@ class ProviderManager:
     """Manages multiple AI providers and their models."""
     
     # Bumped when the shape or meaning of cached fields changes, so stale
-    # files are discarded instead of migrated. v2: vision support is read
-    # from the API's architecture metadata rather than name matching.
-    CACHE_VERSION = 2
+    # files are discarded instead of migrated. v3: OpenRouter cached models include output modalities/modality for video filtering.
+    CACHE_VERSION = 3
 
     def __init__(self, openrouter_client, openai_client, ai_horde_client, data_directory: str):
         self.providers = {

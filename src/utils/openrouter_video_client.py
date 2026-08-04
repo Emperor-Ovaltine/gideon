@@ -279,7 +279,14 @@ class OpenRouterVideoClient(SharedSessionMixin):
         """Return True when OpenRouter /models metadata advertises video output."""
         architecture = model.get("architecture") or {}
         output_modalities = architecture.get("output_modalities") or model.get("output_modalities") or []
-        return any(str(modality).lower() == "video" for modality in output_modalities)
+        if any(str(modality).lower() == "video" for modality in output_modalities):
+            return True
+
+        modality = str(architecture.get("modality") or model.get("modality") or "")
+        if "->" in modality:
+            output_part = modality.split("->", 1)[1]
+            return "video" in output_part.lower().replace(" ", "")
+        return False
 
     @classmethod
     def format_video_model(cls, model: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -296,6 +303,7 @@ class OpenRouterVideoClient(SharedSessionMixin):
             "description": model.get("description", ""),
             "input_modalities": architecture.get("input_modalities") or model.get("input_modalities") or [],
             "output_modalities": architecture.get("output_modalities") or model.get("output_modalities") or [],
+            "modality": architecture.get("modality") or model.get("modality") or "",
             "supported_resolutions": model.get("supported_resolutions") or model.get("resolutions") or [],
             "supported_aspect_ratios": model.get("supported_aspect_ratios") or model.get("aspect_ratios") or [],
             "supported_durations": model.get("supported_durations") or model.get("durations") or [],

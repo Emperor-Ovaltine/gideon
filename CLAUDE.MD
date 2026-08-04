@@ -183,7 +183,7 @@ Each cog is a self-contained feature module loaded dynamically at startup:
 9. **`video_commands.py`** - AI video generation via OpenRouter
    - `/video` - Generate a video from a text prompt; per-invocation overrides for `model` (autocompleted), `duration`, `aspect_ratio`, `resolution` (480p, 720p, 1080p, 2K, or 4K), `audio`, `seed`, and `image_url` (image-to-video)
    - `/video_manage view_config`, `/video_manage models`, `/video_manage configure` (Admin; hidden when dashboard is enabled)
-   - Discord model autocomplete is populated from the bot's existing OpenRouter `/models` metadata cache by filtering models whose output modality is `video`; autocomplete never starts its own network request or background task
+   - Discord model autocomplete is populated from the bot's existing OpenRouter `/models` metadata cache by filtering models whose `output_modalities` include `video` or whose `modality` output side contains `video`; autocomplete never starts its own network request or background task
    - Submits to OpenRouter's async `/api/v1/videos` API, polls every 15s with status updates, then attaches the result (≤25 MB) or links the unsigned URL
    - Persists results as `[video:url]` markers in message history for dashboard playback
 
@@ -481,7 +481,7 @@ When `TOOL_CALLING_ENABLED=TRUE` (or legacy `INTENT_DISCOVERY=TRUE`):
 - `video_active_provider` (string) — `"openrouter"` (only provider currently)
 - `video_config_openrouter` (json) — `{model, duration, aspect_ratio, resolution, audio}` defaults
 
-**Model List Source:** `OpenRouterVideoClient.list_video_models()` calls OpenRouter's canonical `/api/v1/models` endpoint and filters entries whose `output_modalities` include `video`; it never fabricates fallback model data. Discord autocomplete reads the already-populated OpenRouter model cache and never starts its own network request or background task.
+**Model List Source:** `OpenRouterVideoClient.list_video_models()` calls OpenRouter's canonical `/api/v1/models` endpoint and filters entries whose `output_modalities` include `video` or whose `modality` output side contains `video`; it never fabricates fallback model data. Discord autocomplete reads the already-populated OpenRouter model cache and never starts its own network request or background task.
 
 ## Troubleshooting
 

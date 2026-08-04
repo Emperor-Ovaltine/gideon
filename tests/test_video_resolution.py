@@ -75,13 +75,15 @@ class VideoResolutionTests(unittest.TestCase):
                 "name": "Video Model",
                 "architecture": {"input_modalities": ["text"], "output_modalities": ["video"]},
             },
+            {"id": "modality/video", "architecture": {"modality": "text->video"}},
         ]
 
         formatted = [OpenRouterVideoClient.format_video_model(model) for model in raw_models]
         models = [model for model in formatted if model]
 
-        self.assertEqual(["video/model"], [model["id"] for model in models])
+        self.assertEqual(["video/model", "modality/video"], [model["id"] for model in models])
         self.assertEqual(["video"], models[0]["output_modalities"])
+        self.assertEqual("text->video", models[1]["modality"])
 
 
 if __name__ == "__main__":
