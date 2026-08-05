@@ -4,5 +4,5 @@ python-dotenv==1.0.*     # .env loading
 sympy==1.13.*            # Safe mathematical expression evaluation (calculate tool)
 beautifulsoup4==4.12.*   # HTML parsing for URL summarization
 openai==1.*              # OpenAI API access (chat + DALL-E)
-cryptography==44.*       # Fernet encryption of API keys — keep current, gets CVEs
+cryptography==50.0.0       # Fernet encryption of API keys — keep current, gets CVEs
 tzdata==2024.*         # IANA tz database for zoneinfo (slim images may lack system tzdata)
