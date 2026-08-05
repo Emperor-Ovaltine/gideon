@@ -50,6 +50,7 @@ RESOLUTION_CHOICES = [
     discord.OptionChoice(name="480p", value="480p"),
     discord.OptionChoice(name="720p (HD)", value="720p"),
     discord.OptionChoice(name="1080p (Full HD)", value="1080p"),
+    discord.OptionChoice(name="2K", value="2K"),
     discord.OptionChoice(name="4K", value="4K"),
 ]
 DURATION_CHOICES = [
@@ -89,9 +90,6 @@ class VideoCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.db = DatabaseManager()
-        self._models_cache: Optional[List[Dict[str, Any]]] = None
-        self._models_cache_at: float = 0.0
-
         api_key = OPENROUTER_API_KEY
         if hasattr(bot, 'api_key_service') and bot.api_key_service:
             db_key = bot.api_key_service.get_key_for_provider('openrouter')
@@ -118,25 +116,35 @@ class VideoCommands(commands.Cog):
         merged = {**DEFAULT_OPENROUTER_CONFIG, **cfg}
         return merged
 
-    async def _get_models(self) -> List[Dict[str, Any]]:
-        """Cached model list (5 min) for autocomplete."""
-        now = asyncio.get_event_loop().time()
-        if self._models_cache and (now - self._models_cache_at) < 300:
-            return self._models_cache
-        if not self.video_client:
+    def _get_cached_openrouter_models(self) -> List[Dict[str, Any]]:
+        """Return already-populated OpenRouter model metadata without network I/O."""
+        model_manager = getattr(self.bot, "model_manager", None)
+        if not model_manager:
             return []
-        result = await self.video_client.list_video_models()
-        if result.get("success"):
-            self._models_cache = result.get("models", [])
-            self._models_cache_at = now
-            return self._models_cache
-        return []
+
+        if hasattr(model_manager, "_load_from_cache"):
+            model_manager._load_from_cache("openrouter")
+
+        models_data = getattr(model_manager, "models_by_provider", {}).get("openrouter") or {}
+        if not models_data.get("success"):
+            return []
+        return models_data.get("models", []) or []
+
+    async def _get_models(self) -> List[Dict[str, Any]]:
+        """Return video models from the bot's existing OpenRouter model cache."""
+        models = []
+        for model in self._get_cached_openrouter_models():
+            formatted = OpenRouterVideoClient.format_video_model(model)
+            if formatted:
+                models.append(formatted)
+        return models
 
     async def model_autocomplete(self, ctx: discord.AutocompleteContext):
         """Autocomplete for video model picker."""
         try:
             models = await self._get_models()
-        except Exception:
+        except Exception as exc:
+            logger.warning("Video model autocomplete failed: %s", exc)
             models = []
         current = (ctx.value or "").lower()
         results = []

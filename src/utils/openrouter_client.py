@@ -300,6 +300,8 @@ class OpenRouterClient:
                         "context_length": context_length,
                         "supports_vision": supports_vision, # This is the flag used by ProviderManager
                         "input_modalities": architecture.get("input_modalities", []),
+                        "output_modalities": architecture.get("output_modalities", []),
+                        "modality": architecture.get("modality", ""),
                         "pricing": pricing
                     })
 
